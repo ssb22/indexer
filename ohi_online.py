@@ -1,6 +1,6 @@
 #!/usr/bin/env python
 
-# Online HTML Indexer v1.06 (c) 2013-14 Silas S. Brown.
+# Online HTML Indexer v1.07 (c) 2013-14 Silas S. Brown.
 
 #    This program is free software; you can redistribute it and/or modify
 #    it under the terms of the GNU General Public License as published by
@@ -11,6 +11,14 @@
 #    but WITHOUT ANY WARRANTY; without even the implied warranty of
 #    MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE.  See the
 #    GNU General Public License for more details.
+
+# See comments in ohi.py for what this is about.
+# Although the offline files will also work ONline, in
+# bandwidth-limited situations you might be better using
+# this lookup CGI.  This version can also take multiple
+# adjacent anchors, giving alternate labels to the same
+# fragment; there should not be any whitespace between
+# adjacent anchors.
 
 # Configuration
 # -------------
@@ -67,6 +75,8 @@ web_adjuster_extension_url = "http://example.org/ohi.cgi"
 # (if you set the above, this module's handle() will work
 # - see Web Adjuster 'extensions' option for more details.
 # Otherwise we just behave as a CGI script.)
+
+cgi_name = "ohi.cgi" # for rewriting <a href="#..."> links
 
 # ------------------------------------------
 
@@ -138,7 +148,7 @@ def load(fName):
   except OSError: pass
   ret = {}
   contentStart = 0 ; header="" ; tag = ""
-  altTags = [] # TODO: Document this.  Two adjacent tags with absolutely nothing in between (not even whitespace) = provide alternate labels to the same fragment.  This feature has not yet been implemented in the offline version, although it could be done by duplicating the fragment.
+  altTags = []
   for m in re.finditer(r'<a name="([^"]*)"></a>',txt):
     # First, output the content from the PREVIOUS tag:
     if contentStart and contentStart==m.start():
@@ -206,6 +216,8 @@ def redir(base,rest,req=None):
   print "Location: "+base+rest
   print
 
+def linkSub(txt): return re.sub(r'(?i)<a href=("?)#',r'<a href=\1'+cgi_name+'?e=1&q=',txt)
+
 def main(req=None):
   if req: query = req.request.arguments
   elif web_adjuster_extension_mode:
@@ -229,7 +241,7 @@ def main(req=None):
   if not q: q = q0
   if e:
     ranges = index.linesAround(q,0,0)[1].split("\t")[2:]
-    toOut = preprocess_result("<hr>".join(txt[int(a):int(b)] for a,b in zip(ranges[::2], ranges[1::2])))
+    toOut = preprocess_result("<hr>".join(linkSub(txt[int(a):int(b)]) for a,b in zip(ranges[::2], ranges[1::2])))
     if e=="2":
         if req:
             req.set_header('Content-type','text/plain; charset=utf-8')

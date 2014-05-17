@@ -1,6 +1,6 @@
 #!/usr/bin/env python
 
-# Offline HTML Indexer v1.09 (c) 2013-14 Silas S. Brown.
+# Offline HTML Indexer v1.1 (c) 2013-14 Silas S. Brown.
 
 #    This program is free software; you can redistribute it and/or modify
 #    it under the terms of the GNU General Public License as published by
@@ -11,6 +11,32 @@
 #    but WITHOUT ANY WARRANTY; without even the implied warranty of
 #    MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE.  See the
 #    GNU General Public License for more details.
+
+# This is a Python program for creating large indices of
+# HTML text which can be queried using simple Javascript
+# that works on many mobile phone browsers without needing
+# an Internet connection or a Web server. This is useful if
+# you want to load a dictionary or other reference onto your
+# phone (or computer) for use when connectivity is not
+# available.
+# The input HTML should be interspersed with anchors like
+# this: <a name="xyz"></a> where xyz is the index heading
+# for the following text. There should be one such anchor
+# before each entry and an extra anchor at the end of the
+# text; everything before the first anchor is counted as the
+# "header" and everything after the last as the "footer". If
+# these are empty, a default "mobile friendly" HTML header
+# and footer specifying UTF-8 encoding will be
+# added. Anchors may be linked from other entries; these
+# links are changed as necessary.
+# Opening any of the resulting HTML files should display a
+# textbox that lets you type the first few letters of the
+# word you wish to look up; the browser will then jump to
+# whatever heading is alphabetically nearest to the typed-in
+# text.
+
+# Configuration
+# -------------
 
 infile = None # None = standard input, or set a "filename"
 outdir = "." # current directory by default
@@ -44,17 +70,10 @@ if not header.strip(): header="""<html><head><meta name="mobileoptimized" conten
 if not footer.strip(): footer = "</body></html>"
 fragments = fragments[1:-1]
 sys.stderr.write("%d entries\n" % len(fragments))
-if ignore_text_in_parentheses:
-    def alphaOnly(x):
-        r=[] ; on=1
-        for c in x.lower():
-            if c=='(': on=0
-            elif c==')': on=1
-            elif (c in alphabet or not alphabet) and on:
-                r.append(c)
-        return "".join(r)
-elif alphabet: alphaOnly = lambda x: ''.join(c for c in x.lower() if c in alphabet)
-else: alphaOnly = lambda x:x
+def alphaOnly(x):
+  if ignore_text_in_parentheses: x=re.sub(r"\([^)]*\)[;, ]*","",x)
+  if alphabet: x=''.join(c for c in x.lower() if c in alphabet)
+  return re.sub(r"^[@,;]*","",x) # see ohi_latex.py
 if more_sensible_punctuation_sort_order:
     _ao1 = alphaOnly
     alphaOnly = lambda x: _ao1(re.sub('([;,]);+',r'\1',x.replace('-',' ').replace(',','~COM~').replace(';',',').replace('~COM~',';').replace(' ',';'))) # gives ; < , == space (useful if ; is used to separate definitions and , is used before extra words to be added at the start; better set space EQUAL to comma, not higher, or will end up in wrong place if user inputs something forgetting the comma)
@@ -124,14 +143,16 @@ def htmlDoc(start,end,docNo):
     global __lastStartEnd,__lastDoc
     if not (start,end) == __lastStartEnd:
         __lastStartEnd = (start,end)
-        __lastDoc = header+js_hashjump(x for x,y in fragments[start:end] if x)
+        __lastDoc = linkSub(header)+js_hashjump(x for x,y in fragments[start:end] if x)
         if start:
             assert docNo, "Document 0 should start at 0"
             __lastDoc += '<p><a name="_h" href="%d.html#_f">Previous page</a></p>' % (docNo-1,)
-        __lastDoc += ''.join(tag(x)+y for x,y in fragments[start:end])
+        __lastDoc += ''.join(tag(x)+linkSub(y) for x,y in fragments[start:end])
         if end<len(fragments): __lastDoc += '<p><a name="_f" href="%d.html#_h">Next page</a></p>' % (docNo+1,)
-        __lastDoc += footer
+        __lastDoc += linkSub(footer)
     return __lastDoc
+
+def linkSub(txt): return re.sub(r'(?i)<a href=("?)#',r'<a href=\1index.html#',txt) # (do link to index.html#whatever rather than directly, so link still works if docs change)
 
 def findEnd(start,docNo):
     "Given 'start' (an index into 'fragments'), find an 'end' that produces the largest possible htmlDoc less than max_filesize.  docNo is used to generate previous/next page links as appropriate."
@@ -148,6 +169,7 @@ def allRanges():
     start = docNo = 0
     while start < len(fragments):
         end = findEnd(start,docNo)
+        sys.stderr.write("\rSegmenting (%d/%d)" % (end,len(fragments)))
         yield start,end
         start = end ; docNo += 1
 sys.stderr.write("Segmenting")
@@ -155,7 +177,6 @@ startsList = []
 for start,end in allRanges():
     open(("%s%s%d.html" % (outdir,os.sep,len(startsList))),"w").write(htmlDoc(start,end,len(startsList)))
     startsList.append(start)
-    sys.stderr.write(".")
 if alphabet:
     assert not '"' in alphabet and not '\\' in alphabet and not '&' in alphabet and not '<' in alphabet, "Can't use special characters in alphabet (unless js_alphabet is modified to quote them)"
     js_alphabet = """var a=val.toLowerCase().split(""),i; val="";
@@ -184,5 +205,5 @@ if(navigator.userAgent.indexOf("Opera/9.50" /* sometimes found on WM6.1 phones f
 //--></script><noscript><p><b>ERROR:</b> Javascript needs to be switched on for this form to work.</p></noscript>
 <form action="#" onSubmit="jump();return false">Lookup: <input type="text" name="q"><input type="submit" value="ok"></form><script><!--
 if(location.hash.length > 1) { document.forms[0].q.value = location.hash.slice(1); jump(); } else document.forms[0].q.focus();
-//--></script>%s""" % (header,js_alphabet,js_binchop_dx,old_javascript_array(fragments[s][0] for s in startsList),hashReload(footer)))
+//--></script>%s""" % (hashReload(linkSub(header)),js_alphabet,js_binchop_dx,old_javascript_array(fragments[s][0] for s in startsList),hashReload(linkSub(footer))))
 sys.stderr.write(" %d files\n" % (len(startsList)+1))
