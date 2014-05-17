@@ -84,9 +84,7 @@ def makeLatex(unistr):
     if not match in anchorsHad: anchorsHad[match]=str(len(anchorsHad))
     return txt % anchorsHad[match]
   if links_and_bookmarks: href=r"\\href{\1}{"
-  else:
-    href = "" ; safe_anchor=lambda *args:"" # just delete them
-    del simple_html2latex_noregex['</a>']
+  else: href,simple_html2latex_noregex['</a>'],safe_anchor = "","",lambda *args:"" # just delete them
   simple_html2latex_regex = {
     '<tex-literal>(.*?)</tex-literal>':r"\1",
     '<a href="#([^"]*)">':lambda m:safe_anchor(m,r"\hyperlink{%s}{"),
