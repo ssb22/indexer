@@ -1,7 +1,7 @@
 #!/usr/bin/env python
 
 # ohi_latex: Offline HTML Indexer for LaTeX
-# v1.0 (c) 2014 Silas S. Brown
+# v1.01 (c) 2014 Silas S. Brown
 
 #    This program is free software; you can redistribute it and/or modify
 #    it under the terms of the GNU General Public License as published by
@@ -31,14 +31,17 @@ if '--createspace' in sys.argv:
   # these settings should work for CreateSpace's 7.5x9.25in printing service (max 828 pages per volume).  Not tested.
   geometry = "paperwidth=7.5in,paperheight=9.25in,twoside,inner=0.8in,outer=0.5in,tmargin=0.5in,bmargin=0.5in,columnsep=8mm" # inner=0.75in but suggest more if over 600 pages
   links_and_bookmarks = False # I have no idea what happens if you submit a PDF that contains links and bookmarks; they say don't do it, so best not!
+  class_options="" # (maybe set 12pt if the default is not too close to the page limit)
 elif '--lulu' in sys.argv:
   # these settings should work for Lulu's Letter-size printing service (max 740 pages per volume).  Not tested.
   geometry = "paperwidth=8.5in,paperheight=11in,twoside,inner=0.8in,outer=0.5in,tmargin=0.5in,bmargin=0.5in,columnsep=8mm"
   links_and_bookmarks = False
+  class_options="" # (as above)
 else:
   # these settings should work on most laser printers but I don't know about binding; should be OK for on-screen use
   geometry = "a4paper,lmargin=10mm,rmargin=10mm,tmargin=10mm,bmargin=15mm,columnsep=8mm"
   links_and_bookmarks = True
+  class_options="12pt"
 
 # You probably don't want to change the below for the print version:
 alphabet = "abcdefghijklmnopqrstuvwxyz" # set to None for all characters and case-sensitive
@@ -108,14 +111,14 @@ def makeLatex(unistr):
     u"\xAC":"$\\lnot$",
     u"\xB0":"$^{\\circ}$",
     u"\xB1":"$\\pm$",
-    u"\xB2":"$^2$",
-    u"\xB3":"$^3$",
+    u"\xB2":r"\raisebox{-0.3ex}{$^2$}",
+    u"\xB3":r"\raisebox{-0.3ex}{$^3$}",
     u"\xB4":"$^{\\prime}$",
     u"\xB5":"$\mu$", # micro sign
     u"\xB6":"\\P{}",
     u"\xB7":"\\textperiodcentered{}",
     u"\xB8":"\\c{}",
-    u"\xB9":"$^1$",
+    u"\xB9":r"\raisebox{-0.3ex}{$^1$}",
     u"\xBB":"\\guillemotright{}",
     u"\xBC":"$\frac14$",
     u"\xBD":"$\frac12$",
@@ -271,12 +274,12 @@ def makeLatex(unistr):
     u"\u2027":"\\textperiodcentered{}", # = 0xb7 ?
     u"\u202f":"\\nolinebreak\\thinspace{}",
     u"\u2070":"$^0$",
-    u"\u2074":"$^4$",
-    u"\u2075":"$^5$",
-    u"\u2076":"$^6$",
-    u"\u2077":"$^7$",
-    u"\u2078":"$^8$",
-    u"\u2079":"$^9$",
+    u"\u2074":r"\raisebox{-0.3ex}{$^4$}",
+    u"\u2075":r"\raisebox{-0.3ex}{$^5$}",
+    u"\u2076":r"\raisebox{-0.3ex}{$^6$}",
+    u"\u2077":r"\raisebox{-0.3ex}{$^7$}",
+    u"\u2078":r"\raisebox{-0.3ex}{$^8$}",
+    u"\u2079":r"\raisebox{-0.3ex}{$^9$}",
     u"\u20AC":"\\euro{}",
     u"\u2190":"$\\leftarrow$",
     u"\u2192":"$\\rightarrow$",
@@ -362,7 +365,7 @@ def makeLatex(unistr):
   sys.stderr.write("making tex... ")
   global currentCJKfamily ; currentCJKfamily=None
   unistr = subDict(latex_regex1,unistr)
-  ret = r'\documentclass[12pt]{article}\usepackage[T1]{fontenc}\usepackage{pinyin}\PYdeactivate\usepackage{parskip}\usepackage{microtype}\raggedbottom\clubpenalty1000\widowpenalty10000\usepackage['+geometry+']{geometry}'+'\n'.join(set(v for (k,v) in latex_preamble.items() if k in unistr))+r'\begin{document}\pagestyle{empty}'+unistr
+  ret = r'\documentclass['+class_options+r']{article}\usepackage[T1]{fontenc}\usepackage{pinyin}\PYdeactivate\usepackage{parskip}\usepackage{microtype}\raggedbottom\clubpenalty1000\widowpenalty10000\usepackage['+geometry+']{geometry}'+'\n'.join(set(v for (k,v) in latex_preamble.items() if k in unistr))+r'\begin{document}\pagestyle{empty}'+unistr
   if currentCJKfamily: ret += r"\end{CJK}"
   ret += r'\end{document}'+'\n'
   sys.stderr.write('done\n')
