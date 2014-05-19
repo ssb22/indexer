@@ -1,7 +1,7 @@
 #!/usr/bin/env python
 
 # ohi_latex: Offline HTML Indexer for LaTeX
-# v1.02 (c) 2014 Silas S. Brown
+# v1.03 (c) 2014 Silas S. Brown
 
 #    This program is free software; you can redistribute it and/or modify
 #    it under the terms of the GNU General Public License as published by
@@ -139,109 +139,26 @@ def makeLatex(unistr):
     u"\xBC":"$\frac14$",
     u"\xBD":"$\frac12$",
     u"\xBE":"$\frac34$",
-    u"\xC2":"\\^A",
-    u"\xC3":"\\~A",
-    u"\xC4":"\\\"A",
     u"\xC5":"\\AA{}",
     u"\xC6":"\\AE{}",
-    u"\xC7":"\\c{C}",
-    u"\xCA":"\\^E",
-    u"\xCB":"\\\"E",
-    u"\xCC":"\\\`I",
-    u"\xCD":"\\\'I",
-    u"\xCE":"\\^I",
-    u"\xCF":"\\\"I",
-    u"\xD1":"\\~N",
-    u"\xD4":"\\^O",
-    u"\xD5":"\\~O",
-    u"\xD6":"\\\"O",
     u"\xD7":"$\\times$",
     u"\xD8":"\\O{}",
-    u"\xD9":"\\\`U",
-    u"\xDA":"\\\'U",
-    u"\xDB":"\\^U",
     u"\xDF":"\\ss{}",
-    u"\xE2":"\\^a",
-    u"\xE3":"\\~a",
-    u"\xE4":"\\\"a",
     u"\xE5":"\\aa{}",
     u"\xE6":"\\ae{}",
-    u"\xE7":"\\c{c}",
-    u"\xEA":"\\^e",
-    u"\xEB":"\\\"e",
-    u"\xEC":"\\\`i",
-    u"\xED":"\\\'i",
-    u"\xEE":"\\^i",
-    u"\xEF":"\\\"i",
     u"\xF0":"\\textipa{D}",
-    u"\xF1":"\\~n",
-    u"\xF4":"\\^o",
-    u"\xF5":"\\~o",
-    u"\xF6":"\\\"o",
     u"\xF7":"$\\div$",
     u"\xF8":"\\o{}",
-    u"\xF9":"\\\`u",
-    u"\xFA":"\\\'u",
-    u"\xFB":"\\^u",
-    u"\xFD":"\\'y",
-    u"\xFF":"\\\"y",
     # (TODO: any we missed in latin1.def, or other ISO-8859 codepages?)
-    u"\u0103":"$\\breve{\\rm a}$",
-    u"\u0106":"\\'C",
-    u"\u0107":"\\'c",
-    u"\u010c":"\\v{C}",
-    u"\u010d":"\\v{c}",
-    u"\u010e":"\\v{D}",
-    u"\u012A":"\\=I",
-    u"\u012B":"\\=i",
-    u"\u0139":"\\'L",
-    u"\u013A":"\\'l",
-    u"\u013E":"\\v{l}", # l with caron
     u"\u0141":"\\L{}",
     u"\u0142":"\\l{}",
-    u"\u0144":"\\'n",
     u"\u014B":"\\textipa{N}",
-    u"\u014F":"$\\breve{\\rm o}$",
     u"\u0152":"\\OE{}",
     u"\u0153":"\\oe{}",
-    u"\u0154":"\\'R",
-    u"\u0155":"\\'r",
-    u"\u0158":"\\v{R}",
-    u"\u0159":"\\v{r}",
-    u"\u015A":"\\'S",
-    u"\u015B":"\\'s",
-    u"\u015F":"\\c{s}",
-    u"\u0160":"\\v{S}",
-    u"\u0161":"\\v{s}",
-    u"\u0163":"\\c{t}",
-    u"\u0164":"\\v{T}",
-    u"\u016A":"\\=U",
-    u"\u016B":"\\=u",
-    u"\u0179":"\\'Z",
-    u"\u017A":"\\'z",
-    u"\u017b":"\\.Z",
-    u"\u017c":"\\.z",
-    u"\u017d":"\\v{Z}",
-    u"\u017e":"\\v{z}",
-    u"\u01cf":"\\v{I}",
-    u"\u01d0":"\\v{i}",
-    u"\u01d3":"\\v{U}",
-    u"\u01d4":"\\v{u}",
-    u"\u01D5":"\\={\"U}",
-    u"\u01D6":"\\={\"u}",
-    u"\u01D7":"\\'{\"U}",
-    u"\u01D8":"\\'{\"u}",
-    u"\u01D9":"\\v{\"U}",
-    u"\u01DA":"\\v{\"u}",
-    u"\u01DB":"\\`{\"U}",
-    u"\u01DC":"\\`{\"u}",
     u"\u0218": "\\makebox[0pt]{\\raisebox{-0.3ex}[0pt][0pt]{\\kern 1.2ex ,}}S", # Romanian hack
     u"\u0219":"\\makebox[0pt]{\\raisebox{-0.3ex}[0pt][0pt]{\\kern 0.8ex ,}}s", # ditto
     u"\u021A":"\\makebox[0pt]{\\raisebox{-0.3ex}[0pt][0pt]{\\kern 1.5ex ,}}T", # ditto
     u"\u021B":"\\makebox[0pt]{\\raisebox{-0.3ex}[0pt][0pt]{\\kern 0.8ex ,}}t", # ditto
-    u"\u1ecc":"\\d{O}",
-    u"\u1ecd":"\\d{o}", # o with dot below
-    u"\u1ecd\u030c":"\\v{\\d{o}}", # o with dot below and caron
     u"\u0250":"\\textipa{5}",
     u"\u0251":"\\textipa{A}",
     u"\u0252":"\\textipa{6}",
@@ -277,8 +194,6 @@ def makeLatex(unistr):
     u"\u02CC":"\\textipa{\\textsecstress}",
     u"\u02D0":"\\textipa{:}",
     u"\u02D1":"\\textipa{;}",
-    u"\u2000":"\\hskip 1ex {}", # ?
-    u"\u2001":"\\hskip 1em {}",
     u"\u2002":"\\hskip 1ex {}", # ?
     u"\u2003":"\\hskip 1em {}",
     u"\u2009":"\\thinspace{}",
@@ -327,14 +242,6 @@ def makeLatex(unistr):
   latex_special_chars.update(dict((c,'$'+c+'$') for c in '|<>[]')) # always need math mode
   latex_special_chars.update(dict((c,'\\'+c) for c in '%&#$_{}')) # always need \ escape
   latex_special_chars.update(dict((unichr(0x2800+p),"\\braillebox{"+"".join(chr(ord('1')+b) for b in range(8) if p & (1<<b))+"}") for p in xrange(256))) # Braille - might as well
-  for combining_code,tex_accent in [
-      # TODO: add more to these (but note math mode separately below)
-      (0x300,"`"),
-      (0x301,"'"),(0x303,'~'),
-      (0x30c,"v")]:
-    latex_special_chars.update(dict((l+unichr(combining_code),"\\"+tex_accent+"{"+l+"}") for l in string.letters)) # TODO: other stuff besides string.letters? (see \u1edc\u030c case above for example)
-  for combining_code,tex_accent in [(0x306,"breve")]:
-    latex_special_chars.update(dict((l+unichr(combining_code),"$\\"+tex_accent+"{\\rm{"+l+"}}$") for l in string.letters)) # same TODO as above
   for c in range(0x3b1,0x3ca)+range(0x391,0x3aa): # Greek stuff:
     if c==0x3a2: continue
     if c>=0x3b1: textGreek=lambda c:'\\text'+unicodedata.name(unichr(c)).replace('FINAL ','VAR').split()[-1].lower().replace('cron','kron').replace('amda','ambda')+'{}'
@@ -343,7 +250,7 @@ def makeLatex(unistr):
     for mark,accent in [('oxia',"'"),('tonos',"'"),('varia',"`"),("perispomeni","~")]: # TODO: psili like a little ')', dasia (its opposite), etc; also some have more than one diacritic (e.g. psili and perispomeni vertically stacked, dasia (or psili) and oxia horizontally??) (+ TODO at low priority can we get any difference between the tonos and the oxia)
         try: c2 = unicodedata.lookup(unicodedata.name(unichr(c))+" with "+mark)
         except KeyError: continue
-        latex_special_chars[c2]="\\shortstack{\\raisebox{-1.5ex}[0pt][0pt]{\\"+accent+r"{}}\\"+textGreek(c)+"}"
+        latex_special_chars[my_normalize(c2)]="\\shortstack{\\raisebox{-1.5ex}[0pt][0pt]{\\"+accent+r"{}}\\"+textGreek(c)+"}"
   # For pinyin, use pinyin package (it has kerning tweaks)
   # (leaving out rare syllables like "den" from below because it's not always defined and it seems to cause more trouble than it's worth)
   toned_pinyin_syllables = "a ai an ang ao ba bai ban bang bao bei ben beng bi bian biao bie bin bing bo bu ca cai can cang cao ce cen ceng cha chai chan chang chao che chen cheng chi chong chou chu chua chuai chuan chuang chui chun chuo ci cong cou cu cuan cui cun cuo da dai dan dang dao de dei deng di dian diao die ding diu dong dou du duan dui dun duo e ei en eng er fa fan fang fei fen feng fiao fo fou fu ga gai gan gang gao ge gei gen geng gong gou gu gua guai guan guang gui gun guo ha hai han hang hao he hei hen heng hong hou hu hua huai huan huang hui hun huo ji jia jian jiang jiao jie jin jing jiong jiu ju juan jue jun ka kai kan kang kao ke kei ken keng kong kou ku kua kuai kuan kuang kui kun kuo la lai lan lang lao le lei leng li lia lian liang liao lie lin ling liu long lou lu luan lun luo lv lve ma mai man mang mao mei men meng mi mian miao mie min ming miu mo mou mu na nai nan nang nao ne nei nen neng ni nian niang niao nie nin ning niu nong nou nu nuan nuo nv nve o ou pa pai pan pang pao pei pen peng pi pian piao pie pin ping po pou pu qi qia qian qiang qiao qie qin qing qiong qiu qu quan que qun ran rang rao re ren reng ri rong rou ru rua ruan rui run ruo sa sai san sang sao se sen seng sha shai shan shang shao she shei shen sheng shi shou shu shua shuai shuan shuang shui shun shuo si song sou su suan sui sun suo ta tai tan tang tao te tei teng ti tian tiao tie ting tong tou tu tuan tui tun tuo wa wai wan wang wei wen weng wo wu xi xia xian xiang xiao xie xin xing xiong xiu xu xuan xue xun ya yan yang yao ye yi yin ying yo yong you yu yuan yue yun za zai zan zang zao ze zei zen zeng zha zhai zhan zhang zhao zhe zhei zhen zheng zhi zhong zhou zhu zhua zhuai zhuan zhuang zhui zhun zhuo zi zong zou zu zuan zui zun zuo".split()
@@ -356,9 +263,16 @@ def makeLatex(unistr):
         p=p.replace('Long','LONG').replace('long','Long')
         if p in py_protected: latex_special_chars[m]='\\PYactivate\\'+p+t+"\\PYdeactivate{}"
         else: latex_special_chars[m]='\\'+p+t
+  # Make sure everything's normalized:
+  for k,v in latex_special_chars.items():
+    k2 = my_normalize(k)
+    if not k==k2:
+      assert not k2 in latex_special_chars, repr(k)+':'+repr(v)+" is already covered by "+repr(k2)+":"+repr(latex_special_chars[k2]) # but this won't catch cases where it's already covered by matchAccentedLatin (however we might not want it to, e.g. pinyin overrides)
+      latex_special_chars[k2] = v
+      del latex_special_chars[k]
   # Also we might need to support some HTML entities:
   for k,v in htmlentitydefs.name2codepoint.items():
-    v = unichr(v)
+    v = my_normalize(unichr(v))
     if v in latex_special_chars: latex_special_chars['&'+k+';']=latex_special_chars[v]
   latex_preamble = {
     # TODO: if not odd number of \'s before?  (but OK if
@@ -378,9 +292,10 @@ def makeLatex(unistr):
   latex_special_chars.update(simple_html2latex_noregex)
   latex_regex1 = dict((re.escape(k),v.replace('\\','\\\\')) for (k,v) in latex_special_chars.items())
   latex_regex1.update(simple_html2latex_regex)
+  latex_regex1[u'[A-Za-z0-9][\u0300-\u036f]+']=matchAccentedLatin ; latex_regex1[u'[\u02b0-\u036f]']=lambda m:TeX_unhandled_accent(m.group())
   # and figure out the range of all other non-ASCII chars:
   needToMatch = []
-  taken=sorted(ord(k) for k in latex_special_chars.keys() if len(k)==1 and ord(k)>=0x80)
+  taken=sorted([ord(k) for k in latex_special_chars.keys() if len(k)==1 and ord(k)>=0x80]+range(0x2b0,0x370))
   start=0x80 ; taken.append(0xfffd)
   while taken:
       if start<taken[0]:
@@ -390,6 +305,7 @@ def makeLatex(unistr):
   latex_regex1['['+''.join(needToMatch)+']+']=matchAllCJK
   # done init
   sys.stderr.write("making tex... ")
+  unistr = my_normalize(unistr) # TODO: even in anchors etc? (although hopefully remove_utf8_diacritics is on)
   global currentCJKfamily ; currentCJKfamily=None
   unistr = subDict(latex_regex1,unistr)
   ret = r'\documentclass['+class_options+r']{article}\usepackage[T1]{fontenc}\usepackage{pinyin}\PYdeactivate\usepackage{parskip}\usepackage{microtype}\raggedbottom\clubpenalty1000\widowpenalty10000\usepackage['+geometry+']{geometry}'+'\n'.join(set(v for (k,v) in latex_preamble.items() if k in unistr))+r'\begin{document}\pagestyle{empty}'
@@ -398,7 +314,13 @@ def makeLatex(unistr):
   if currentCJKfamily: ret += r"\end{CJK}"
   ret += r'\end{document}'+'\n'
   sys.stderr.write('done\n')
-  if TeX_unhandled_chars: sys.stderr.write("Warning: makeLatex treated these characters as 'missing': "+" ".join(("U+%04X" % c) for c in sorted(ord(x) for x in TeX_unhandled_chars))+"\n")
+  def explain_unhandled(c):
+    try: name=unicodedata.name(unichr(c))
+    except: name="?"
+    if any(x[0]==c for x in tex_accent_codes): name += " (matchAccentedLatin handles this for Latin letters, but the input had it with something else)"
+    elif 0x2b0 <= c < 0x370: name += " (no 'missing' box was put in the TeX for this)" # see TeX_unhandled_accent (0x300+ are 'combining' and combine with previous char; below that are 'modifier' letters)
+    return "U+%04X %s\n" % (c,name)
+  if TeX_unhandled_chars: sys.stderr.write("Warning: makeLatex treated these characters as 'missing':\n"+"".join(explain_unhandled(c) for c in sorted(ord(x) for x in TeX_unhandled_chars)))
   return ret
 
 # CJK-LaTeX families that go well with Computer Modern.
@@ -421,6 +343,42 @@ TeX_unhandled_chars = set()
 def TeX_unhandled_char(u):
     TeX_unhandled_chars.add(u)
     return r"\thinspace\allowbreak{\footnotesize\fbox{$^{\rm ?}$%04X}}\thinspace\allowbreak{}" % ord(u)
+def TeX_unhandled_accent(combining_or_modifier_unichr):
+    TeX_unhandled_chars.add(combining_or_modifier_unichr) # for the warning
+    return "" # but don't write anything to the document (TODO: or do we?  if so, change explain_unhandled also)
+def my_normalize(k):
+  k = unicodedata.normalize('NFD',unicode(k))
+  k = re.sub(u'[\u0300-\u036f]+',lambda a:u"".join(sorted(list(a.group()))),k) # make sure combining accents are always in same order (unicodedata.normalize doesn't always do this e.g. 308 vs 30c) (TODO: if we put the ones that occur in latex_special_chars.keys() first, it might help with things like Greek where we know some accents but not others.  However this would have to be coded carefully because my_normalize is called DURING the construction of latex_special_chars.)
+  k = re.sub(u'[\u1100-\u11ff\u3040-\u30ff]+',lambda a:unicodedata.normalize('NFC',a.group()),k) # as we DON'T want things like hangul being broken into jamo and kana having its voiced-sound mark separated off
+  return k
+tex_accent_codes = [
+  # TeX equivalents for Unicode combining accents
+  # (Unicode, TeX code, math mode required)
+  # TODO: add more to these
+  (0x300,"`",False),(0x301,"'",False),(0x302,'^',False),
+  (0x303,'~',False),(0x304,'=',False),
+  (0x306,"breve",True),
+  (0x307,'.',False),(0x308,'"',False),
+  (0x30c,"v",False),
+  (0x323,'d',False),
+  (0x327,'c',False),
+  ]
+def matchAccentedLatin(match):
+  m = match.group() ; l=m[0] ; m=m[1:]
+  for do_math in [False,True]: # do all non-math ones 1st
+   for combining_code,tex_accent,is_math in tex_accent_codes:
+    if not is_math==do_math: continue
+    cc = unichr(combining_code)
+    if cc in m: m=m.replace(cc,"")
+    else: continue
+    if is_math:
+      if l.startswith('$'): l="$\\"+tex_accent+"{"+l[1:-1]+"}$" # will already have \rm inside
+      else: l="$\\"+tex_accent+"{\\rm{"+l+"}}$"
+    elif len(tex_accent)>1 or tex_accent in string.letters or len(l)>1: l="\\"+tex_accent+"{"+l+"}"
+    else: l="\\"+tex_accent+l
+  for leftOver in m: l += TeX_unhandled_accent(leftOver)
+  return l
+
 def matchAllCJK(match):
     global currentCJKfamily # TODO: put it in an object?
     hanziStr = match.group()
@@ -444,10 +402,8 @@ def subDict(d,txt):
     "In txt, replace all keys in d with their values (keys are regexps and values are regexp-substitutes or callables)"
     k = d.keys()
     k.sort(lambda x,y: cmp(len(y),len(x))) # longest 1st (this is needed by Python regexp's '|' operator)
-    k2 = k[:]
-    for c in latex_special_chars.keys():
-        c = re.escape(c)
-        if c in d: k2.remove(c) # handled separately for speed
+    omit = set(re.escape(c) for c in latex_special_chars.keys()) # handled separately for speed
+    k2 = [i for i in k if not i in omit]
     def func(match):
         mg = match.group()
         if mg in latex_special_chars: return latex_special_chars[mg]
