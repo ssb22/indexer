@@ -1,7 +1,7 @@
 #!/usr/bin/env python
 
 # ohi_latex: Offline HTML Indexer for LaTeX
-# v1.01 (c) 2014 Silas S. Brown
+# v1.02 (c) 2014 Silas S. Brown
 
 #    This program is free software; you can redistribute it and/or modify
 #    it under the terms of the GNU General Public License as published by
@@ -27,19 +27,32 @@ infile = None # None = standard input, or set a "filename"
 outfile = "index.tex" # None = standard output, but if a filename is set then pdflatex will be run also
 
 import sys
-if '--createspace' in sys.argv:
-  # these settings should work for CreateSpace's 7.5x9.25in printing service (max 828 pages per volume).  Not tested.
-  geometry = "paperwidth=7.5in,paperheight=9.25in,twoside,inner=0.8in,outer=0.5in,tmargin=0.5in,bmargin=0.5in,columnsep=8mm" # inner=0.75in but suggest more if over 600 pages
-  links_and_bookmarks = False # I have no idea what happens if you submit a PDF that contains links and bookmarks; they say don't do it, so best not!
-  class_options="" # (maybe set 12pt if the default is not too close to the page limit)
-elif '--lulu' in sys.argv:
+if '--lulu' in sys.argv:
   # these settings should work for Lulu's Letter-size printing service (max 740 pages per volume).  Not tested.
   geometry = "paperwidth=8.5in,paperheight=11in,twoside,inner=0.8in,outer=0.5in,tmargin=0.5in,bmargin=0.5in,columnsep=8mm"
-  links_and_bookmarks = False
-  class_options="" # (as above)
+  multicol=r"\columnsep=14pt\columnseprule=.4pt"
+  twocol_columns = 3
+  whole_doc_in_footnotesize=True # if desperate to reduce page count (magnifier needed!) - I assume fully-sighted people will be OK with this for reading SHORT sections of text (e.g. dictionary lookups) because footnotesize was designed for short footnotes (and I've seen at least one commercial dictionary which fits 9 lines to the inch i.e. 8pt; footnotesize is 2pt less than the doc size, i.e. 8pt for the default 10pt if nothing is in class_options below)
+  links_and_bookmarks = False # I have no idea what happens if you submit a PDF that contains links and bookmarks; they say don't do it, so best not!
+  class_options="" # (maybe set 12pt if the default is not too close to the page limit)
+elif '--createspace' in sys.argv:
+  # these settings should work for CreateSpace's 7.5x9.25in printing service (max 828 pages per volume).  Not tested.
+  geometry = "paperwidth=7.5in,paperheight=9.25in,twoside,inner=0.8in,outer=0.5in,tmargin=0.5in,bmargin=0.5in,columnsep=8mm" # inner=0.75in but suggest more if over 600 pages
+  multicol=r"\columnsep=14pt\columnseprule=.4pt"
+  twocol_columns = 2 # or 3 at a push
+  whole_doc_in_footnotesize=True ; links_and_bookmarks = False ; class_options="" # (see 'lulu' above for these 3)
+elif '--a4compact' in sys.argv:
+  # these settings should work on most laser printers and MIGHT be ok for binding depending on who's doing it
+  geometry = "a4paper,twoside,inner=0.8in,outer=10mm,tmargin=10mm,bmargin=10mm,columnsep=8mm"
+  multicol=r"\columnsep=14pt\columnseprule=.4pt"
+  twocol_columns = 3
+  whole_doc_in_footnotesize=True ; links_and_bookmarks = False ; class_options="" # (see 'lulu' above for these 3)
 else:
   # these settings should work on most laser printers but I don't know about binding; should be OK for on-screen use
   geometry = "a4paper,lmargin=10mm,rmargin=10mm,tmargin=10mm,bmargin=15mm,columnsep=8mm"
+  multicol=""
+  twocol_columns = 2
+  whole_doc_in_footnotesize=False
   links_and_bookmarks = True
   class_options="12pt"
 
@@ -51,7 +64,7 @@ remove_utf8_diacritics = True # for sorting purposes only
 
 # --------------------------------------------------------
 
-import unicodedata,htmlentitydefs,re,sys,os
+import unicodedata,htmlentitydefs,re,sys,os,string
 
 def makeLatex(unistr):
   "Convert unistr into a LaTeX document"
@@ -60,10 +73,12 @@ def makeLatex(unistr):
   sys.stderr.write("makeLatex initialising... ")
   simple_html2latex_noregex = {
     # we add a non-standard 'twocols' tag:
-    '<twocols>':r'\begin{multicols}{2}','</twocols>':r'\end{multicols}',
-    # we add a non-standard 'sc' tag for small caps:
+    '<twocols>':multicol+r'\begin{multicols}{'+str(twocol_columns)+'}','</twocols>':r'\end{multicols}',
+    # and a non-standard 'sc' tag for small caps:
     '<sc>':r'\textsc{','</sc>':'}',
-    # only very simple HTML is supported:
+    # and a non-standard 'normal-size' tag which takes effect only if whole_doc_in_footnotesize (for printing intros etc at normal size when this is the case)
+    '<normal-size>':"","</normal-size>":"", # (overriden below)
+    # and HTML tags (only very simple HTML is supported) :
     '<html>':'','</html>':'','<body>':'','</body>':'',
     '<br>':r'\vskip -0.5\baselineskip{}'+'\n', # nicer to TeX's memory than \\ (-0.5\baselineskip is necessary because we're using parskip)
     '<p>':r'\medskip{}'+'\n', '\n':' ',
@@ -77,10 +92,11 @@ def makeLatex(unistr):
     '</s>':'}', '</strike>':'}',
     '<big>':"\Large{}",
     '<small>':r"\offinterlineskip\lineskip2pt\footnotesize{}", # (The 'offinterlineskip' turns off the normal line spacing and makes line spacing effectively irregular depending on the height of each line; can be useful for saving paper if you have lots of additional text in 'small'; not sure if there's a way to turn interline skip back on for the rest of the paragraph etc)
-    '</big>':"\normalsize{}",'</small>':r"\normalsize{}",
+    '</big>':r"\normalsize{}",'</small>':r"\normalsize{}",
     '</a>':'}', # for simple_html2latex_regex below
     '<hr>':r"\medskip\hrule{}",
   }
+  if whole_doc_in_footnotesize: simple_html2latex_noregex.update({"<big>":r"\normalsize{}","</big>":r"\footnotesize{}","<normal-size>":r"\normalsize{}","</normal-size>":r"\footnotesize{}","<small>":"","</small>":""})
   global anchorsHad ; anchorsHad = {}
   def safe_anchor(match,txt):
     match = match.group(1)
@@ -170,7 +186,7 @@ def makeLatex(unistr):
     u"\xFD":"\\'y",
     u"\xFF":"\\\"y",
     # (TODO: any we missed in latin1.def, or other ISO-8859 codepages?)
-    u"\u0103":"\\breve{a}",
+    u"\u0103":"$\\breve{\\rm a}$",
     u"\u0106":"\\'C",
     u"\u0107":"\\'c",
     u"\u010c":"\\v{C}",
@@ -185,7 +201,7 @@ def makeLatex(unistr):
     u"\u0142":"\\l{}",
     u"\u0144":"\\'n",
     u"\u014B":"\\textipa{N}",
-    u"\u014F":"\\breve{o}",
+    u"\u014F":"$\\breve{\\rm o}$",
     u"\u0152":"\\OE{}",
     u"\u0153":"\\oe{}",
     u"\u0154":"\\'R",
@@ -223,6 +239,9 @@ def makeLatex(unistr):
     u"\u0219":"\\makebox[0pt]{\\raisebox{-0.3ex}[0pt][0pt]{\\kern 0.8ex ,}}s", # ditto
     u"\u021A":"\\makebox[0pt]{\\raisebox{-0.3ex}[0pt][0pt]{\\kern 1.5ex ,}}T", # ditto
     u"\u021B":"\\makebox[0pt]{\\raisebox{-0.3ex}[0pt][0pt]{\\kern 0.8ex ,}}t", # ditto
+    u"\u1ecc":"\\d{O}",
+    u"\u1ecd":"\\d{o}", # o with dot below
+    u"\u1ecd\u030c":"\\v{\\d{o}}", # o with dot below and caron
     u"\u0250":"\\textipa{5}",
     u"\u0251":"\\textipa{A}",
     u"\u0252":"\\textipa{6}",
@@ -308,6 +327,14 @@ def makeLatex(unistr):
   latex_special_chars.update(dict((c,'$'+c+'$') for c in '|<>[]')) # always need math mode
   latex_special_chars.update(dict((c,'\\'+c) for c in '%&#$_{}')) # always need \ escape
   latex_special_chars.update(dict((unichr(0x2800+p),"\\braillebox{"+"".join(chr(ord('1')+b) for b in range(8) if p & (1<<b))+"}") for p in xrange(256))) # Braille - might as well
+  for combining_code,tex_accent in [
+      # TODO: add more to these (but note math mode separately below)
+      (0x300,"`"),
+      (0x301,"'"),(0x303,'~'),
+      (0x30c,"v")]:
+    latex_special_chars.update(dict((l+unichr(combining_code),"\\"+tex_accent+"{"+l+"}") for l in string.letters)) # TODO: other stuff besides string.letters? (see \u1edc\u030c case above for example)
+  for combining_code,tex_accent in [(0x306,"breve")]:
+    latex_special_chars.update(dict((l+unichr(combining_code),"$\\"+tex_accent+"{\\rm{"+l+"}}$") for l in string.letters)) # same TODO as above
   for c in range(0x3b1,0x3ca)+range(0x391,0x3aa): # Greek stuff:
     if c==0x3a2: continue
     if c>=0x3b1: textGreek=lambda c:'\\text'+unicodedata.name(unichr(c)).replace('FINAL ','VAR').split()[-1].lower().replace('cron','kron').replace('amda','ambda')+'{}'
@@ -365,7 +392,9 @@ def makeLatex(unistr):
   sys.stderr.write("making tex... ")
   global currentCJKfamily ; currentCJKfamily=None
   unistr = subDict(latex_regex1,unistr)
-  ret = r'\documentclass['+class_options+r']{article}\usepackage[T1]{fontenc}\usepackage{pinyin}\PYdeactivate\usepackage{parskip}\usepackage{microtype}\raggedbottom\clubpenalty1000\widowpenalty10000\usepackage['+geometry+']{geometry}'+'\n'.join(set(v for (k,v) in latex_preamble.items() if k in unistr))+r'\begin{document}\pagestyle{empty}'+unistr
+  ret = r'\documentclass['+class_options+r']{article}\usepackage[T1]{fontenc}\usepackage{pinyin}\PYdeactivate\usepackage{parskip}\usepackage{microtype}\raggedbottom\clubpenalty1000\widowpenalty10000\usepackage['+geometry+']{geometry}'+'\n'.join(set(v for (k,v) in latex_preamble.items() if k in unistr))+r'\begin{document}\pagestyle{empty}'
+  if whole_doc_in_footnotesize: ret += r'\footnotesize{}'
+  ret += unistr # the document itself
   if currentCJKfamily: ret += r"\end{CJK}"
   ret += r'\end{document}'+'\n'
   sys.stderr.write('done\n')
@@ -402,7 +431,7 @@ def matchAllCJK(match):
         if mLen:
             if currentCJKfamily==family: pass
             elif currentCJKfamily: r.append(r"\CJKfamily{"+family+"}")
-            else: r.append(r"\begin{CJK}{UTF8}{"+family+"}")
+            else: r.append(r"\begin{CJK}{UTF8}{"+family+"}") # TODO: make sure this goes before any \begin{multicols} etc
             currentCJKfamily = family
             r.append(hanziStr[:mLen])
         else:
@@ -491,6 +520,7 @@ texDoc = makeLatex(header+''.join(texDoc)+footer)
 outf.write(texDoc.encode('utf-8'))
 if outfile:
   outf.close()
+  if '--dry-run' in sys.argv: sys.exit()
   if r'\hyper' in texDoc: passes=2
   else: passes=1 # TODO: any other values? (below line supports any)
   r=os.system("&&".join(['pdflatex -draftmode -file-line-error -halt-on-error "'+outfile+'"']*(passes-1)+['pdflatex -file-line-error -halt-on-error "'+outfile+'"']))
