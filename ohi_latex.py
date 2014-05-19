@@ -1,7 +1,7 @@
 #!/usr/bin/env python
 
 # ohi_latex: Offline HTML Indexer for LaTeX
-# v1.04 (c) 2014 Silas S. Brown
+# v1.05 (c) 2014 Silas S. Brown
 
 #    This program is free software; you can redistribute it and/or modify
 #    it under the terms of the GNU General Public License as published by
@@ -125,7 +125,7 @@ def makeLatex(unistr):
     u"\xA9":"\\copyright{}",
     u"\xAB":"\\guillemotleft{}", # unavailable in OT1 but should be OK if using [T1]fontenc, which we should probably be doing anyway
     u"\xAC":"$\\lnot$",
-    u"\xB0":"$^{\\circ}$",
+    u"\xB0":"$^{\\circ}$", # or \usepackage{textcomp} and have \textdegree{} (not sure which is better)
     u"\xB1":"$\\pm$",
     u"\xB2":r"\raisebox{-0.3ex}{$^2$}",
     u"\xB3":r"\raisebox{-0.3ex}{$^3$}",
@@ -136,15 +136,13 @@ def makeLatex(unistr):
     u"\xB8":"\\c{}",
     u"\xB9":r"\raisebox{-0.3ex}{$^1$}",
     u"\xBB":"\\guillemotright{}",
-    u"\xBC":"$\frac14$",
-    u"\xBD":"$\frac12$",
-    u"\xBE":"$\frac34$",
-    u"\xC5":"\\AA{}",
+    u"\xBC":"$\\frac14$",
+    u"\xBD":"$\\frac12$",
+    u"\xBE":"$\\frac34$",
     u"\xC6":"\\AE{}",
     u"\xD7":"$\\times$",
     u"\xD8":"\\O{}",
     u"\xDF":"\\ss{}",
-    u"\xE5":"\\aa{}",
     u"\xE6":"\\ae{}",
     u"\xF0":"\\textipa{D}",
     u"\xF7":"$\\div$",
@@ -204,6 +202,7 @@ def makeLatex(unistr):
     u"\u201b":"`{}",
     u"\u201c":"``",
     u"\u201d":"''",
+    u"\u2020":"\\dag{}",
     u"\u2022":"$\\bullet$",
     u"\u2027":"\\textperiodcentered{}", # = 0xb7 ?
     u"\u202f":"\\nolinebreak\\thinspace{}",
@@ -216,11 +215,22 @@ def makeLatex(unistr):
     u"\u2079":r"\raisebox{-0.3ex}{$^9$}",
     u"\u20AC":"\\euro{}",
     u"\u2190":"$\\leftarrow$",
+    u"\u2191":"$\\uparrow$",
     u"\u2192":"$\\rightarrow$",
+    u"\u2193":"$\\downarrow$",
+    u"\u2194":"$\\leftrightarrow$",
+    u"\u2195":"$\\updownarrow$",
+    u"\u2196":"$\\nwarrow$",
     u"\u2197":"$\\nearrow$",
     u"\u2198":"$\\searrow$",
+    u"\u2199":"$\\swarrow$",
+    u"\u21A6":"$\\mapsto$",
+    u"\u21D0":"$\\Leftarrow$",
+    u"\u21D1":"$\\Uparrow$",
     u"\u21D2":"$\\Rightarrow$",
-    u"\u21d0":"$\\Leftarrow$",
+    u"\u21D3":"$\\Downarrow$",
+    u"\u21D4":"$\\Leftrightarrow$",
+    u"\u21D5":"$\\Updownarrow$",
     u"\u221E":"$\\infty$",
     u"\u2260":"$\\neq$",
     u"\u25c7":"$\\diamondsuit$",
@@ -270,10 +280,6 @@ def makeLatex(unistr):
       assert not k2 in latex_special_chars, repr(k)+':'+repr(v)+" is already covered by "+repr(k2)+":"+repr(latex_special_chars[k2]) # but this won't catch cases where it's already covered by matchAccentedLatin (however we might not want it to, e.g. pinyin overrides)
       latex_special_chars[k2] = v
       del latex_special_chars[k]
-  # Also we might need to support some HTML entities:
-  for k,v in htmlentitydefs.name2codepoint.items():
-    v = my_normalize(unichr(v))
-    if v in latex_special_chars: latex_special_chars['&'+k+';']=latex_special_chars[v]
   latex_preamble = {
     # TODO: if not odd number of \'s before?  (but OK if
     # accidentally include a package not really needed)
@@ -305,7 +311,7 @@ def makeLatex(unistr):
   latex_regex1['['+''.join(needToMatch)+']+']=matchAllCJK
   # done init
   sys.stderr.write("making tex... ")
-  unistr = my_normalize(unistr) # TODO: even in anchors etc? (although hopefully remove_utf8_diacritics is on)
+  unistr = my_normalize(decode_entities(unistr)) # TODO: even in anchors etc? (although hopefully remove_utf8_diacritics is on)
   global used_cjk ; used_cjk=False
   unistr = subDict(latex_regex1,unistr)
   ret = r'\documentclass['+class_options+r']{article}\usepackage[T1]{fontenc}\usepackage{pinyin}\PYdeactivate\usepackage{parskip}\usepackage{microtype}\raggedbottom\clubpenalty1000\widowpenalty10000\usepackage['+geometry+']{geometry}'+'\n'.join(set(v for (k,v) in latex_preamble.items() if k in unistr))+r'\begin{document}\pagestyle{empty}'
@@ -336,6 +342,8 @@ cjk_latex_families = [
     ('big5', 'bsmi'), # TODO: or bkai
     # Wadalab fonts (Japanese) :
     ('sjis', 'min'),
+    # Korean fonts :
+    ('ksc5601', 'mj'),
     # other families e.g. 'song' are likely to complain about missing stuff e.g. cyberb50
     ]
 def bestCodeAndFamily(hanziStr): return max((codeMatchLen(hanziStr,code),-count,code,family) for count,(code,family) in zip(xrange(9),cjk_latex_families))[-2:] # (the 'count' part means if all other things are equal the codes listed here first will be preferred)
@@ -352,30 +360,38 @@ def my_normalize(k):
   k = re.sub(u'[\u0300-\u036f]+',lambda a:u"".join(sorted(list(a.group()))),k) # make sure combining accents are always in same order (unicodedata.normalize doesn't always do this e.g. 308 vs 30c) (TODO: if we put the ones that occur in latex_special_chars.keys() first, it might help with things like Greek where we know some accents but not others.  However this would have to be coded carefully because my_normalize is called DURING the construction of latex_special_chars.)
   k = re.sub(u'[\u1100-\u11ff\u3040-\u30ff]+',lambda a:unicodedata.normalize('NFC',a.group()),k) # as we DON'T want things like hangul being broken into jamo and kana having its voiced-sound mark separated off
   return k
+def decode_entities(unistr): return re.sub('&([^&;]+);',matchEntity,unistr)
+def matchEntity(m):
+  mid=m.group(1)
+  if mid.startswith('#'):
+    mid=mid[1:]
+    if mid.startswith('x'): base,mid=16,mid[1:]
+    else: base=10
+    try: return unichr(int(mid,base))
+    except: pass
+  elif mid in htmlentitydefs.name2codepoint:
+    return unichr(htmlentitydefs.name2codepoint[mid])
+  return m.group()
+combining_codes_requiring_dotless_ij=u'\u0300\u0301\u0302\u0303\u0304'
 tex_accent_codes = [
   # TeX equivalents for Unicode combining accents
-  # (Unicode, TeX code, math mode required)
   # TODO: add more to these
-  (0x300,"`",False),(0x301,"'",False),(0x302,'^',False),
-  (0x303,'~',False),(0x304,'=',False),
-  (0x306,"breve",True),
-  (0x307,'.',False),(0x308,'"',False),
-  (0x30c,"v",False),
-  (0x323,'d',False),
-  (0x327,'c',False),
+  (0x300,"`"),(0x301,"'"),(0x302,'^'),
+  (0x303,'~'),(0x304,'='),
+  (0x306,"u"),(0x307,'.'),(0x308,'"'),
+  (0x30a,'r'),(0x30b,'H'),(0x30c,"v"),
+  (0x323,'d'),
+  (0x327,'c'),(0x328,'k'),
+  (0x331,'b'),
   ]
 def matchAccentedLatin(match):
   m = match.group() ; l=m[0] ; m=m[1:]
-  for do_math in [False,True]: # do all non-math ones 1st
-   for combining_code,tex_accent,is_math in tex_accent_codes:
-    if not is_math==do_math: continue
+  if l in 'ij' and any(ord(c)<=0x315 for c in m): l='\\'+l # i or j with accents above need to be dotless (TODO: check this applies for all combining accents 300-315 and no others)
+  for combining_code,tex_accent in tex_accent_codes:
     cc = unichr(combining_code)
     if cc in m: m=m.replace(cc,"")
     else: continue
-    if is_math:
-      if l.startswith('$'): l="$\\"+tex_accent+"{"+l[1:-1]+"}$" # will already have \rm inside
-      else: l="$\\"+tex_accent+"{\\rm{"+l+"}}$"
-    elif len(tex_accent)>1 or tex_accent in string.letters or len(l)>1: l="\\"+tex_accent+"{"+l+"}"
+    if len(tex_accent)>1 or tex_accent in string.letters or len(l)>1: l="\\"+tex_accent+"{"+l+"}"
     else: l="\\"+tex_accent+l
   for leftOver in m: l += TeX_unhandled_accent(leftOver)
   return l
@@ -427,50 +443,54 @@ if outfile: outf = open(outfile,'w')
 else: outf = sys.stdout
 theDoc = unicodedata.normalize('NFC',infile.read().decode('utf-8'))
 fragments = re.split(ur'<a name="([^"]*)"></a>',theDoc)
-# odd indices should be the tag names, even should be the HTML in between
-assert len(fragments)>3, "Couldn't find 2 or more hash tags (were they formatted correctly?)"
-assert len(fragments)%2, "re.split not returning groups??"
-header,footer = fragments[0],fragments[-1]
-fragments = fragments[1:-1]
-sys.stderr.write("%d entries\n" % len(fragments))
-def alphaOnly(x):
-  if ignore_text_in_parentheses: x=re.sub(r"\([^)]*\)[;, ]*","",x)
-  if alphabet: x=''.join(c for c in x.lower() if c in alphabet)
-  return re.sub(r"^[@,;]*","",x) # (to make sure anything starting with a phrase in parens, numbers, etc, followed by space or punctuation, is listed according to its second word when more_sensible_punctuation_sort_order is set, and not according to that space/punctuation)
-if more_sensible_punctuation_sort_order:
-    _ao1 = alphaOnly
-    alphaOnly = lambda x: _ao1(re.sub('([;,]);+',r'\1',x.replace('-',' ').replace(',','~COM~').replace(';',',').replace('~COM~',';').replace(' ',';'))) # gives ; < , == space (see ohi.py)
-    if alphabet:
-      for c in '@,;':
-        if not c in alphabet: alphabet += c
-if remove_utf8_diacritics: _ao,alphaOnly = alphaOnly, lambda x: _ao(u''.join((c for c in unicodedata.normalize('NFD',x) if not unicodedata.category(c).startswith('M'))))
-fragments = zip(map(alphaOnly,fragments[::2]), fragments[::2], fragments[1::2])
-fragments.sort()
-allLinks=set(re.findall(ur'<a href="#[^"]*">',theDoc)+re.findall(ur'<a href=#[^>]*>',theDoc))
-def tag(n):
-  # for this version, we want to put the tags in only if they are actually used
-  if n and ('<a href="#'+n+'">' in allLinks or '<a href=#'+n+'>' in allLinks): return '<a name="%s"></a>' % n
-  else: return ''
-texDoc = [] ; thisLetter=chr(0) ; sepNeeded="";inSmall=0
-for x,origX,y in fragments:
-  if x and not x.startswith(thisLetter) and not x.startswith(thisLetter.lower()) and 'a'<=x[0].lower()<='z': # new letter section (TODO: optional?)
-    thisLetter = x[0].upper()
-    if inSmall: texDoc.append("</small>")
-    if links_and_bookmarks: texDoc.append("<tex-literal>\\section*{\\pdfbookmark{%s}{anchor%s}%s}</tex-literal>" % (thisLetter,thisLetter,thisLetter))
-    else: texDoc.append("<tex-literal>\\section*{%s}</tex-literal>" % thisLetter)
-    sepNeeded = "" ; inSmall=0
-  make_entry_small = (origX.endswith('*') and not '<small>' in y) # TODO: optional? + document that we do this?
-  if make_entry_small and not inSmall:
-    texDoc.append("<small>") ; inSmall = 1
-  elif inSmall and not make_entry_small:
-    texDoc.append("</small>") ; inSmall = 0
-  if sepNeeded=='; ' and not origX.endswith('*'):
-    sepNeeded='<br>'
-  texDoc.append(sepNeeded+tag(origX)+y) # must be origX so href can work; will all be substituted for numbers anyway
-  if origX.endswith('*'): sepNeeded='; '
-  else: sepNeeded='<br>'
-#if inSmall: texDoc.append("</small>") # not really needed at end of doc if we just translate it to \normalsize{}
-texDoc = makeLatex(header+''.join(texDoc)+footer)
+if len(fragments)==1:
+  # a document with no fragments - just do HTML to LaTeX
+  texDoc = makeLatex(theDoc)
+else:
+  # odd indices should be the tag names, even should be the HTML in between
+  assert len(fragments)>3, "Couldn't find 2 or more hash tags (were they formatted correctly?)"
+  assert len(fragments)%2, "re.split not returning groups??"
+  header,footer = fragments[0],fragments[-1]
+  fragments = fragments[1:-1]
+  sys.stderr.write("%d entries\n" % len(fragments))
+  def alphaOnly(x):
+    if ignore_text_in_parentheses: x=re.sub(r"\([^)]*\)[;, ]*","",x)
+    if alphabet: x=''.join(c for c in x.lower() if c in alphabet)
+    return re.sub(r"^[@,;]*","",x) # (to make sure anything starting with a phrase in parens, numbers, etc, followed by space or punctuation, is listed according to its second word when more_sensible_punctuation_sort_order is set, and not according to that space/punctuation)
+  if more_sensible_punctuation_sort_order:
+      _ao1 = alphaOnly
+      alphaOnly = lambda x: _ao1(re.sub('([;,]);+',r'\1',x.replace('-',' ').replace(',','~COM~').replace(';',',').replace('~COM~',';').replace(' ',';'))) # gives ; < , == space (see ohi.py)
+      if alphabet:
+        for c in '@,;':
+          if not c in alphabet: alphabet += c
+  if remove_utf8_diacritics: _ao,alphaOnly = alphaOnly, lambda x: _ao(u''.join((c for c in unicodedata.normalize('NFD',x) if not unicodedata.category(c).startswith('M'))))
+  fragments = zip(map(alphaOnly,fragments[::2]), fragments[::2], fragments[1::2])
+  fragments.sort()
+  allLinks=set(re.findall(ur'<a href="#[^"]*">',theDoc)+re.findall(ur'<a href=#[^>]*>',theDoc))
+  def tag(n):
+    # for this version, we want to put the tags in only if they are actually used
+    if n and ('<a href="#'+n+'">' in allLinks or '<a href=#'+n+'>' in allLinks): return '<a name="%s"></a>' % n
+    else: return ''
+  texDoc = [] ; thisLetter=chr(0) ; sepNeeded="";inSmall=0
+  for x,origX,y in fragments:
+    if x and not x.startswith(thisLetter) and not x.startswith(thisLetter.lower()) and 'a'<=x[0].lower()<='z': # new letter section (TODO: optional?)
+      thisLetter = x[0].upper()
+      if inSmall: texDoc.append("</small>")
+      if links_and_bookmarks: texDoc.append("<tex-literal>\\section*{\\pdfbookmark{%s}{anchor%s}%s}</tex-literal>" % (thisLetter,thisLetter,thisLetter))
+      else: texDoc.append("<tex-literal>\\section*{%s}</tex-literal>" % thisLetter)
+      sepNeeded = "" ; inSmall=0
+    make_entry_small = (origX.endswith('*') and not '<small>' in y) # TODO: optional? + document that we do this?
+    if make_entry_small and not inSmall:
+      texDoc.append("<small>") ; inSmall = 1
+    elif inSmall and not make_entry_small:
+      texDoc.append("</small>") ; inSmall = 0
+    if sepNeeded=='; ' and not origX.endswith('*'):
+      sepNeeded='<br>'
+    texDoc.append(sepNeeded+tag(origX)+y) # must be origX so href can work; will all be substituted for numbers anyway
+    if origX.endswith('*'): sepNeeded='; '
+    else: sepNeeded='<br>'
+  #if inSmall: texDoc.append("</small>") # not really needed at end of doc if we just translate it to \normalsize{}
+  texDoc = makeLatex(header+''.join(texDoc)+footer)
 outf.write(texDoc.encode('utf-8'))
 if outfile:
   outf.close()
