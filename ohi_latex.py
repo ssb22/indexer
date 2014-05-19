@@ -1,7 +1,7 @@
 #!/usr/bin/env python
 
 # ohi_latex: Offline HTML Indexer for LaTeX
-# v1.03 (c) 2014 Silas S. Brown
+# v1.04 (c) 2014 Silas S. Brown
 
 #    This program is free software; you can redistribute it and/or modify
 #    it under the terms of the GNU General Public License as published by
@@ -277,7 +277,7 @@ def makeLatex(unistr):
   latex_preamble = {
     # TODO: if not odd number of \'s before?  (but OK if
     # accidentally include a package not really needed)
-    r"\begin{CJK}":r"\usepackage{CJK}",
+    r"\CJKfamily":r"\usepackage{CJK}",
     r"\begin{multicols}":r"\usepackage{multicol}",
     r"\braille":"\\usepackage[puttinydots]{braille}",
     r"\checkmark":"\\usepackage{amssymb}",
@@ -306,12 +306,13 @@ def makeLatex(unistr):
   # done init
   sys.stderr.write("making tex... ")
   unistr = my_normalize(unistr) # TODO: even in anchors etc? (although hopefully remove_utf8_diacritics is on)
-  global currentCJKfamily ; currentCJKfamily=None
+  global used_cjk ; used_cjk=False
   unistr = subDict(latex_regex1,unistr)
   ret = r'\documentclass['+class_options+r']{article}\usepackage[T1]{fontenc}\usepackage{pinyin}\PYdeactivate\usepackage{parskip}\usepackage{microtype}\raggedbottom\clubpenalty1000\widowpenalty10000\usepackage['+geometry+']{geometry}'+'\n'.join(set(v for (k,v) in latex_preamble.items() if k in unistr))+r'\begin{document}\pagestyle{empty}'
   if whole_doc_in_footnotesize: ret += r'\footnotesize{}'
+  if used_cjk: ret += r"\begin{CJK}{UTF8}{}"
   ret += unistr # the document itself
-  if currentCJKfamily: ret += r"\end{CJK}"
+  if used_cjk: ret += r"\end{CJK}"
   ret += r'\end{document}'+'\n'
   sys.stderr.write('done\n')
   def explain_unhandled(c):
@@ -380,18 +381,15 @@ def matchAccentedLatin(match):
   return l
 
 def matchAllCJK(match):
-    global currentCJKfamily # TODO: put it in an object?
     hanziStr = match.group()
     r = []
     while hanziStr:
         code,family = bestCodeAndFamily(hanziStr)
         mLen = codeMatchLen(hanziStr,code)
         if mLen:
-            if currentCJKfamily==family: pass
-            elif currentCJKfamily: r.append(r"\CJKfamily{"+family+"}")
-            else: r.append(r"\begin{CJK}{UTF8}{"+family+"}") # TODO: make sure this goes before any \begin{multicols} etc
-            currentCJKfamily = family
+            r.append(r"\CJKfamily{"+family+"}") # (don't try to check if it's already that: this can go wrong if it gets reset at the end of an environment like in an href)
             r.append(hanziStr[:mLen])
+            global used_cjk ; used_cjk = True
         else:
             r.append(TeX_unhandled_char(hanziStr[0]))
             mLen = 1
