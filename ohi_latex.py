@@ -1,7 +1,7 @@
 #!/usr/bin/env python
 
 # ohi_latex: Offline HTML Indexer for LaTeX
-# v1.05 (c) 2014 Silas S. Brown
+# v1.06 (c) 2014 Silas S. Brown
 
 #    This program is free software; you can redistribute it and/or modify
 #    it under the terms of the GNU General Public License as published by
@@ -84,9 +84,9 @@ def makeLatex(unistr):
     '<p>':r'\medskip{}'+'\n', '\n':' ',
     '</p>':'', # assumes there'll be another <p>
     '<!--':'%', '-->':'\n', # works if no newlines in the comment
-    '<i>':r'\em{}', '<em>':r'\em{}',
+    '<i>':EmOn, '<em>':EmOn, # track it for CJK also
     '<b>':r'\bf{}', '<strong>':r'\bf{}',
-    '</i>':r'\rm{}', '</em>':r'\rm{}', '</b>':r'\rm{}', '</strong>':r'\rm{}', # assumes well-formed
+    '</i>':EmOff, '</em>':EmOff, '</b>':r'\rm{}', '</strong>':r'\rm{}', # assumes well-formed
     '<u>':r'\uline{','</u>':'}',
     '<s>':r'\sout{','<strike>':r'\sout{',
     '</s>':'}', '</strike>':'}',
@@ -296,7 +296,13 @@ def makeLatex(unistr):
     r'\uline':"\\usepackage[normalem]{ulem}",
     }
   latex_special_chars.update(simple_html2latex_noregex)
-  latex_regex1 = dict((re.escape(k),v.replace('\\','\\\\')) for (k,v) in latex_special_chars.items())
+  def handleV(k,v):
+    if type(v) in [str,unicode]:
+      return v.replace('\\','\\\\')
+    else: # callable, e.g. EmOn
+      del latex_special_chars[k] # don't let subDict use its 'fast' mode which won't call the callable
+      return v
+  latex_regex1 = dict((re.escape(k),handleV(k,v)) for (k,v) in latex_special_chars.items())
   latex_regex1.update(simple_html2latex_regex)
   latex_regex1[u'[A-Za-z0-9][\u0300-\u036f]+']=matchAccentedLatin ; latex_regex1[u'[\u02b0-\u036f]']=lambda m:TeX_unhandled_accent(m.group())
   # and figure out the range of all other non-ASCII chars:
@@ -312,7 +318,7 @@ def makeLatex(unistr):
   # done init
   sys.stderr.write("making tex... ")
   unistr = my_normalize(decode_entities(unistr)) # TODO: even in anchors etc? (although hopefully remove_utf8_diacritics is on)
-  global used_cjk ; used_cjk=False
+  global used_cjk,emphasis ; used_cjk=emphasis=False
   unistr = subDict(latex_regex1,unistr)
   ret = r'\documentclass['+class_options+r']{article}\usepackage[T1]{fontenc}\usepackage{pinyin}\PYdeactivate\usepackage{parskip}\usepackage{microtype}\raggedbottom\clubpenalty1000\widowpenalty10000\usepackage['+geometry+']{geometry}'+'\n'.join(set(v for (k,v) in latex_preamble.items() if k in unistr))+r'\begin{document}\pagestyle{empty}'
   if whole_doc_in_footnotesize: ret += r'\footnotesize{}'
@@ -330,21 +336,29 @@ def makeLatex(unistr):
   if TeX_unhandled_chars: sys.stderr.write("Warning: makeLatex treated these characters as 'missing':\n"+"".join(explain_unhandled(c) for c in sorted(ord(x) for x in TeX_unhandled_chars)))
   return ret
 
+def EmOn(*args):
+    global emphasis ; emphasis=True
+    return r'\em{}'
+def EmOff(*args):
+    global emphasis ; emphasis=False
+    return r'\rm{}'
+
 # CJK-LaTeX families that go well with Computer Modern.
-# Problem is a lot of characters are missing from typical
-# TeX distributions.  You could use XeTeX, but then
-# you're likely to have a font setup nightmare (unless
-# you want to typeset everything in Arial Unicode MS etc)
-# and it's not easy to put old CJK-LaTeX onto XeTeX.
+# Some yitizi (variant) characters are missing from many
+# TeX installations (TeXLive etc).  You could use XeTeX,
+# but then you're likely to have a font setup nightmare
+# (unless you want to typeset everything in Arial Unicode
+# MS etc) + it's not easy to put old CJK-LaTeX onto XeTeX.
+# At least the following will get quite nice characters
+# for the basic GB2312/Big5/JIS/KSC set (not the rarer
+# yitizi that have only GB+/b5+ codes) - you could try
+# uncommenting the 'song' line below, but it may not work.
 cjk_latex_families = [
-    # Arphic fonts (Chinese) :
-    ('gb2312', 'gbsn'), # TODO: or gkai for emphasized
-    ('big5', 'bsmi'), # TODO: or bkai
-    # Wadalab fonts (Japanese) :
-    ('sjis', 'min'),
-    # Korean fonts :
-    ('ksc5601', 'mj'),
-    # other families e.g. 'song' are likely to complain about missing stuff e.g. cyberb50
+    ('gb2312', ('gbsn','gkai')), # Arphic Simplified
+    ('big5', ('bsmi','bkai')), # Arphic Traditional
+    ('sjis', 'min'), # Wadalab Japanese (TODO: kaiti?)
+    ('ksc5601', 'mj'), # Korean (TODO: kaiti??)
+    # ('utf-8', 'song'), # likely to say missing cyberb50
     ]
 def bestCodeAndFamily(hanziStr): return max((codeMatchLen(hanziStr,code),-count,code,family) for count,(code,family) in zip(xrange(9),cjk_latex_families))[-2:] # (the 'count' part means if all other things are equal the codes listed here first will be preferred)
 def codeMatchLen(hanziStr,code): return (hanziStr+'?').encode(code,'replace').decode(code).index('?')
@@ -401,6 +415,9 @@ def matchAllCJK(match):
     r = []
     while hanziStr:
         code,family = bestCodeAndFamily(hanziStr)
+        if type(family)==tuple:
+          if emphasis: family=family[1]
+          else: family=family[0]
         mLen = codeMatchLen(hanziStr,code)
         if mLen:
             r.append(r"\CJKfamily{"+family+"}") # (don't try to check if it's already that: this can go wrong if it gets reset at the end of an environment like in an href)
