@@ -33,7 +33,7 @@ if '--lulu' in sys.argv:
   multicol=r"\columnsep=14pt\columnseprule=.4pt"
   twocol_columns = 3
   whole_doc_in_footnotesize=True # if desperate to reduce page count (magnifier needed!) - I assume fully-sighted people will be OK with this for reading SHORT sections of text (e.g. dictionary lookups) because footnotesize was designed for short footnotes (and I've seen at least one commercial dictionary which fits 9 lines to the inch i.e. 8pt; footnotesize is 2pt less than the doc size, i.e. 8pt for the default 10pt if nothing is in class_options below)
-  links_and_bookmarks = False # I have no idea what happens if you submit a PDF that contains links and bookmarks; they say don't do it, so best not!
+  links_and_bookmarks = False # as it seems submitting a PDF with links and bookmarks increases the chance of failure in bureau printing
   class_options="" # (maybe set 12pt if the default is not too close to the page limit)
 elif '--createspace' in sys.argv:
   # these settings should work for CreateSpace's 7.5x9.25in printing service (max 828 pages per volume).  Not tested.
@@ -97,7 +97,7 @@ def makeLatex(unistr):
     '<hr>':r"\medskip\hrule{}",
   }
   if whole_doc_in_footnotesize: simple_html2latex_noregex.update({"<big>":r"\normalsize{}","</big>":r"\footnotesize{}","<normal-size>":r"\normalsize{}","</normal-size>":r"\footnotesize{}","<small>":"","</small>":""})
-  global anchorsHad ; anchorsHad = {}
+  anchorsHad = {}
   def safe_anchor(match,txt):
     match = match.group(1)
     if not match in anchorsHad: anchorsHad[match]=str(len(anchorsHad))
@@ -484,9 +484,12 @@ else:
   fragments = zip(map(alphaOnly,fragments[::2]), fragments[::2], fragments[1::2])
   fragments.sort()
   allLinks=set(re.findall(ur'<a href="#[^"]*">',theDoc)+re.findall(ur'<a href=#[^>]*>',theDoc))
+  targetsHad = set()
   def tag(n):
     # for this version, we want to put the tags in only if they are actually used
-    if n and ('<a href="#'+n+'">' in allLinks or '<a href=#'+n+'>' in allLinks): return '<a name="%s"></a>' % n
+    if n and not n in targetsHad and ('<a href="#'+n+'">' in allLinks or '<a href=#'+n+'>' in allLinks):
+      targetsHad.add(n)
+      return '<a name="%s"></a>' % n
     else: return ''
   texDoc = [] ; thisLetter=chr(0) ; sepNeeded="";inSmall=0
   for x,origX,y in fragments:
