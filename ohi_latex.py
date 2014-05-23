@@ -16,9 +16,9 @@
 # See comments in ohi.py for what this is about.
 # This version basically takes the same input and uses
 # pdflatex to make a PDF from it instead of HTML fragments.
-# Includes a simple HTML to LaTeX converter with Unicode
-# support (e.g. Chinese, Pinyin, Japanese, Greek, Russian,
-# Braille, IPA, Latin diacritics and miscellaneous symbols)
+# Includes a simple HTML to LaTeX converter with support
+# for CJK (including Pinyin), Greek, Braille, IPA,
+# Latin diacritics and miscellaneous symbols
 
 # Configuration
 # -------------
