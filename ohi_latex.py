@@ -1,7 +1,7 @@
 #!/usr/bin/env python
 
 # ohi_latex: Offline HTML Indexer for LaTeX
-# v1.06 (c) 2014 Silas S. Brown
+# v1.07 (c) 2014 Silas S. Brown
 
 #    This program is free software; you can redistribute it and/or modify
 #    it under the terms of the GNU General Public License as published by
@@ -16,9 +16,9 @@
 # See comments in ohi.py for what this is about.
 # This version basically takes the same input and uses
 # pdflatex to make a PDF from it instead of HTML fragments.
-# Includes a simple HTML to LaTeX converter with support
-# for CJK (including Pinyin), Greek, Braille, IPA,
-# Latin diacritics and miscellaneous symbols
+# Includes a simple HTML to LaTeX converter with support for
+# CJK (including Pinyin), Greek, Braille, IPA, Latin diacritics
+# and miscellaneous symbols
 
 # Configuration
 # -------------
@@ -235,6 +235,10 @@ def makeLatex(unistr):
     u"\u2260":"$\\neq$",
     u"\u25c7":"$\\diamondsuit$",
     u"\u25cf":"$\\bullet$",
+    u"\u2654":"\\symking{}",u"\u2655":"\\symqueen{}",
+    u"\u2656":"\\symrook{}",u"\u2657":"\\symbishop{}",
+    u"\u2658":"\\symknight{}",u"\u2659":"\\sympawn{}",
+    # TODO: black versions of the above (U+265A-F)
     u"\u266d":"$\\flat$",
     u"\u266e":"$\\natural$",
     u"\u266f":"$\\sharp$",
@@ -291,6 +295,7 @@ def makeLatex(unistr):
     r"\href":"\\usepackage[hyperfootnotes=false]{hyperref}",
     r"\hyper":"\\usepackage[hyperfootnotes=false]{hyperref}",
     r'\sout':"\\usepackage[normalem]{ulem}",
+    r'\sym':"\\usepackage{chessfss}",
     r"\textipa":"\\usepackage[safe]{tipa}",
     r'\text':"\\usepackage{textgreek}",
     r'\uline':"\\usepackage[normalem]{ulem}",
@@ -353,6 +358,20 @@ def EmOff(*args):
 # for the basic GB2312/Big5/JIS/KSC set (not the rarer
 # yitizi that have only GB+/b5+ codes) - you could try
 # uncommenting the 'song' line below, but it may not work.
+
+# (If you have installed Cyberbit, try setting the
+# CJK_LATEX_CYBERBIT_FALLBACK environment variable; we'll
+# use it only as a 'fallback' for passages containing rare
+# characters, because (a) the PDF won't copy/paste as well
+# as Arphic and (b) it's not a language-optimised font.
+# Even Cyberbit doesn't have ALL rare characters though,
+# e.g. some of Unicode 3's "CJK Extension A" ones.)
+
+# (Using for passages rather than individual characters as
+# it really doesn't go well right next to other CJK fonts;
+# the height etc is a bit different.  Using the other
+# fonts for passages to get better language optimisation.)
+
 cjk_latex_families = [
     ('gb2312', ('gbsn','gkai')), # Arphic Simplified
     ('big5', ('bsmi','bkai')), # Arphic Traditional
@@ -360,8 +379,20 @@ cjk_latex_families = [
     ('ksc5601', 'mj'), # Korean (TODO: kaiti??)
     # ('utf-8', 'song'), # likely to say missing cyberb50
     ]
+
+if os.environ.get('CJK_LATEX_CYBERBIT_FALLBACK',0):
+  cjk_latex_families += [([(0,7),(14,15),(0x1e,0x1f),(0x20,0x27),(0x30,0x3e),(0x4e,0xa0),(0xac,0xd8),(0xe8,0xe9),(0xf0,0xf1),(0xf9,256)],'cyberbit')]
+
 def bestCodeAndFamily(hanziStr): return max((codeMatchLen(hanziStr,code),-count,code,family) for count,(code,family) in zip(xrange(9),cjk_latex_families))[-2:] # (the 'count' part means if all other things are equal the codes listed here first will be preferred)
-def codeMatchLen(hanziStr,code): return (hanziStr+'?').encode(code,'replace').decode(code).index('?')
+def codeMatchLen(hanziStr,code):
+  if type(code)==list: # Unicode range list (MSB only)
+    count = 0
+    for c in hanziStr:
+      c = int(ord(c)/256)
+      if not any((x[0]<=c<x[1]) for x in code): break
+      count += 1
+    return count
+  else: return (hanziStr+'?').encode(code,'replace').decode(code).index('?')
 TeX_unhandled_chars = set()
 def TeX_unhandled_char(u):
     TeX_unhandled_chars.add(u)
