@@ -143,14 +143,14 @@ def htmlDoc(start,end,docNo):
     global __lastStartEnd,__lastDoc
     if not (start,end) == __lastStartEnd:
         __lastStartEnd = (start,end)
-        __lastDoc = linkSub(header)+js_hashjump(x for x,y in fragments[start:end] if x)
+        __lastDoc = header+js_hashjump(x for x,y in fragments[start:end] if x)
         if start:
             assert docNo, "Document 0 should start at 0"
             __lastDoc += '<p><a name="_h" href="%d.html#_f">Previous page</a></p>' % (docNo-1,)
-        __lastDoc += ''.join(tag(x)+linkSub(y) for x,y in fragments[start:end])
+        __lastDoc += ''.join(tag(x)+y for x,y in fragments[start:end])
         if end<len(fragments): __lastDoc += '<p><a name="_f" href="%d.html#_h">Next page</a></p>' % (docNo+1,)
-        __lastDoc += linkSub(footer)
-    return __lastDoc
+        __lastDoc += footer
+    return linkSub(__lastDoc)
 
 def linkSub(txt): return re.sub(r'(?i)<a href=("?)#',r'<a href=\1index.html#',txt) # (do link to index.html#whatever rather than directly, so link still works if docs change)
 
