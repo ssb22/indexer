@@ -1,7 +1,7 @@
 #!/usr/bin/env python
 
 # ohi_latex: Offline HTML Indexer for LaTeX
-# v1.07 (c) 2014 Silas S. Brown
+# v1.08 (c) 2014 Silas S. Brown
 
 #    This program is free software; you can redistribute it and/or modify
 #    it under the terms of the GNU General Public License as published by
@@ -113,6 +113,10 @@ def makeLatex(unistr):
     '<a href=#([^ >]*)>':lambda m:safe_anchor(m,r"\hyperlink{%s}{"),
     '<a name=([^"][^ >]*)>':lambda m:safe_anchor(m,r"\hypertarget{%s}{\rule{0pt}{1ex}"),
     '<a href=([^#"][^ >]*)>':href,
+    # URLs: the following commented-out line is OK for \usepackage{url}, but NOT if hyperref is also present (it faults on the & character)
+    # '((https?|s?ftp)://[!-;=-{}]*)':lambda m:"\\url|"+m.group(1).replace("&amp;","&")+"|", # TODO: other entities? (regexp misses out | and also < because we want it to stop at the next tag)
+    # Because we might have hyperref, using this instead:
+    '((https?|s?ftp)://[!-#%-(*-;=-Z^-z|~]*)':lambda m:"\\nolinkurl{"+m.group(1).replace("&amp;",r"\&").replace("%",r"\%").replace("_",r"\_").replace('#',r'\#')+"}", # matches only the characters we can handle (and additionally does not match close paren, since that's often not part of a URL when it's quoted in text; TODO: stop at &gt; ?)
     }
   global latex_special_chars
   latex_special_chars = {
@@ -294,6 +298,7 @@ def makeLatex(unistr):
     r"\euro":"\\usepackage{eurosym}",
     r"\href":"\\usepackage[hyperfootnotes=false]{hyperref}",
     r"\hyper":"\\usepackage[hyperfootnotes=false]{hyperref}",
+    r'\nolinkurl':"\\usepackage[hyperfootnotes=false]{hyperref}", # or "\\url":"\\usepackage{url}", but must use hyperref instead if might be using hyperref for other things (see comments above)
     r'\sout':"\\usepackage[normalem]{ulem}",
     r'\sym':"\\usepackage{chessfss}",
     r"\textipa":"\\usepackage[safe]{tipa}",
@@ -351,9 +356,7 @@ def EmOff(*args):
 # CJK-LaTeX families that go well with Computer Modern.
 # Some yitizi (variant) characters are missing from many
 # TeX installations (TeXLive etc).  You could use XeTeX,
-# but then you're likely to have a font setup nightmare
-# (unless you want to typeset everything in Arial Unicode
-# MS etc) + it's not easy to put old CJK-LaTeX onto XeTeX.
+# but then you're likely to have a font setup nightmare.
 # At least the following will get quite nice characters
 # for the basic GB2312/Big5/JIS/KSC set (not the rarer
 # yitizi that have only GB+/b5+ codes) - you could try
