@@ -1,7 +1,7 @@
 #!/usr/bin/env python
 
 # ohi_latex: Offline HTML Indexer for LaTeX
-# v1.08 (c) 2014 Silas S. Brown
+# v1.09 (c) 2014 Silas S. Brown
 
 #    This program is free software; you can redistribute it and/or modify
 #    it under the terms of the GNU General Public License as published by
@@ -312,7 +312,12 @@ def makeLatex(unistr):
     else: # callable, e.g. EmOn
       del latex_special_chars[k] # don't let subDict use its 'fast' mode which won't call the callable
       return v
-  latex_regex1 = dict((re.escape(k),handleV(k,v)) for (k,v) in latex_special_chars.items())
+  def handleK(k):
+    endsWithLetter = re.search(u"[A-Za-z0-9][\u0300-\u036f]*$",unicode(k))
+    k=re.escape(k)
+    if endsWithLetter: k=unicode(k)+u"(?![\u0300-\u036f])" # DON'T match if it contains any ADDITIONAL accents (otherwise might get spurious pinyin matches)
+    return k
+  latex_regex1 = dict((handleK(k),handleV(k,v)) for (k,v) in latex_special_chars.items())
   latex_regex1.update(simple_html2latex_regex)
   latex_regex1[u'[A-Za-z0-9][\u0300-\u036f]+']=matchAccentedLatin ; latex_regex1[u'[\u02b0-\u036f]']=lambda m:TeX_unhandled_accent(m.group())
   # and figure out the range of all other non-ASCII chars:
@@ -465,10 +470,15 @@ def matchAllCJK(match):
 
 def subDict(d,txt):
     "In txt, replace all keys in d with their values (keys are regexps and values are regexp-substitutes or callables)"
-    k = d.keys()
+    k = d.keys() ; kPinyin = []
     k.sort(lambda x,y: cmp(len(y),len(x))) # longest 1st (this is needed by Python regexp's '|' operator)
+    pyEnd = u"(?![\u0300-\u036f])" # need to do this for keeping the regexp manageable on some platforms e.g. Mac:
+    for i in k[:]:
+      if unicode(i).endswith(pyEnd):
+        k.remove(i) ; kPinyin.append(re.sub(u"\\\\([\u0300-\u036f])",r"\1",unicode(i)[:-len(pyEnd)]))
     omit = set(re.escape(c) for c in latex_special_chars.keys()) # handled separately for speed
     k2 = [i for i in k if not i in omit]
+    k.append('(?:(?:'+'|'.join(kPinyin)+')'+pyEnd+')')
     def func(match):
         mg = match.group()
         if mg in latex_special_chars: return latex_special_chars[mg]
