@@ -1,7 +1,7 @@
 #!/usr/bin/env python
 
 # ohi_latex: Offline HTML Indexer for LaTeX
-# v1.09 (c) 2014 Silas S. Brown
+# v1.1 (c) 2014 Silas S. Brown
 
 #    This program is free software; you can redistribute it and/or modify
 #    it under the terms of the GNU General Public License as published by
@@ -34,19 +34,20 @@ if '--lulu' in sys.argv:
   twocol_columns = 3
   whole_doc_in_footnotesize=True # if desperate to reduce page count (magnifier needed!) - I assume fully-sighted people will be OK with this for reading SHORT sections of text (e.g. dictionary lookups) because footnotesize was designed for short footnotes (and I've seen at least one commercial dictionary which fits 9 lines to the inch i.e. 8pt; footnotesize is 2pt less than the doc size, i.e. 8pt for the default 10pt if nothing is in class_options below)
   links_and_bookmarks = False # as it seems submitting a PDF with links and bookmarks increases the chance of failure in bureau printing
+  remove_adjacent_see=True # if you have a lot of alternate headings that just say "see" some other heading, you can automatically remove any that turn out to be right next to what they refer to (or to other alternates that refer to the same place)
   class_options="" # (maybe set 12pt if the default is not too close to the page limit)
 elif '--createspace' in sys.argv:
   # these settings should work for CreateSpace's 7.5x9.25in printing service (max 828 pages per volume).  Not tested.
   geometry = "paperwidth=7.5in,paperheight=9.25in,twoside,inner=0.8in,outer=0.5in,tmargin=0.5in,bmargin=0.5in,columnsep=8mm" # inner=0.75in but suggest more if over 600 pages
   multicol=r"\columnsep=14pt\columnseprule=.4pt"
   twocol_columns = 2 # or 3 at a push
-  whole_doc_in_footnotesize=True ; links_and_bookmarks = False ; class_options="" # (see 'lulu' above for these 3)
+  whole_doc_in_footnotesize=True ; links_and_bookmarks = False ; class_options="" ; remove_adjacent_see = True # (see 'lulu' above for these 4)
 elif '--a4compact' in sys.argv:
   # these settings should work on most laser printers and MIGHT be ok for binding depending on who's doing it
   geometry = "a4paper,twoside,inner=0.8in,outer=10mm,tmargin=10mm,bmargin=10mm,columnsep=8mm"
   multicol=r"\columnsep=14pt\columnseprule=.4pt"
   twocol_columns = 3
-  whole_doc_in_footnotesize=True ; links_and_bookmarks = False ; class_options="" # (see 'lulu' above for these 3)
+  whole_doc_in_footnotesize=True ; links_and_bookmarks = False ; class_options="" ; remove_adjacent_see = True # (see 'lulu' above for these 4)
 else:
   # these settings should work on most laser printers but I don't know about binding; should be OK for on-screen use
   geometry = "a4paper,lmargin=10mm,rmargin=10mm,tmargin=10mm,bmargin=15mm,columnsep=8mm"
@@ -54,6 +55,7 @@ else:
   twocol_columns = 2
   whole_doc_in_footnotesize=False
   links_and_bookmarks = True
+  remove_adjacent_see = False
   class_options="12pt"
 
 # You probably don't want to change the below for the print version:
@@ -527,14 +529,48 @@ else:
   if remove_utf8_diacritics: _ao,alphaOnly = alphaOnly, lambda x: _ao(u''.join((c for c in unicodedata.normalize('NFD',x) if not unicodedata.category(c).startswith('M'))))
   fragments = zip(map(alphaOnly,fragments[::2]), fragments[::2], fragments[1::2])
   fragments.sort()
+  # fragments is now a sorted (sortKey, tag, contents).
+  # If necessary, remove any adjacent "see" items
+  # (<em>see (also) href
+  # (tags end with ->x where x is the same as an adjacent
+  # tag and/or one already ends with ->x next to us)
+  seeUnder=re.compile("^(?:[^ ]* ){0,2}<a href=\"#([^\"]*)\">.*</a>$")
+  if remove_adjacent_see:
+    lastRef = None ; needRm = set()
+    for sort,tag,item in fragments:
+      m=re.match(seeUnder,item)
+      if m:
+        refersTo = m.group(1)
+        if refersTo == lastRef:
+          needRm.add((sort,tag,item))
+        else: lastRef = refersTo # a 'see' reference - so don't allow the next one to point to the same place
+      else: lastRef = tag # a proper entry - but don't allow 'see' refs to it immediately after it
+    # and just to make sure we don't have entries with 'see' refs immediately BEFORE them:
+    fragments.reverse()
+    lastRealItem = None
+    for sort,tag,item in fragments:
+      m=re.match(seeUnder,item)
+      if m:
+        refersTo = m.group(1)
+        if refersTo == lastRealItem:
+          needRm.add((sort,tag,item))
+        else: lastRealItem = None
+      else: lastRealItem = tag
+    fragments.reverse()
+    if needRm:
+      sys.stderr.write("remove_adjacent_see: removing %d adjacent alternate headings\n" % len(needRm))
+      for x in needRm: fragments.remove(x)
+  # Now put fragments into texDoc, adding letter headings
+  # and smaller-type parts as necessary:
   allLinks=set(re.findall(ur'<a href="#[^"]*">',theDoc)+re.findall(ur'<a href=#[^>]*>',theDoc))
   targetsHad = set()
+  def refd_in_doc(n):
+    # Returns whether anchor name 'n' occurs in an href (reads allLinks, and reads/writes targetsHad for a bit more speed)
+    if n and (n in targetsHad or ('<a href="#'+n+'">' in allLinks or '<a href=#'+n+'>' in allLinks)):
+      targetsHad.add(n) ; return True
   def tag(n):
-    # for this version, we want to put the tags in only if they are actually used
-    if n and not n in targetsHad and ('<a href="#'+n+'">' in allLinks or '<a href=#'+n+'>' in allLinks):
-      targetsHad.add(n)
-      return '<a name="%s"></a>' % n
-    else: return ''
+    if refd_in_doc(n): return '<a name="%s"></a>' % n
+    else: return '' # we don't want unused ones in TeX
   texDoc = [] ; thisLetter=chr(0) ; sepNeeded="";inSmall=0
   for x,origX,y in fragments:
     if x and not x.startswith(thisLetter) and not x.startswith(thisLetter.lower()) and 'a'<=x[0].lower()<='z': # new letter section (TODO: optional?)
@@ -554,6 +590,7 @@ else:
     if origX.endswith('*'): sepNeeded='; '
     else: sepNeeded='<br>'
   #if inSmall: texDoc.append("</small>") # not really needed at end of doc if we just translate it to \normalsize{}
+  # Now we have a document ready to convert to LaTeX:
   texDoc = makeLatex(header+''.join(texDoc)+footer)
 outf.write(texDoc.encode('utf-8'))
 if outfile:
