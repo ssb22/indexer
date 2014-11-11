@@ -1,7 +1,7 @@
 #!/usr/bin/env python
 
 # ohi_latex: Offline HTML Indexer for LaTeX
-# v1.1 (c) 2014 Silas S. Brown
+# v1.11 (c) 2014 Silas S. Brown
 
 #    This program is free software; you can redistribute it and/or modify
 #    it under the terms of the GNU General Public License as published by
@@ -29,30 +29,34 @@ outfile = "index.tex" # None = standard output, but if a filename is set then pd
 import sys
 if '--lulu' in sys.argv:
   # these settings should work for Lulu's Letter-size printing service (max 740 pages per volume).  Not tested.
-  geometry = "paperwidth=8.5in,paperheight=11in,twoside,inner=0.8in,outer=0.5in,tmargin=0.5in,bmargin=0.5in,columnsep=8mm"
+  geometry = "paperwidth=8.5in,paperheight=11in,twoside,inner=0.8in,outer=0.5in,tmargin=0.5in,bmargin=0.5in,columnsep=8mm,includehead,headsep=0pt" # TODO: reduce headheight ?
   multicol=r"\columnsep=14pt\columnseprule=.4pt"
   twocol_columns = 3
+  page_headings = True # taken from the anchors (make sure 'includehead' is in geometry if using this)
   whole_doc_in_footnotesize=True # if desperate to reduce page count (magnifier needed!) - I assume fully-sighted people will be OK with this for reading SHORT sections of text (e.g. dictionary lookups) because footnotesize was designed for short footnotes (and I've seen at least one commercial dictionary which fits 9 lines to the inch i.e. 8pt; footnotesize is 2pt less than the doc size, i.e. 8pt for the default 10pt if nothing is in class_options below)
   links_and_bookmarks = False # as it seems submitting a PDF with links and bookmarks increases the chance of failure in bureau printing
   remove_adjacent_see=True # if you have a lot of alternate headings that just say "see" some other heading, you can automatically remove any that turn out to be right next to what they refer to (or to other alternates that refer to the same place)
   class_options="" # (maybe set 12pt if the default is not too close to the page limit)
 elif '--createspace' in sys.argv:
   # these settings should work for CreateSpace's 7.5x9.25in printing service (max 828 pages per volume).  Not tested.
-  geometry = "paperwidth=7.5in,paperheight=9.25in,twoside,inner=0.8in,outer=0.5in,tmargin=0.5in,bmargin=0.5in,columnsep=8mm" # inner=0.75in but suggest more if over 600 pages
+  geometry = "paperwidth=7.5in,paperheight=9.25in,twoside,inner=0.8in,outer=0.5in,tmargin=0.5in,bmargin=0.5in,columnsep=8mm,includehead,headsep=0pt" # inner=0.75in but suggest more if over 600 pages
   multicol=r"\columnsep=14pt\columnseprule=.4pt"
   twocol_columns = 2 # or 3 at a push
+  page_headings = True
   whole_doc_in_footnotesize=True ; links_and_bookmarks = False ; class_options="" ; remove_adjacent_see = True # (see 'lulu' above for these 4)
 elif '--a4compact' in sys.argv:
   # these settings should work on most laser printers and MIGHT be ok for binding depending on who's doing it
-  geometry = "a4paper,twoside,inner=0.8in,outer=10mm,tmargin=10mm,bmargin=10mm,columnsep=8mm"
+  geometry = "a4paper,twoside,inner=0.8in,outer=10mm,tmargin=10mm,bmargin=10mm,columnsep=8mm,includehead,headsep=0pt"
   multicol=r"\columnsep=14pt\columnseprule=.4pt"
   twocol_columns = 3
+  page_headings = True
   whole_doc_in_footnotesize=True ; links_and_bookmarks = False ; class_options="" ; remove_adjacent_see = True # (see 'lulu' above for these 4)
 else:
   # these settings should work on most laser printers but I don't know about binding; should be OK for on-screen use
   geometry = "a4paper,lmargin=10mm,rmargin=10mm,tmargin=10mm,bmargin=15mm,columnsep=8mm"
   multicol=""
   twocol_columns = 2
+  page_headings = False # TODO: ?  (add includehead to the geometry if setting True)
   whole_doc_in_footnotesize=False
   links_and_bookmarks = True
   remove_adjacent_see = False
@@ -100,12 +104,30 @@ def makeLatex(unistr):
   }
   if whole_doc_in_footnotesize: simple_html2latex_noregex.update({"<big>":r"\normalsize{}","</big>":r"\footnotesize{}","<normal-size>":r"\normalsize{}","</normal-size>":r"\footnotesize{}","<small>":"","</small>":""})
   anchorsHad = {}
-  def safe_anchor(match,txt):
+  def safe_anchor(match,templateTeX):
+    # map all anchors to numbers, so they're "safe" for TeX no matter what characters they originally contained, and then put them in the template TeX
     match = match.group(1)
     if not match in anchorsHad: anchorsHad[match]=str(len(anchorsHad))
-    return txt % anchorsHad[match]
+    return templateTeX % anchorsHad[match]
   if links_and_bookmarks: href=r"\\href{\1}{"
-  else: href,simple_html2latex_noregex['</a>'],safe_anchor = "","",lambda *args:"" # just delete them
+  else:
+    href,simple_html2latex_noregex['</a>'],safe_anchor = "","",lambda *args:"" # just delete them
+    if page_headings: safe_anchor = lambda *args:r"\rule{0pt}{1ex}" # keep that to try to make sure mark is on same page as entry
+  if page_headings:
+    old_safe_anchor = safe_anchor
+    def safe_anchor(match,templateTeX):
+      # a version that puts in a \markboth command for running headings as well
+      ret = old_safe_anchor(match,templateTeX)
+      if templateTeX.startswith(r"\hypertarget"):
+        mark = mySubDict(re.sub('[;,]? .*','',match.group(1))) # just the 1st word (TODO: lstrip before this?)
+        # if whole_doc_in_footnotesize: mark = r'\footnotesize{}'+mark  # TODO: ? (don't know if this actually saves much without tweaking headheight as well)
+        if r'\PYactivate' in mark:
+          mark = mark.replace(r'\PYactivate','').replace(r'\PYdeactivate','')
+          b4,aftr = r'\PYactivate',r'\PYdeactivate{}' # activate/deactivate pinyin around the WHOLE markboth command, since TeX doesn't like doing it in the middle; hope this doesn't result in any kind of conflict from any other commands being used within the mark
+        else: b4,aftr = "",""
+        mark = re.sub(r"\\shortstack{\\raisebox{-1.5ex}[^{]*{[^{]*{}}([^}]*){}}",r"\1",mark) # LaTeX doesn't like shortstacks in marks, so may have to ditch some of the rarer accents above Greek letters
+        ret += b4+r"\markboth{"+mark+"}{"+mark+"}"+aftr
+      return ret
   simple_html2latex_regex = {
     '<tex-literal>(.*?)</tex-literal>':r"\1",
     '<a href="#([^"]*)">':lambda m:safe_anchor(m,r"\hyperlink{%s}{"),
@@ -298,6 +320,7 @@ def makeLatex(unistr):
     r"\braille":"\\usepackage[puttinydots]{braille}",
     r"\checkmark":"\\usepackage{amssymb}",
     r"\euro":"\\usepackage{eurosym}",
+    r"\markboth":"\\usepackage{fancyhdr}", # TODO: what if page_headings is set on a document that contains no anchors and therefore can't be tested in unistr ?
     r"\href":"\\usepackage[hyperfootnotes=false]{hyperref}",
     r"\hyper":"\\usepackage[hyperfootnotes=false]{hyperref}",
     r'\nolinkurl':"\\usepackage[hyperfootnotes=false]{hyperref}", # or "\\url":"\\usepackage{url}", but must use hyperref instead if might be using hyperref for other things (see comments above)
@@ -336,8 +359,11 @@ def makeLatex(unistr):
   sys.stderr.write("making tex... ")
   unistr = my_normalize(decode_entities(unistr)) # TODO: even in anchors etc? (although hopefully remove_utf8_diacritics is on)
   global used_cjk,emphasis ; used_cjk=emphasis=False
-  unistr = subDict(latex_regex1,unistr)
-  ret = r'\documentclass['+class_options+r']{article}\usepackage[T1]{fontenc}\usepackage{pinyin}\PYdeactivate\usepackage{parskip}\usepackage{microtype}\raggedbottom\clubpenalty1000\widowpenalty10000\usepackage['+geometry+']{geometry}'+'\n'.join(set(v for (k,v) in latex_preamble.items() if k in unistr))+r'\begin{document}\pagestyle{empty}'
+  mySubDict = subDict(latex_regex1)
+  unistr = mySubDict(unistr)
+  ret = r'\documentclass['+class_options+r']{article}\usepackage[T1]{fontenc}\usepackage{pinyin}\PYdeactivate\usepackage{parskip}\usepackage{microtype}\raggedbottom\clubpenalty1000\widowpenalty10000\usepackage['+geometry+']{geometry}'+'\n'.join(set(v for (k,v) in latex_preamble.items() if k in unistr))+r'\begin{document}'
+  if page_headings: ret += r'\pagestyle{fancy}\fancyhead{}\fancyfoot{}\fancyhead[LE]{\rightmark}\fancyhead[RO]{\leftmark}\thispagestyle{empty}'
+  else: ret += r'\pagestyle{empty}'
   if whole_doc_in_footnotesize: ret += r'\footnotesize{}'
   if used_cjk: ret += r"\begin{CJK}{UTF8}{}"
   ret += unistr # the document itself
@@ -470,8 +496,8 @@ def matchAllCJK(match):
         hanziStr = hanziStr[mLen:]
     return u"".join(r)
 
-def subDict(d,txt):
-    "In txt, replace all keys in d with their values (keys are regexps and values are regexp-substitutes or callables)"
+def subDict(d):
+    "Returns a function on txt which replaces all keys in d with their values (keys are regexps and values are regexp-substitutes or callables)"
     k = d.keys() ; kPinyin = []
     k.sort(lambda x,y: cmp(len(y),len(x))) # longest 1st (this is needed by Python regexp's '|' operator)
     pyEnd = u"(?![\u0300-\u036f])" # need to do this for keeping the regexp manageable on some platforms e.g. Mac:
@@ -492,7 +518,7 @@ def subDict(d,txt):
             if m.end()==len(mg):
                 return re.sub(i,d[i],match.group())
         assert 0, "shouldn't get here, match="+repr(match.group())+" d="+repr(d.items())
-    return re.sub(u'|'.join(k),func,txt)
+    return lambda txt: re.sub(u'|'.join(k),func,txt)
 
 # -------------------------------------------------
 
@@ -576,6 +602,7 @@ else:
     if x and not x.startswith(thisLetter) and not x.startswith(thisLetter.lower()) and 'a'<=x[0].lower()<='z': # new letter section (TODO: optional?)
       thisLetter = x[0].upper()
       if inSmall: texDoc.append("</small>")
+      if page_headings: texDoc.append(r"<tex-literal>\markboth{%s}{%s}</tex-literal>" % (thisLetter,thisLetter)) # needed if it starts with a load of 'see' references that don't have marks
       if links_and_bookmarks: texDoc.append("<tex-literal>\\section*{\\pdfbookmark{%s}{anchor%s}%s}</tex-literal>" % (thisLetter,thisLetter,thisLetter))
       else: texDoc.append("<tex-literal>\\section*{%s}</tex-literal>" % thisLetter)
       sepNeeded = "" ; inSmall=0
