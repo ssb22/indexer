@@ -1,7 +1,8 @@
+
 #!/usr/bin/env python
 
 # ohi_latex: Offline HTML Indexer for LaTeX
-# v1.11 (c) 2014 Silas S. Brown
+# v1.12 (c) 2014 Silas S. Brown
 
 #    This program is free software; you can redistribute it and/or modify
 #    it under the terms of the GNU General Public License as published by
@@ -35,7 +36,7 @@ if '--lulu' in sys.argv:
   page_headings = True # taken from the anchors (make sure 'includehead' is in geometry if using this)
   whole_doc_in_footnotesize=True # if desperate to reduce page count (magnifier needed!) - I assume fully-sighted people will be OK with this for reading SHORT sections of text (e.g. dictionary lookups) because footnotesize was designed for short footnotes (and I've seen at least one commercial dictionary which fits 9 lines to the inch i.e. 8pt; footnotesize is 2pt less than the doc size, i.e. 8pt for the default 10pt if nothing is in class_options below)
   links_and_bookmarks = False # as it seems submitting a PDF with links and bookmarks increases the chance of failure in bureau printing
-  remove_adjacent_see=True # if you have a lot of alternate headings that just say "see" some other heading, you can automatically remove any that turn out to be right next to what they refer to (or to other alternates that refer to the same place)
+  remove_adjacent_see=True # if you have a lot of alternate headings (with tags ending *) that just say "see" some other heading, you can automatically remove any that turn out to be right next to what they refer to (or to other alternates that refer to the same place)
   class_options="" # (maybe set 12pt if the default is not too close to the page limit)
 elif '--createspace' in sys.argv:
   # these settings should work for CreateSpace's 7.5x9.25in printing service (max 828 pages per volume).  Not tested.
@@ -557,25 +558,23 @@ else:
   fragments.sort()
   # fragments is now a sorted (sortKey, tag, contents).
   # If necessary, remove any adjacent "see" items
-  # (<em>see (also) href
-  # (tags end with ->x where x is the same as an adjacent
-  # tag and/or one already ends with ->x next to us)
-  seeUnder=re.compile("^(?:[^ ]* ){0,2}<a href=\"#([^\"]*)\">.*</a>$")
+  seeExp=re.compile("<a href=\"#([^\"]*)\">.*</a>$")
   if remove_adjacent_see:
     lastRef = None ; needRm = set()
     for sort,tag,item in fragments:
-      m=re.match(seeUnder,item)
+      if tag.endswith('*'): m=re.search(seeExp,item)
+      else: m = None
       if m:
         refersTo = m.group(1)
-        if refersTo == lastRef:
-          needRm.add((sort,tag,item))
+        if refersTo == lastRef:needRm.add((sort,tag,item))
         else: lastRef = refersTo # a 'see' reference - so don't allow the next one to point to the same place
       else: lastRef = tag # a proper entry - but don't allow 'see' refs to it immediately after it
     # and just to make sure we don't have entries with 'see' refs immediately BEFORE them:
     fragments.reverse()
     lastRealItem = None
     for sort,tag,item in fragments:
-      m=re.match(seeUnder,item)
+      if tag.endswith('*'): m=re.search(seeExp,item)
+      else: m = None
       if m:
         refersTo = m.group(1)
         if refersTo == lastRealItem:
