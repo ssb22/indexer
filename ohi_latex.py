@@ -1,4 +1,3 @@
-
 #!/usr/bin/env python
 
 # ohi_latex: Offline HTML Indexer for LaTeX
@@ -142,6 +141,7 @@ def makeLatex(unistr):
     # '((https?|s?ftp)://[!-;=-{}]*)':lambda m:"\\url|"+m.group(1).replace("&amp;","&")+"|", # TODO: other entities? (regexp misses out | and also < because we want it to stop at the next tag)
     # Because we might have hyperref, using this instead:
     '((https?|s?ftp)://[!-#%-(*-;=-Z^-z|~]*)':lambda m:"\\nolinkurl{"+m.group(1).replace("&amp;",r"\&").replace("%",r"\%").replace("_",r"\_").replace('#',r'\#')+"}", # matches only the characters we can handle (and additionally does not match close paren, since that's often not part of a URL when it's quoted in text; TODO: stop at &gt; ?)
+    '([a-z][a-z.]+\\.(com|net|org)/[!-#%-(*-;=-Z^-z|~]*)':lambda m:"\\nolinkurl{"+m.group(1).replace("&amp;",r"\&").replace("%",r"\%").replace("_",r"\_").replace('#',r'\#')+"}",
     }
   global latex_special_chars
   latex_special_chars = {
