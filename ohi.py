@@ -1,6 +1,6 @@
 #!/usr/bin/env python
 
-# Offline HTML Indexer v1.11 (c) 2013-15 Silas S. Brown.
+# Offline HTML Indexer v1.12 (c) 2013-15 Silas S. Brown.
 
 #    This program is free software; you can redistribute it and/or modify
 #    it under the terms of the GNU General Public License as published by
@@ -204,6 +204,6 @@ function jump() {
 if(navigator.userAgent.indexOf("Opera/9.50" /* sometimes found on WM6.1 phones from 2008 */) >= 0) document.write("<p><b>WARNING:</"+"b> Your version of Opera may have trouble jumping to anchors; please try Opera 10 or above.</"+"p>")
 //--></script><noscript><p><b>ERROR:</b> Javascript needs to be switched on for this form to work.</p></noscript>
 <form action="#" onSubmit="jump();return false">Lookup: <input type="text" name="q"><input type="submit" value="ok"></form><script><!--
-if(location.hash.length > 1) { document.forms[0].q.value = location.hash.slice(1).replace(/(\+|%20)/g,' '); jump(); } else document.forms[0].q.focus();
+if(location.hash.length > 1) { document.forms[0].q.value = location.hash.slice(1).replace(/(\+|%%20)/g,' '); jump(); } else document.forms[0].q.focus();
 //--></script>%s""" % (hashReload(linkSub(header)),js_alphabet,js_binchop_dx,old_javascript_array(fragments[s][0] for s in startsList),hashReload(linkSub(footer))))
 sys.stderr.write(" %d files\n" % (len(startsList)+1))
