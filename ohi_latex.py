@@ -1,7 +1,7 @@
 #!/usr/bin/env python
 
 # ohi_latex: Offline HTML Indexer for LaTeX
-# v1.13 (c) 2014-15 Silas S. Brown
+# v1.14 (c) 2014-15 Silas S. Brown
 
 #    This program is free software; you can redistribute it and/or modify
 #    it under the terms of the GNU General Public License as published by
@@ -87,7 +87,7 @@ def makeLatex(unistr):
     # and HTML tags (only very simple HTML is supported) :
     '<html>':'','</html>':'','<body>':'','</body>':'',
     '<br>':r'\vskip -0.5\baselineskip{}'+'\n', # nicer to TeX's memory than \\ (-0.5\baselineskip is necessary because we're using parskip)
-    '<p>':r'\medskip{}'+'\n', '\n':' ',
+    '<p>':r'\vskip \medskipamount{}'+'\n', '\n':' ',
     '</p>':'', # assumes there'll be another <p>
     '<!--':'%', '-->':'\n', # works if no newlines in the comment
     '<i>':EmOn, '<em>':EmOn, # track it for CJK also
@@ -101,6 +101,9 @@ def makeLatex(unistr):
     '</big>':r"\normalsize{}",'</small>':r"\normalsize{}",
     '</a>':'}', # for simple_html2latex_regex below
     '<hr>':r"\medskip\hrule{}",
+    # '<center>':r"{\centering ",'</center>':r"\par}", # OK if you'll only ever use that tag after a <p> or whatever
+    '<center>':r"\begin{center}",'</center>':r"\end{center}",
+    '<vfill>':r'\vfill{}',
   }
   if whole_doc_in_footnotesize: simple_html2latex_noregex.update({"<big>":r"\normalsize{}","</big>":r"\footnotesize{}","<normal-size>":r"\normalsize{}","</normal-size>":r"\footnotesize{}","<small>":"","</small>":""})
   anchorsHad = {}
@@ -365,8 +368,8 @@ def makeLatex(unistr):
   ret = r'\documentclass['+class_options+r']{article}\usepackage[T1]{fontenc}\usepackage{pinyin}\PYdeactivate\usepackage{parskip}\usepackage{microtype}\raggedbottom\clubpenalty1000\widowpenalty10000\usepackage['+geometry+']{geometry}'+'\n'.join(set(v for (k,v) in latex_preamble.items() if k in unistr))+r'\begin{document}'
   if page_headings: ret += r'\pagestyle{fancy}\fancyhead{}\fancyfoot{}\fancyhead[LE]{\rightmark}\fancyhead[RO]{\leftmark}\thispagestyle{empty}'
   else: ret += r'\pagestyle{empty}'
-  if whole_doc_in_footnotesize: ret += r'\footnotesize{}'
   if used_cjk: ret += r"\begin{CJK}{UTF8}{}"
+  if whole_doc_in_footnotesize: ret += r'\footnotesize{}'
   ret += unistr # the document itself
   if used_cjk: ret += r"\end{CJK}"
   ret += r'\end{document}'+'\n'
