@@ -28,7 +28,7 @@ outfile = "index.tex" # None = standard output, but if a filename is set then pd
 
 import sys
 if '--lulu' in sys.argv:
-  # these settings should work for Lulu's Letter-size printing service (max 740 pages per volume).  Not tested.
+  # These settings worked for Lulu's Letter-size printing service (max 740 pages per volume).  Tested 2015-05.
   geometry = "paperwidth=8.5in,paperheight=11in,twoside,inner=0.8in,outer=0.5in,tmargin=0.5in,bmargin=0.5in,columnsep=8mm,includehead,headsep=0pt" # TODO: reduce headheight ?
   multicol=r"\columnsep=14pt\columnseprule=.4pt"
   twocol_columns = 3
