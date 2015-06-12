@@ -1,7 +1,7 @@
 #!/usr/bin/env python
 
 # ohi_latex: Offline HTML Indexer for LaTeX
-# v1.14 (c) 2014-15 Silas S. Brown
+# v1.141 (c) 2014-15 Silas S. Brown
 
 #    This program is free software; you can redistribute it and/or modify
 #    it under the terms of the GNU General Public License as published by
@@ -561,7 +561,7 @@ else:
   fragments.sort()
   # fragments is now a sorted (sortKey, tag, contents).
   # If necessary, remove any adjacent "see" items
-  seeExp=re.compile("<a href=\"#([^\"]*)\">.*</a>$")
+  seeExp=re.compile("<a href=\"#([^\"]*)\">(.*)</a>$")
   if remove_adjacent_see:
     lastRefs = [] ; needRm = set()
     for sort,tag,item in fragments:
@@ -593,6 +593,13 @@ else:
     if needRm:
       sys.stderr.write("remove_adjacent_see: removing %d adjacent alternate headings\n" % len(needRm))
       for x in needRm: fragments.remove(x)
+    if not links_and_bookmarks:
+      # As the links will be removed, we can additionally merge adjacent 'see' headings with the same link anchor text (but this time keep both headings, just don't duplicate the anchor text after the 1st)
+      for i in xrange(len(fragments)-1):
+        if fragments[i][1].endswith('*') and fragments[i+1][1].endswith('*') and re.search(seeExp,fragments[i][2]) and re.search(seeExp,fragments[i+1][2]) and re.search(seeExp,fragments[i][2]).group(2)==re.search(seeExp,fragments[i+1][2]).group(2):
+          item = fragments[i][2] ; item = item[:re.search(seeExp,item).start()].rstrip()
+          if item.endswith("<em>see</em>"): item=item[:-len("<em>see</em>")].rstrip() # TODO: other languages?
+          fragments[i]=fragments[i][:2]+(item,)
   # Now put fragments into texDoc, adding letter headings
   # and smaller-type parts as necessary:
   allLinks=set(re.findall(ur'<a href="#[^"]*">',theDoc)+re.findall(ur'<a href=#[^>]*>',theDoc))
