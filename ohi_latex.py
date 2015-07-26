@@ -157,6 +157,7 @@ def makeLatex(unistr):
     u"\xA9":"\\copyright{}",
     u"\xAB":"\\guillemotleft{}", # unavailable in OT1 but should be OK if using [T1]fontenc, which we should probably be doing anyway
     u"\xAC":"$\\lnot$",
+    u"\xAE":"\\textregistered{}",
     u"\xB0":"$^{\\circ}$", # or \usepackage{textcomp} and have \textdegree{} (not sure which is better)
     u"\xB1":"$\\pm$",
     u"\xB2":r"\raisebox{-0.3ex}{$^2$}",
@@ -246,6 +247,7 @@ def makeLatex(unistr):
     u"\u2078":r"\raisebox{-0.3ex}{$^8$}",
     u"\u2079":r"\raisebox{-0.3ex}{$^9$}",
     u"\u20AC":"\\euro{}",
+    u"\u2122":"\\textsuperscript{TM}",
     u"\u2190":"$\\leftarrow$",
     u"\u2191":"$\\uparrow$",
     u"\u2192":"$\\rightarrow$",
