@@ -367,7 +367,7 @@ def makeLatex(unistr):
   global used_cjk,emphasis ; used_cjk=emphasis=False
   mySubDict = subDict(latex_regex1)
   unistr = mySubDict(unistr)
-  ret = r'\documentclass['+class_options+r']{article}\usepackage[T1]{fontenc}\usepackage{pinyin}\PYdeactivate\usepackage{parskip}\usepackage{microtype}\raggedbottom\clubpenalty1000\widowpenalty10000\usepackage['+geometry+']{geometry}'+'\n'.join(set(v for (k,v) in latex_preamble.items() if k in unistr))+r'\begin{document}'
+  ret = r'\documentclass['+class_options+r']{article}\usepackage[T1]{fontenc}\usepackage{pinyin}\PYdeactivate\usepackage{parskip}\usepackage{microtype}\raggedbottom\usepackage['+geometry+']{geometry}'+'\n'.join(set(v for (k,v) in latex_preamble.items() if k in unistr))+r'\begin{document}'
   if page_headings: ret += r'\pagestyle{fancy}\fancyhead{}\fancyfoot{}\fancyhead[LE]{\rightmark}\fancyhead[RO]{\leftmark}\thispagestyle{empty}'
   else: ret += r'\pagestyle{empty}'
   if used_cjk: ret += r"\begin{CJK}{UTF8}{}"
