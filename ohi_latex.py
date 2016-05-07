@@ -1,7 +1,7 @@
 #!/usr/bin/env python
 
 # ohi_latex: Offline HTML Indexer for LaTeX
-# v1.141 (c) 2014-15 Silas S. Brown
+# v1.142 (c) 2014-16 Silas S. Brown
 
 #    This program is free software; you can redistribute it and/or modify
 #    it under the terms of the GNU General Public License as published by
@@ -157,6 +157,7 @@ def makeLatex(unistr):
     u"\xA9":"\\copyright{}",
     u"\xAB":"\\guillemotleft{}", # unavailable in OT1 but should be OK if using [T1]fontenc, which we should probably be doing anyway
     u"\xAC":"$\\lnot$",
+    u"\xAD":"\\-", # soft hyphen
     u"\xAE":"\\textregistered{}",
     u"\xB0":"$^{\\circ}$", # or \usepackage{textcomp} and have \textdegree{} (not sure which is better)
     u"\xB1":"$\\pm$",
