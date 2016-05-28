@@ -1,6 +1,6 @@
 #!/usr/bin/env python
 
-# Online HTML Indexer v1.07 (c) 2013-14 Silas S. Brown.
+# Online HTML Indexer v1.08 (c) 2013-14,2016 Silas S. Brown.
 
 #    This program is free software; you can redistribute it and/or modify
 #    it under the terms of the GNU General Public License as published by
@@ -228,6 +228,7 @@ def main(req=None):
   def qGet(k,default=""):
       v = query.get(k,default)
       if type(v)==list: v=v[0]
+      if type(v)==str: v=v.strip() # TODO: or just .lstrip() ?  (accidental spaces entered on mobile devices)
       return v
   q = qGet("q")
   a = int(qGet("a",lines_after))
