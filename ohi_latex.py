@@ -1,7 +1,7 @@
 #!/usr/bin/env python
 
 # ohi_latex: Offline HTML Indexer for LaTeX
-# v1.142 (c) 2014-16 Silas S. Brown
+# v1.143 (c) 2014-16 Silas S. Brown
 
 #    This program is free software; you can redistribute it and/or modify
 #    it under the terms of the GNU General Public License as published by
@@ -628,10 +628,11 @@ else:
       texDoc.append("<small>") ; inSmall = 1
     elif inSmall and not make_entry_small:
       texDoc.append("</small>") ; inSmall = 0
-    if sepNeeded=='; ' and not origX.endswith('*'):
-      sepNeeded='<br>'
+    if sepNeeded=='; ':
+      if origX.endswith('*'): sepNeeded=os.environ.get("CJK_LATEX_SMALL_SEPARATOR",";")+' ' # you can set CJK_LATEX_SMALL_SEPARATOR if you want some separator other than semicolon (e.g. you can set it to just a space if you like)
+      else: sepNeeded='<br>'
     texDoc.append(sepNeeded+tag(origX)+y) # must be origX so href can work; will all be substituted for numbers anyway
-    if origX.endswith('*'): sepNeeded='; '
+    if origX.endswith('*'): sepNeede = '; '
     else: sepNeeded='<br>'
   #if inSmall: texDoc.append("</small>") # not really needed at end of doc if we just translate it to \normalsize{}
   # Now we have a document ready to convert to LaTeX:
