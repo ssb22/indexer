@@ -632,7 +632,7 @@ else:
       if origX.endswith('*'): sepNeeded=os.environ.get("CJK_LATEX_SMALL_SEPARATOR",";")+' ' # you can set CJK_LATEX_SMALL_SEPARATOR if you want some separator other than semicolon (e.g. you can set it to just a space if you like)
       else: sepNeeded='<br>'
     texDoc.append(sepNeeded+tag(origX)+y) # must be origX so href can work; will all be substituted for numbers anyway
-    if origX.endswith('*'): sepNeede = '; '
+    if origX.endswith('*'): sepNeeded = '; '
     else: sepNeeded='<br>'
   #if inSmall: texDoc.append("</small>") # not really needed at end of doc if we just translate it to \normalsize{}
   # Now we have a document ready to convert to LaTeX:
