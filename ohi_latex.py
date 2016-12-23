@@ -1,7 +1,7 @@
 #!/usr/bin/env python
 
 # ohi_latex: Offline HTML Indexer for LaTeX
-# v1.143 (c) 2014-16 Silas S. Brown
+# v1.144 (c) 2014-16 Silas S. Brown
 
 #    This program is free software; you can redistribute it and/or modify
 #    it under the terms of the GNU General Public License as published by
@@ -36,6 +36,7 @@ if '--lulu' in sys.argv:
   whole_doc_in_footnotesize=True # if desperate to reduce page count (magnifier needed!) - I assume fully-sighted people will be OK with this for reading SHORT sections of text (e.g. dictionary lookups) because footnotesize was designed for short footnotes (and I've seen at least one commercial dictionary which fits 9 lines to the inch i.e. 8pt; footnotesize is 2pt less than the doc size, i.e. 8pt for the default 10pt if nothing is in class_options below)
   links_and_bookmarks = False # as it seems submitting a PDF with links and bookmarks increases the chance of failure in bureau printing
   remove_adjacent_see=2 # if you have a lot of alternate headings (with tags ending *) that just say "see" some other heading, you can automatically remove any that turn out to be right next to what they refer to (or to other alternates that refer to the same place), or that are within N entries of such (set to 0 to turn this off, 1 for right next to, 2 for next to but one, etc)
+  suppress_adjacent_see = 1 # to save a bit more, suppress '<em>see</em>' when it occurs after this number of times in succession (0 = unlimited)
   class_options="" # (maybe set 12pt if the default is not too close to the page limit)
 elif '--createspace' in sys.argv:
   # these settings should work for CreateSpace's 7.5x9.25in printing service (max 828 pages per volume).  Not tested.
@@ -43,14 +44,14 @@ elif '--createspace' in sys.argv:
   multicol=r"\columnsep=14pt\columnseprule=.4pt"
   twocol_columns = 2 # or 3 at a push
   page_headings = True
-  whole_doc_in_footnotesize=True ; links_and_bookmarks = False ; class_options="" ; remove_adjacent_see = 2 # (see 'lulu' above for these 4)
+  whole_doc_in_footnotesize=True ; links_and_bookmarks = False ; class_options="" ; remove_adjacent_see = 2 ; suppress_adjacent_see = 1 # (see 'lulu' above for these 5)
 elif '--a4compact' in sys.argv:
   # these settings should work on most laser printers and MIGHT be ok for binding depending on who's doing it
   geometry = "a4paper,twoside,inner=0.8in,outer=10mm,tmargin=10mm,bmargin=10mm,columnsep=8mm,includehead,headsep=0pt"
   multicol=r"\columnsep=14pt\columnseprule=.4pt"
   twocol_columns = 3
   page_headings = True
-  whole_doc_in_footnotesize=True ; links_and_bookmarks = False ; class_options="" ; remove_adjacent_see = 2 # (see 'lulu' above for these 4)
+  whole_doc_in_footnotesize=True ; links_and_bookmarks = False ; class_options="" ; remove_adjacent_see = 2 ; suppress_adjacent_see = 1 # (see 'lulu' above for these 5)
 else:
   # these settings should work on most laser printers but I don't know about binding; should be OK for on-screen use
   geometry = "a4paper,lmargin=10mm,rmargin=10mm,tmargin=10mm,bmargin=15mm,columnsep=8mm"
@@ -60,6 +61,7 @@ else:
   whole_doc_in_footnotesize=False
   links_and_bookmarks = True
   remove_adjacent_see = 0
+  suppress_adjacent_see = 0
   class_options="12pt"
 
 # You probably don't want to change the below for the print version:
@@ -603,6 +605,14 @@ else:
           item = fragments[i][2] ; item = item[:re.search(seeExp,item).start()].rstrip()
           if item.endswith("<em>see</em>"): item=item[:-len("<em>see</em>")].rstrip() # TODO: other languages?
           fragments[i]=fragments[i][:2]+(item,)
+  if suppress_adjacent_see:
+    toGo = suppress_adjacent_see
+    for i in xrange(len(fragments)-1):
+      if fragments[i][1].endswith('*') and re.search(seeExp,fragments[i][2]):
+        if not toGo:
+          fragments[i]=fragments[i][:2]+(fragments[i][2].replace("<em>see</em> ",""),) # TODO: other languages?
+        else: toGo -= 1
+      else: toGo = suppress_adjacent_see # reset (ordinary, non-'see' entry)
   # Now put fragments into texDoc, adding letter headings
   # and smaller-type parts as necessary:
   allLinks=set(re.findall(ur'<a href="#[^"]*">',theDoc)+re.findall(ur'<a href=#[^>]*>',theDoc))
@@ -629,7 +639,7 @@ else:
     elif inSmall and not make_entry_small:
       texDoc.append("</small>") ; inSmall = 0
     if sepNeeded=='; ':
-      if origX.endswith('*'): sepNeeded=os.environ.get("CJK_LATEX_SMALL_SEPARATOR",";")+' ' # you can set CJK_LATEX_SMALL_SEPARATOR if you want some separator other than semicolon (e.g. you can set it to just a space if you like)
+      if origX.endswith('*'): sepNeeded=os.environ.get("OHI_LATEX_SMALL_SEPARATOR",";")+' ' # you can set OHI_LATEX_SMALL_SEPARATOR if you want some separator other than semicolon (e.g. you can set it to just a space if you like)
       else: sepNeeded='<br>'
     texDoc.append(sepNeeded+tag(origX)+y) # must be origX so href can work; will all be substituted for numbers anyway
     if origX.endswith('*'): sepNeeded = '; '
