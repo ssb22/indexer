@@ -1,6 +1,6 @@
 #!/usr/bin/env python
 
-# Online HTML Indexer v1.08 (c) 2013-14,2016 Silas S. Brown.
+# Online HTML Indexer v1.09 (c) 2013-17 Silas S. Brown.
 
 #    This program is free software; you can redistribute it and/or modify
 #    it under the terms of the GNU General Public License as published by
@@ -189,19 +189,23 @@ def out(html="",req=None):
       req.write(header+html+footer)
   else: print "Content-type: text/html; charset=utf-8\n\n"+header+html+footer
 def link(l,highl=""):
-  l,lTxt,rest = l.split('\t',2)
-  highl = highl.decode('utf-8') # TODO: configurable charset?
-  while highl and not l.startswith(highl.encode('utf-8')): highl=highl[:-1]
-  highl = highl.encode('utf-8')
+  l,linkText,rest = l.decode('utf-8').split('\t',2) ; highl = highl.decode('utf-8') # TODO: configurable charset
+  mismatch = u""
+  while highl and not l.startswith(highl): highl,mismatch=highl[:-1],highl[-1]+mismatch
   i = j = 0
   for c in highl:
-    matched = (lTxt[i]==c)
-    if matched or (alphabet and not lTxt[i] in alphabet and not lTxt[i] in l):
+    matched = (linkText[i]==c)
+    if matched or (alphabet and not linkText[i] in alphabet and not linkText[i] in l):
       i += 1
       if matched: j = i
     else: break
-  if j: lTxt = '<b>'+lTxt[:j]+'</b>'+lTxt[j:]
-  return '<a href="'+cginame+'?q='+urllib.quote(undo_alphaOnly_swap(l))+'&e=1" onclick="return tryInline(this)">'+lTxt+'</a>' # (this gives a 'click to expand/collapse' option on browsers that support it, TODO: configurable?  option to have onMouseOver previews somewhere??  careful as could run into trouble with user CSS files)
+  if j:
+      matchedPart,nextPart = linkText[:j],linkText[j:]
+      if not nextPart.startswith(" ") and mismatch and not mismatch.startswith(" "): # show a red border around the mismatched letter to reinforce what happened (but ensure it's a border, not font colour, because we don't know what the user's background colour is)
+          nextPart="<span style=\"border: thin red solid\">"+nextPart[0]+"</span>"+nextPart[1:]
+      linkText = '<b>'+matchedPart+'</b>'+nextPart
+  l,linkText=l.encode('utf-8'),linkText.encode('utf-8')
+  return '<a href="'+cginame+'?q='+urllib.quote(undo_alphaOnly_swap(l))+'&e=1" onclick="return tryInline(this)">'+linkText+'</a>' # (this gives a 'click to expand/collapse' option on browsers that support it, TODO: configurable?  option to have onMouseOver previews somewhere??  careful as could run into trouble with user CSS files)
   # (Could shorten l to the shortest unique part of the word, but that might not be a good idea if the data can change while users are online)
   
 def redir(base,rest,req=None):
