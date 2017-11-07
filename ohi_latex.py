@@ -1,7 +1,7 @@
 #!/usr/bin/env python
 
 # ohi_latex: Offline HTML Indexer for LaTeX
-# v1.144 (c) 2014-16 Silas S. Brown
+# v1.145 (c) 2014-17 Silas S. Brown
 
 #    This program is free software; you can redistribute it and/or modify
 #    it under the terms of the GNU General Public License as published by
@@ -106,6 +106,9 @@ def makeLatex(unistr):
     # '<center>':r"{\centering ",'</center>':r"\par}", # OK if you'll only ever use that tag after a <p> or whatever
     '<center>':r"\begin{center}",'</center>':r"\end{center}",
     '<vfill>':r'\vfill{}',
+    '<ruby><rb>':r'\stack{','</rb><rt>':'}{','</rt></ruby>':'}', # only basic <ruby><rb>...</rb><rt>...</rt></ruby> is supported by this; anything else will likely make an un-TeX'able file
+    '<h2>':r'\section*{','</h2>':'}',
+    '<h3>':r'\subsection*{','</h3>':'}',
   }
   if whole_doc_in_footnotesize: simple_html2latex_noregex.update({"<big>":r"\normalsize{}","</big>":r"\footnotesize{}","<normal-size>":r"\normalsize{}","</normal-size>":r"\footnotesize{}","<small>":"","</small>":""})
   anchorsHad = {}
@@ -334,6 +337,7 @@ def makeLatex(unistr):
     r"\hyper":"\\usepackage[hyperfootnotes=false]{hyperref}",
     r'\nolinkurl':"\\usepackage[hyperfootnotes=false]{hyperref}", # or "\\url":"\\usepackage{url}", but must use hyperref instead if might be using hyperref for other things (see comments above)
     r'\sout':"\\usepackage[normalem]{ulem}",
+    r'\stack':r"\newsavebox\stackBox\def\fitbox#1{\sbox\stackBox{#1}\ifdim \wd\stackBox >\columnwidth \vskip 0pt \resizebox*{\columnwidth}{!}{#1} \vskip 0pt \else{#1}\fi}\def\stack#1#2{\fitbox{\shortstack{\raisebox{0pt}[2.3ex][0ex]{#2} \\ \raisebox{0pt}[1.9ex][0.5ex]{#1}}}}", # (I also gave these measurements to Wenlin; they work for basic ruby with rb=hanzi rt=pinyin)
     r'\sym':"\\usepackage{chessfss}",
     r"\textipa":"\\usepackage[safe]{tipa}",
     r'\text':"\\usepackage{textgreek}",
