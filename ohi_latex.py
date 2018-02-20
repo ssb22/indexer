@@ -1,7 +1,7 @@
 #!/usr/bin/env python
 
 # ohi_latex: Offline HTML Indexer for LaTeX
-# v1.145 (c) 2014-17 Silas S. Brown
+# v1.146 (c) 2014-18 Silas S. Brown
 
 #    This program is free software; you can redistribute it and/or modify
 #    it under the terms of the GNU General Public License as published by
@@ -29,6 +29,7 @@ outfile = "index.tex" # None = standard output, but if a filename is set then pd
 import sys
 if '--lulu' in sys.argv:
   # These settings worked for Lulu's Letter-size printing service (max 740 pages per volume).  Tested 2015-05.
+  outfile = "index-lulu.tex"
   geometry = "paperwidth=8.5in,paperheight=11in,twoside,inner=0.8in,outer=0.5in,tmargin=0.5in,bmargin=0.5in,columnsep=8mm,includehead,headsep=0pt" # TODO: reduce headheight ?
   multicol=r"\columnsep=14pt\columnseprule=.4pt"
   twocol_columns = 3
@@ -40,6 +41,7 @@ if '--lulu' in sys.argv:
   class_options="" # (maybe set 12pt if the default is not too close to the page limit)
 elif '--createspace' in sys.argv:
   # these settings should work for CreateSpace's 7.5x9.25in printing service (max 828 pages per volume).  Not tested.
+  outfile = "index-createspace.tex"
   geometry = "paperwidth=7.5in,paperheight=9.25in,twoside,inner=0.8in,outer=0.5in,tmargin=0.5in,bmargin=0.5in,columnsep=8mm,includehead,headsep=0pt" # inner=0.75in but suggest more if over 600 pages
   multicol=r"\columnsep=14pt\columnseprule=.4pt"
   twocol_columns = 2 # or 3 at a push
@@ -47,6 +49,7 @@ elif '--createspace' in sys.argv:
   whole_doc_in_footnotesize=True ; links_and_bookmarks = False ; class_options="" ; remove_adjacent_see = 2 ; suppress_adjacent_see = 1 # (see 'lulu' above for these 5)
 elif '--a4compact' in sys.argv:
   # these settings should work on most laser printers and MIGHT be ok for binding depending on who's doing it
+  outfile = "index-a4compact.tex"
   geometry = "a4paper,twoside,inner=0.8in,outer=10mm,tmargin=10mm,bmargin=10mm,columnsep=8mm,includehead,headsep=0pt"
   multicol=r"\columnsep=14pt\columnseprule=.4pt"
   twocol_columns = 3
@@ -660,5 +663,7 @@ if outfile:
   r=os.system("&&".join(['pdflatex -draftmode -file-line-error -halt-on-error "'+outfile+'"']*(passes-1)+['pdflatex -file-line-error -halt-on-error "'+outfile+'"']))
   assert not r, "pdflatex failure"
   pdffile = re.sub(r"\.tex$",".pdf",outfile)
-  if links_and_bookmarks: os.system('if which qpdf 2>/dev/null >/dev/null; then echo Running qpdf 1>&2 && qpdf --encrypt "" "" 128 --print=full --modify=all -- "'+pdffile+'" /tmp/a.pdf && mv /tmp/a.pdf "'+pdffile+'"; fi') # this can help enable annotations on old versions of acroread (for some reason).  Doesn't really depend on links_and_bookmarks, but I'm assuming if you have links_and_bookmarks switched off you're sending it to printers and therefore don't need to enable annotations for people who have old versions of acroread.
-  if sys.platform=="darwin": os.system('open "'+pdffile+'"') # TODO: is this always a good idea? (+ don't put this before the above qpdf: even though there's little chance of the race condition failing, Preview can still crash after qpdf finishes)
+  if links_and_bookmarks: os.system('if which qpdf 2>/dev/null >/dev/null; then echo Running qpdf 1>&2 && qpdf --encrypt "" "" 128 --print=full --modify=all -- "'+pdffile+'" "/tmp/q'+pdffile+'" && mv "/tmp/q'+pdffile+'" "'+pdffile+'"; fi') # this can help enable annotations on old versions of acroread (for some reason).  Doesn't really depend on links_and_bookmarks, but I'm assuming if you have links_and_bookmarks switched off you're sending it to printers and therefore don't need to enable annotations for people who have old versions of acroread.
+  if sys.platform=="darwin" and not "--no-open" in sys.argv:
+    os.system('open "'+pdffile+'"') # (don't put this before the above qpdf: even though there's little chance of the race condition failing, Preview can still crash after qpdf finishes)
+    import time ; time.sleep(1) # (give 'open' a chance to finish opening the file before returning control to the shell, in case the calling script renames the file or something)
