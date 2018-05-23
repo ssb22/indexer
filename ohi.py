@@ -12,7 +12,7 @@
 #    MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE.  See the
 #    GNU General Public License for more details.
 
-# This is a Python program for creating large indices of
+# This is a Python 2 program for creating large indices of
 # HTML text which can be queried using simple Javascript
 # that works on many mobile phone browsers without needing
 # an Internet connection or a Web server. This is useful if
