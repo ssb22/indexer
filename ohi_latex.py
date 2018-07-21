@@ -1,7 +1,7 @@
 #!/usr/bin/env python
 
 # ohi_latex: Offline HTML Indexer for LaTeX
-# v1.146 (c) 2014-18 Silas S. Brown
+# v1.147 (c) 2014-18 Silas S. Brown
 
 #    This program is free software; you can redistribute it and/or modify
 #    it under the terms of the GNU General Public License as published by
@@ -16,9 +16,11 @@
 # See comments in ohi.py for what this is about.
 # This version basically takes the same input and uses
 # pdflatex to make a PDF from it instead of HTML fragments.
+
 # Includes a simple HTML to LaTeX converter with support for
 # CJK (including Pinyin), Greek, Braille, IPA, Latin diacritics
-# and miscellaneous symbols
+# and miscellaneous symbols.  You could use this alone by
+# giving standard input without any 'a name' tags.
 
 # Configuration
 # -------------
@@ -507,7 +509,7 @@ def matchAllCJK(match):
             r.append(hanziStr[:mLen])
             global used_cjk ; used_cjk = True
         else:
-            r.append(TeX_unhandled_char(hanziStr[0]))
+            if not ord(hanziStr[0])==0x200b: r.append(TeX_unhandled_char(hanziStr[0]))
             mLen = 1
         hanziStr = hanziStr[mLen:]
     return u"".join(r)
@@ -663,7 +665,7 @@ if outfile:
   r=os.system("&&".join(['pdflatex -draftmode -file-line-error -halt-on-error "'+outfile+'"']*(passes-1)+['pdflatex -file-line-error -halt-on-error "'+outfile+'"']))
   assert not r, "pdflatex failure"
   pdffile = re.sub(r"\.tex$",".pdf",outfile)
-  if links_and_bookmarks: os.system('if which qpdf 2>/dev/null >/dev/null; then echo Running qpdf 1>&2 && qpdf --encrypt "" "" 128 --print=full --modify=all -- "'+pdffile+'" "/tmp/q'+pdffile+'" && mv "/tmp/q'+pdffile+'" "'+pdffile+'"; fi') # this can help enable annotations on old versions of acroread (for some reason).  Doesn't really depend on links_and_bookmarks, but I'm assuming if you have links_and_bookmarks switched off you're sending it to printers and therefore don't need to enable annotations for people who have old versions of acroread.
+  if links_and_bookmarks: os.system('if which qpdf 2>/dev/null >/dev/null; then /bin/echo -n "Running qpdf..." 1>&2 && qpdf --encrypt "" "" 128 --print=full --modify=all -- "'+pdffile+'" "/tmp/q'+pdffile+'" && mv "/tmp/q'+pdffile+'" "'+pdffile+'" && echo " done" 1>&2 ; fi') # this can help enable annotations on old versions of acroread (for some reason).  Doesn't really depend on links_and_bookmarks, but I'm assuming if you have links_and_bookmarks switched off you're sending it to printers and therefore don't need to enable annotations for people who have old versions of acroread.
   if sys.platform=="darwin" and not "--no-open" in sys.argv:
     os.system('open "'+pdffile+'"') # (don't put this before the above qpdf: even though there's little chance of the race condition failing, Preview can still crash after qpdf finishes)
     import time ; time.sleep(1) # (give 'open' a chance to finish opening the file before returning control to the shell, in case the calling script renames the file or something)
