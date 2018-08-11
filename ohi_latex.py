@@ -1,7 +1,7 @@
 #!/usr/bin/env python
 
 # ohi_latex: Offline HTML Indexer for LaTeX
-# v1.147 (c) 2014-18 Silas S. Brown
+# v1.148 (c) 2014-18 Silas S. Brown
 
 #    This program is free software; you can redistribute it and/or modify
 #    it under the terms of the GNU General Public License as published by
@@ -662,8 +662,10 @@ if outfile:
   if '--dry-run' in sys.argv: sys.exit()
   if r'\hyper' in texDoc: passes=2
   else: passes=1 # TODO: any other values? (below line supports any)
-  r=os.system("&&".join(['pdflatex -draftmode -file-line-error -halt-on-error "'+outfile+'"']*(passes-1)+['pdflatex -file-line-error -halt-on-error "'+outfile+'"']))
-  assert not r, "pdflatex failure"
+  sys.stderr.write("Running pdflatex... ")
+  r=os.system("&&".join(['pdflatex -draftmode -file-line-error -halt-on-error "'+outfile+'" >/dev/null']*(passes-1)+['pdflatex -file-line-error -halt-on-error "'+outfile+'" >/dev/null'])) # >/dev/null added because there'll likely be many hbox warnings; log file is more manageable than having them on-screen
+  assert not r, "pdflatex failure (see "+outfile.replace(".tex",".log")+")"
+  sys.stderr.write("done\n")
   pdffile = re.sub(r"\.tex$",".pdf",outfile)
   if links_and_bookmarks: os.system('if which qpdf 2>/dev/null >/dev/null; then /bin/echo -n "Running qpdf..." 1>&2 && qpdf --encrypt "" "" 128 --print=full --modify=all -- "'+pdffile+'" "/tmp/q'+pdffile+'" && mv "/tmp/q'+pdffile+'" "'+pdffile+'" && echo " done" 1>&2 ; fi') # this can help enable annotations on old versions of acroread (for some reason).  Doesn't really depend on links_and_bookmarks, but I'm assuming if you have links_and_bookmarks switched off you're sending it to printers and therefore don't need to enable annotations for people who have old versions of acroread.
   if sys.platform=="darwin" and not "--no-open" in sys.argv:
