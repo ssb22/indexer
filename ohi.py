@@ -1,4 +1,4 @@
-#!/usr/bin/env python
+#!/usr/bin/env python2
 
 # Offline HTML Indexer v1.12 (c) 2013-15 Silas S. Brown.
 

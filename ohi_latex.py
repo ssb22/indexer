@@ -1,4 +1,4 @@
-#!/usr/bin/env python
+#!/usr/bin/env python2
 
 # ohi_latex: Offline HTML Indexer for LaTeX
 # v1.148 (c) 2014-18 Silas S. Brown

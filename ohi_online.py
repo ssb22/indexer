@@ -1,4 +1,4 @@
-#!/usr/bin/env python
+#!/usr/bin/env python2
 
 # Online HTML Indexer v1.09 (c) 2013-17 Silas S. Brown.
 
