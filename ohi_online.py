@@ -1,6 +1,6 @@
 #!/usr/bin/env python2
 
-# Online HTML Indexer v1.09 (c) 2013-17 Silas S. Brown.
+# Online HTML Indexer v1.1 (c) 2013-18 Silas S. Brown.
 
 #    This program is free software; you can redistribute it and/or modify
 #    it under the terms of the GNU General Public License as published by
@@ -71,10 +71,12 @@ code_to_run_when_DOM_changes = ""
 # fix some typography when browser support is detected
 
 web_adjuster_extension_mode = False
+# If set to True, this module's handle() will work - see
+# Web Adjuster 'extensions' option for more details.
+# If set to False, we just behave as a CGI script.
+
 web_adjuster_extension_url = "http://example.org/ohi.cgi"
-# (if you set the above, this module's handle() will work
-# - see Web Adjuster 'extensions' option for more details.
-# Otherwise we just behave as a CGI script.)
+web_adjuster_extension_url2 = "http://localhost/ohi.cgi"
 
 cgi_name = "ohi.cgi" # for rewriting <a href="#..."> links
 
@@ -269,8 +271,14 @@ def main(req=None):
 //--></script>"""+between_before_and_after.join(link(l) for l in b4)+tableAround+'<table border'+tableStyle+'><tr><td><a id="e" name="e"></a>'+link(line,q)+'</td></tr></table>'+tableAround+between_before_and_after.join(link(l) for l in aftr)+moreAfter,req=req)
 
 def handle(url,req):
+    global web_adjuster_extension_url,web_adjuster_extension_url2
     if url.startswith(web_adjuster_extension_url):
         main(req)
+        return True
+    elif url.startswith(web_adjuster_extension_url2):
+        web_adjuster_extension_url,web_adjuster_extension_url2 = web_adjuster_extension_url2,web_adjuster_extension_url
+        try: main(req)
+        finally: web_adjuster_extension_url,web_adjuster_extension_url2 = web_adjuster_extension_url2,web_adjuster_extension_url
         return True
 
 if __name__=="__main__": main()
