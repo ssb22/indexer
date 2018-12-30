@@ -57,6 +57,17 @@ elif '--a4compact' in sys.argv:
   twocol_columns = 3
   page_headings = True
   whole_doc_in_footnotesize=True ; links_and_bookmarks = False ; class_options="" ; remove_adjacent_see = 2 ; suppress_adjacent_see = 1 # (see 'lulu' above for these 5)
+elif '--a5' in sys.argv:
+  # intended for 'on-screen only' use on small devices
+  geometry = "a5paper,lmargin=3mm,rmargin=3mm,tmargin=3mm,bmargin=3mm,columnsep=8mm"
+  multicol=""
+  twocol_columns = 2
+  page_headings = False
+  whole_doc_in_footnotesize=False
+  links_and_bookmarks = True
+  remove_adjacent_see = 0
+  suppress_adjacent_see = 0
+  class_options="12pt"
 else:
   # these settings should work on most laser printers but I don't know about binding; should be OK for on-screen use
   geometry = "a4paper,lmargin=10mm,rmargin=10mm,tmargin=10mm,bmargin=15mm,columnsep=8mm"
@@ -394,7 +405,9 @@ def makeLatex(unistr):
     if any(x[0]==c for x in tex_accent_codes): name += " (matchAccentedLatin handles this for Latin letters, but the input had it with something else)"
     elif 0x2b0 <= c < 0x370: name += " (no 'missing' box was put in the TeX for this)" # see TeX_unhandled_accent (0x300+ are 'combining' and combine with previous char; below that are 'modifier' letters)
     return "U+%04X %s\n" % (c,name)
-  if TeX_unhandled_chars: sys.stderr.write("Warning: makeLatex treated these characters as 'missing':\n"+"".join(explain_unhandled(c) for c in sorted(ord(x) for x in TeX_unhandled_chars)))
+  if TeX_unhandled_chars:
+    sys.stderr.write("Warning: makeLatex treated these characters as 'missing':\n"+"".join(explain_unhandled(c) for c in sorted(ord(x) for x in TeX_unhandled_chars)))
+    if not os.environ.get("CJK_LATEX_CYBERBIT_FALLBACK",""): sys.stderr.write("You could try setting CJK_LATEX_CYBERBIT_FALLBACK=1 before the ohi_latex command.\n")
   return ret
 
 def EmOn(*args):
