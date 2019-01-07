@@ -1,7 +1,7 @@
 #!/usr/bin/env python2
 
 # ohi_latex: Offline HTML Indexer for LaTeX
-# v1.148 (c) 2014-18 Silas S. Brown
+# v1.149 (c) 2014-19 Silas S. Brown
 
 #    This program is free software; you can redistribute it and/or modify
 #    it under the terms of the GNU General Public License as published by
@@ -405,8 +405,8 @@ def makeLatex(unistr):
     if any(x[0]==c for x in tex_accent_codes): name += " (matchAccentedLatin handles this for Latin letters, but the input had it with something else)"
     elif 0x2b0 <= c < 0x370: name += " (no 'missing' box was put in the TeX for this)" # see TeX_unhandled_accent (0x300+ are 'combining' and combine with previous char; below that are 'modifier' letters)
     return "U+%04X %s\n" % (c,name)
-  if TeX_unhandled_chars:
-    sys.stderr.write("Warning: makeLatex treated these characters as 'missing':\n"+"".join(explain_unhandled(c) for c in sorted(ord(x) for x in TeX_unhandled_chars)))
+  if TeX_unhandled_codes:
+    sys.stderr.write("Warning: makeLatex treated these characters as 'missing':\n"+"".join(explain_unhandled(c) for c in sorted(TeX_unhandled_codes)))
     if not os.environ.get("CJK_LATEX_CYBERBIT_FALLBACK",""): sys.stderr.write("You could try setting CJK_LATEX_CYBERBIT_FALLBACK=1 before the ohi_latex command.\n")
   return ret
 
@@ -460,12 +460,12 @@ def codeMatchLen(hanziStr,code):
       count += 1
     return count
   else: return (hanziStr+'?').encode(code,'replace').decode(code).index('?')
-TeX_unhandled_chars = set()
-def TeX_unhandled_char(u):
-    TeX_unhandled_chars.add(u)
-    return r"\thinspace\allowbreak{\footnotesize\fbox{$^{\rm ?}$%04X}}\thinspace\allowbreak{}" % ord(u)
+TeX_unhandled_codes = set()
+def TeX_unhandled_code(u):
+    TeX_unhandled_codes.add(u)
+    return r"\thinspace\allowbreak{\footnotesize\fbox{$^{\rm ?}$%04X}}\thinspace\allowbreak{}" % u
 def TeX_unhandled_accent(combining_or_modifier_unichr):
-    TeX_unhandled_chars.add(combining_or_modifier_unichr) # for the warning
+    TeX_unhandled_codes.add(ord(combining_or_modifier_unichr)) # for the warning
     return "" # but don't write anything to the document (TODO: or do we?  if so, change explain_unhandled also)
 def my_normalize(k):
   k = unicodedata.normalize('NFD',unicode(k))
@@ -521,9 +521,16 @@ def matchAllCJK(match):
             r.append(r"\CJKfamily{"+family+"}") # (don't try to check if it's already that: this can go wrong if it gets reset at the end of an environment like in an href)
             r.append(hanziStr[:mLen])
             global used_cjk ; used_cjk = True
-        else:
-            if not ord(hanziStr[0])==0x200b: r.append(TeX_unhandled_char(hanziStr[0]))
-            mLen = 1
+        elif not ord(hanziStr[0])==0x200b:
+            code,mLen = ord(hanziStr[0]),1
+            if 0xD800 <= code <= 0xDFFF and len(hanziStr)>1:
+              # Might be a surrogate pair.  This sometimes happens on Mac Python.
+              high,low = ord(hanziStr[0]),ord(hanziStr[1])
+              if low <= 0xDBFF: high,low = low,high
+              if 0xD800 <= high <= 0xDBFF and 0xDC00 <= low <= 0xDFFF:
+                code = (high-0xD800)*0x400+low-0xDC00+0x10000
+                mLen = 2
+            r.append(TeX_unhandled_code(code))
         hanziStr = hanziStr[mLen:]
     return u"".join(r)
 
