@@ -524,7 +524,7 @@ def matchAllCJK(match):
         elif not ord(hanziStr[0])==0x200b:
             code,mLen = ord(hanziStr[0]),1
             if 0xD800 <= code <= 0xDFFF and len(hanziStr)>1:
-              # Might be a surrogate pair.  This sometimes happens on Mac Python.
+              # Might be a surrogate pair on narrow Python build (e.g. on Mac)
               high,low = ord(hanziStr[0]),ord(hanziStr[1])
               if low <= 0xDBFF: high,low = low,high
               if 0xD800 <= high <= 0xDBFF and 0xDC00 <= low <= 0xDFFF:
