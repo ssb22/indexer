@@ -2,7 +2,7 @@
 # -*- coding: utf-8 -*-
 
 # Simple CEDICT (or ADSO-dict) to HTML filter, v1.11
-# Silas S. Brown 2013, public domain
+# Silas S. Brown 2013, public domain, no warranty
 
 # Input on stdin, output on stdout
 # to pipe to Offline HTML Indexer
