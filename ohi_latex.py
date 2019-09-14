@@ -1,7 +1,7 @@
 #!/usr/bin/env python2
 
 # ohi_latex: Offline HTML Indexer for LaTeX
-# v1.149 (c) 2014-19 Silas S. Brown
+# v1.15 (c) 2014-19 Silas S. Brown
 
 #    This program is free software; you can redistribute it and/or modify
 #    it under the terms of the GNU General Public License as published by
@@ -390,7 +390,12 @@ def makeLatex(unistr):
   global used_cjk,emphasis ; used_cjk=emphasis=False
   mySubDict = subDict(latex_regex1)
   unistr = mySubDict(unistr)
-  ret = r'\documentclass['+class_options+r']{article}\usepackage[T1]{fontenc}\usepackage{pinyin}\PYdeactivate\usepackage{parskip}\usepackage{microtype}\raggedbottom\usepackage['+geometry+']{geometry}'+'\n'.join(set(v for (k,v) in latex_preamble.items() if k in unistr))+r'\begin{document}'
+  ret = r'\documentclass['+class_options+r']{article}\usepackage[T1]{fontenc}\usepackage{pinyin}\PYdeactivate\usepackage{parskip}'
+  ret += r'\IfFileExists{microtype.sty}{\usepackage{microtype}}{\pdfadjustspacing=2\pdfprotrudechars=2}' # nicer line breaking (but the PDFs may be larger)
+  ret += r'\raggedbottom'
+  ret += r'\usepackage['+geometry+']{geometry}'
+  ret += '\n'.join(set(v for (k,v) in latex_preamble.items() if k in unistr))
+  ret += r'\begin{document}'
   if page_headings: ret += r'\pagestyle{fancy}\fancyhead{}\fancyfoot{}\fancyhead[LE]{\rightmark}\fancyhead[RO]{\leftmark}\thispagestyle{empty}'
   else: ret += r'\pagestyle{empty}'
   if used_cjk: ret += r"\begin{CJK}{UTF8}{}"
