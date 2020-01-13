@@ -1,11 +1,19 @@
-#!/usr/bin/env python2
+#!/usr/bin/env python
 # -*- coding: utf-8 -*-
+# Should work on either Python 2 or Python 3
 
-# Simple CEDICT (or ADSO-dict) to HTML filter, v1.11
-# Silas S. Brown 2013, public domain, no warranty
+# Simple CEDICT (or ADSO-dict) to HTML filter, v1.3
+# Silas S. Brown 2013, 2020, public domain, no warranty
 
 # Input on stdin, output on stdout
 # to pipe to Offline HTML Indexer
+
+def asUni(s):
+    if type(s)==type(u""): return s
+    else: return s.decode('utf-8','replace')
+def asStr(s):
+    if type(s)==type(""): return s
+    else: return s.encode('utf-8')
 
 import re,sys ; comments=[]
 for line in sys.stdin:
@@ -13,10 +21,9 @@ for line in sys.stdin:
  elif '[' in line and '/' in line:
   for h in [line[line.index('[')+1:line.index(']')]]+\
       line[line.index('/')+1:line.rindex('/')].split('/'):
-   if h: print '<a name="'+h+'"></a>'+\
-      re.sub(r"([A-Za-z][1-5])([aAeEoO])",r"\1'\2",line.\
-             replace(h,'<b>'+h+'</b>')).\
-      decode('utf-8','replace').\
+   if h: print ('<a name="'+h+'"></a>'+\
+      asStr(asUni(re.sub(r"([A-Za-z][1-5])([aAeEoO])",r"\1'\2",line.\
+             replace(h,'<b>'+h+'</b>'))).\
       replace(u"a1",u"ā").replace(u"ai1",u"āi").\
       replace(u"ao1",u"āo").replace(u"an1",u"ān").\
       replace(u"ang1",u"āng").replace(u"o1",u"ō").\
@@ -91,8 +98,8 @@ for line in sys.stdin:
       replace(u"Ei4",u"Èi").replace(u"En4",u"Èn").\
       replace(u"Eng4",u"Èng").replace(u"Ou4",u"Òu").\
       replace(u"A5",u"A").replace(u"E5",u"E").\
-      replace(u"O5",u"O").encode('utf-8')
-   print '<p>'
-print '<a name=""></a>'
-if comments: print '<hr>Data was adapted from '+"<br>".join(comments)
+      replace(u"O5",u"O")))
+   print ('<p>')
+print ('<a name=""></a>')
+if comments: print ('<hr>Data was adapted from '+"<br>".join(comments))
 else: sys.stderr.write("c2h.py warning: input does not include copyright comments\n")
