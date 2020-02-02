@@ -1,7 +1,8 @@
-#!/usr/bin/env python2
+#!/usr/bin/env python
+# (works on both Python 2 and Python 3)
 
 # ohi_latex: Offline HTML Indexer for LaTeX
-# v1.15 (c) 2014-19 Silas S. Brown
+# v1.3 (c) 2014-20 Silas S. Brown
 
 #    This program is free software; you can redistribute it and/or modify
 #    it under the terms of the GNU General Public License as published by
@@ -88,7 +89,11 @@ remove_utf8_diacritics = True # for sorting purposes only
 
 # --------------------------------------------------------
 
-import unicodedata,htmlentitydefs,re,sys,os,string
+try: import htmlentitydefs # Python 2
+except ImportError: # Python 3
+  import html.entities as htmlentitydefs
+  xrange,unichr,unicode = range,chr,str
+import unicodedata,re,sys,os,string
 
 def makeLatex(unistr):
   "Convert unistr into a LaTeX document"
@@ -312,7 +317,7 @@ def makeLatex(unistr):
   latex_special_chars.update(dict((c,'$'+c+'$') for c in '|<>[]')) # always need math mode
   latex_special_chars.update(dict((c,'\\'+c) for c in '%&#$_{}')) # always need \ escape
   latex_special_chars.update(dict((unichr(0x2800+p),"\\braillebox{"+"".join(chr(ord('1')+b) for b in range(8) if p & (1<<b))+"}") for p in xrange(256))) # Braille - might as well
-  for c in range(0x3b1,0x3ca)+range(0x391,0x3aa): # Greek stuff:
+  for c in list(range(0x3b1,0x3ca))+list(range(0x391,0x3aa)): # Greek stuff:
     if c==0x3a2: continue
     if c>=0x3b1: textGreek=lambda c:'\\text'+unicodedata.name(unichr(c)).replace('FINAL ','VAR').split()[-1].lower().replace('cron','kron').replace('amda','ambda')+'{}'
     else: textGreek=lambda c:'\\text'+unicodedata.name(unichr(c)).split()[-1][0]+unicodedata.name(unichr(c)).split()[-1][1:].lower().replace('cron','kron').replace('amda','ambda')+'{}'
@@ -334,7 +339,7 @@ def makeLatex(unistr):
         if p in py_protected: latex_special_chars[m]='\\PYactivate\\'+p+t+"\\PYdeactivate{}"
         else: latex_special_chars[m]='\\'+p+t
   # Make sure everything's normalized:
-  for k,v in latex_special_chars.items():
+  for k,v in list(latex_special_chars.items()):
     k2 = my_normalize(k)
     if not k==k2:
       assert not k2 in latex_special_chars, repr(k)+':'+repr(v)+" is already covered by "+repr(k2)+":"+repr(latex_special_chars[k2]) # but this won't catch cases where it's already covered by matchAccentedLatin (however we might not want it to, e.g. pinyin overrides)
@@ -351,6 +356,7 @@ def makeLatex(unistr):
     r"\markboth":"\\usepackage{fancyhdr}", # TODO: what if page_headings is set on a document that contains no anchors and therefore can't be tested in unistr ?
     r"\href":"\\usepackage[hyperfootnotes=false]{hyperref}",
     r"\hyper":"\\usepackage[hyperfootnotes=false]{hyperref}",
+    r"\pdfbookmark":"\\usepackage[hyperfootnotes=false]{hyperref}",
     r'\nolinkurl':"\\usepackage[hyperfootnotes=false]{hyperref}", # or "\\url":"\\usepackage{url}", but must use hyperref instead if might be using hyperref for other things (see comments above)
     r'\sout':"\\usepackage[normalem]{ulem}",
     r'\stack':r"\newsavebox\stackBox\def\fitbox#1{\sbox\stackBox{#1}\ifdim \wd\stackBox >\columnwidth \vskip 0pt \resizebox*{\columnwidth}{!}{#1} \vskip 0pt \else{#1}\fi}\def\stack#1#2{\fitbox{\shortstack{\raisebox{0pt}[2.3ex][0ex]{#2} \\ \raisebox{0pt}[1.9ex][0.5ex]{#1}}}}", # (I also gave these measurements to Wenlin; they work for basic ruby with rb=hanzi rt=pinyin)
@@ -371,12 +377,12 @@ def makeLatex(unistr):
     k=re.escape(k)
     if endsWithLetter: k=unicode(k)+u"(?![\u0300-\u036f])" # DON'T match if it contains any ADDITIONAL accents (otherwise might get spurious pinyin matches)
     return k
-  latex_regex1 = dict((handleK(k),handleV(k,v)) for (k,v) in latex_special_chars.items())
+  latex_regex1 = dict((handleK(k),handleV(k,v)) for (k,v) in list(latex_special_chars.items()))
   latex_regex1.update(simple_html2latex_regex)
   latex_regex1[u'[A-Za-z0-9][\u0300-\u036f]+']=matchAccentedLatin ; latex_regex1[u'[\u02b0-\u036f]']=lambda m:TeX_unhandled_accent(m.group())
   # and figure out the range of all other non-ASCII chars:
   needToMatch = []
-  taken=sorted([ord(k) for k in latex_special_chars.keys() if len(k)==1 and ord(k)>=0x80]+range(0x2b0,0x370))
+  taken=sorted([ord(k) for k in latex_special_chars.keys() if len(k)==1 and ord(k)>=0x80]+list(range(0x2b0,0x370)))
   start=0x80 ; taken.append(0xfffd)
   while taken:
       if start<taken[0]:
@@ -541,8 +547,8 @@ def matchAllCJK(match):
 
 def subDict(d):
     "Returns a function on txt which replaces all keys in d with their values (keys are regexps and values are regexp-substitutes or callables)"
-    k = d.keys() ; kPinyin = []
-    k.sort(lambda x,y: cmp(len(y),len(x))) # longest 1st (this is needed by Python regexp's '|' operator)
+    k = list(d.keys()) ; kPinyin = []
+    k.sort(key=lambda x: -len(x)) # longest 1st (this is needed by Python regexp's '|' operator)
     pyEnd = u"(?![\u0300-\u036f])" # need to do this for keeping the regexp manageable on some platforms e.g. Mac:
     for i in k[:]:
       if unicode(i).endswith(pyEnd):
@@ -573,8 +579,10 @@ else:
     infile = sys.stdin
 if outfile: outf = open(outfile,'w')
 else: outf = sys.stdout
-theDoc = unicodedata.normalize('NFC',infile.read().decode('utf-8'))
-fragments = re.split(ur'<a name="([^"]*)"></a>',theDoc)
+theDoc = infile.read()
+if not type(theDoc)==type(u""): theDoc=theDoc.decode('utf-8') # Python 2
+theDoc = unicodedata.normalize('NFC',theDoc)
+fragments = re.split(u'<a name="([^"]*)"></a>',theDoc)
 if len(fragments)==1:
   # a document with no fragments - just do HTML to LaTeX
   texDoc = makeLatex(theDoc)
@@ -596,7 +604,7 @@ else:
         for c in '@,;':
           if not c in alphabet: alphabet += c
   if remove_utf8_diacritics: _ao,alphaOnly = alphaOnly, lambda x: _ao(u''.join((c for c in unicodedata.normalize('NFD',x) if not unicodedata.category(c).startswith('M'))))
-  fragments = zip(map(alphaOnly,fragments[::2]), fragments[::2], fragments[1::2])
+  fragments = list(zip(map(alphaOnly,fragments[::2]), fragments[::2], fragments[1::2]))
   fragments.sort()
   # fragments is now a sorted (sortKey, tag, contents).
   # If necessary, remove any adjacent "see" items
@@ -649,7 +657,7 @@ else:
       else: toGo = suppress_adjacent_see # reset (ordinary, non-'see' entry)
   # Now put fragments into texDoc, adding letter headings
   # and smaller-type parts as necessary:
-  allLinks=set(re.findall(ur'<a href="#[^"]*">',theDoc)+re.findall(ur'<a href=#[^>]*>',theDoc))
+  allLinks=set(re.findall(u'<a href="#[^"]*">',theDoc)+re.findall(u'<a href=#[^>]*>',theDoc))
   targetsHad = set()
   def refd_in_doc(n):
     # Returns whether anchor name 'n' occurs in an href (reads allLinks, and reads/writes targetsHad for a bit more speed)
@@ -681,7 +689,8 @@ else:
   #if inSmall: texDoc.append("</small>") # not really needed at end of doc if we just translate it to \normalsize{}
   # Now we have a document ready to convert to LaTeX:
   texDoc = makeLatex(header+''.join(texDoc)+footer)
-outf.write(texDoc.encode('utf-8'))
+if not type(u"")==type(""): texDoc=texDoc.encode('utf-8') # Python 2
+outf.write(texDoc)
 if outfile:
   outf.close()
   if '--dry-run' in sys.argv: sys.exit()

@@ -1,6 +1,7 @@
-#!/usr/bin/env python2
+#!/usr/bin/env python
+# (works in both Python 2 and Python 3)
 
-# Online HTML Indexer v1.1 (c) 2013-18 Silas S. Brown.
+# Online HTML Indexer v1.3 (c) 2013-18,2020 Silas S. Brown.
 
 #    This program is free software; you can redistribute it and/or modify
 #    it under the terms of the GNU General Public License as published by
@@ -84,13 +85,24 @@ cgi_name = "ohi.cgi" # for rewriting <a href="#..."> links
 
 # allow overrides:
 import sys ; sys.path = ['.','..'] + sys.path
-try: from ohi_config import *
-except ImportError: pass
+try: import ohi_config
+except ImportError: ohi_config = None
 
 if not web_adjuster_extension_mode:
     import cgitb ; cgitb.enable() # remove this if you don't want tracebacks in the browser
 
-import mmap, os, cgi, urllib, re
+import mmap, os, cgi, re
+try: from urllib import quote # Python 2
+except ImportError: from urllib.parse import quote # Python 3
+if ohi_config:
+    ohi_config.quote = quote # so functions there can use it
+    from ohi_config import *
+
+try: xrange
+except: xrange = range # Python 3
+def B(s):
+    if type(s)==type(u""): return s.encode('utf-8')
+    else: return s
 
 def create_linemap(fName):
     f = open(fName,"rb")
@@ -105,42 +117,53 @@ class LineMap(mmap.mmap): # might fail in old Python versions where mmap isn't a
         return [self.readline() for i in xrange(linesBefore)],self.readline(),[x for x in [self.readline() for i in xrange(linesAfter)] if x]
     def bisect(self,txt,lo=0,hi=-1):
         "returns pos of start of appropriate line"
+        txt = B(txt)
         if hi==-1: hi=len(self)
         elif hi <= lo:
             # return self.lineStart(hi)
-            # ammendment: if only the first few characters matched, it's possible that the PREVIOUS entry will match more characters (positioning is rarely helped by an inserted character, e.g. a pinyin shen/sheng confusion, and we probably want to draw more attention to the previous entries in this case, especially if the following entries are completely different e.g. 'shi'; TODO: could even do full 'first entry that matches as many characters as possible' logic)
+            # amendment: if only the first few characters matched, it's possible that the PREVIOUS entry will match more characters (positioning is rarely helped by an inserted character, e.g. a pinyin shen/sheng confusion, and we probably want to draw more attention to the previous entries in this case, especially if the following entries are completely different e.g. 'shi'; TODO: could even do full 'first entry that matches as many characters as possible' logic)
             ret = self.lineStart(hi)
-            if ret==0 or self[ret:ret+len(txt)]==txt: return ret
+            if ret==0 or self[ret:ret+len(txt)]==txt: return ret # all characters match current line, or there are no previous lines
             txt2 = txt
-            while len(txt2)>1 and not self[ret:ret+len(txt2)]==txt2: txt2 = txt2[:-1]
+            while len(txt2)>1 and not self[ret:ret+len(txt2)]==txt2: txt2 = txt2[:-1] # delete characters from the end until all that are left match current line
             ret2 = self.lineStart(ret-1)
-            if self[ret2:ret2+len(txt2)+1]==txt[:len(txt2)+1]: return ret2
+            if self[ret2:ret2+len(txt2)+1]==txt[:len(txt2)+1]: return ret2 # return previous line if they match that as well
             else: return ret
         lWidth,uWidth = int((hi-lo)/2),int((hi-lo+1)/2)
-        lLmid = self.lineStart(lo+lWidth)
-        if self.lineAt(lLmid) < txt: return self.bisect(txt,lo+uWidth,self.lineStart(hi)) # mid NOT lMid as latter doesn't shorten the interval; lHi instead of hi does
-        else: return self.bisect(txt,lo,lLmid) # similar
+        lMid = self.lineStart(lo+lWidth)
+        lLine = self.lineAt(lMid)
+        if lLine < txt: return self.bisect(txt,lMid+len(lLine),hi)
+        else: return self.bisect(txt,lo,lMid)
     def lineStart(self,pos):
-        return self.rfind("\n",0,pos)+1
+        return self.rfind(B("\n"),0,pos)+1 # (for start of file, rfind will return -1 so this+1 is still what we want)
     def lineAt(self,pos):
         self.seek(pos) ; return self.readline()
     def back_line(self):
         p = self.tell()
         if not p: return 0
-        elif self[p-1]=='\n':
+        elif self[p-1:p]==B('\n'):
             self.seek(self.lineStart(p-1))
-        else: self.seek(self.lineStart[p])
+        else: self.seek(self.lineStart(p))
         return 1
 
 if alphabet and more_sensible_punctuation_sort_order: alphaOnly = lambda x: re.sub('([;,]);+',r'\1',''.join(c for c in x.lower().replace('-',' ').replace(',','~COM~').replace(';',',').replace('~COM~',';').replace(' ',';') if c in alphabet+',;')) # gives ; < , == space (useful if ; is used to separate definitions and , is used before extra words to be added at the start; better set space EQUAL to comma, not higher, or will end up in wrong place if user inputs something forgetting the comma)
 elif alphabet: alphaOnly = lambda x: ''.join(c for c in x.lower() if c in alphabet)
 elif more_sensible_punctuation_sort_order: alphaOnly = lambda x: re.sub('([;,]);+',r'\1',x.replace('-',' ').replace(',','~COM~').replace(';',',').replace('~COM~',';').replace(' ',';'))
 else: alphaOnly = lambda x:x
-if more_sensible_punctuation_sort_order: undo_alphaOnly_swap = lambda x:x.replace(';',' ').replace(',',';')
+def ST(x):
+    if type(x)==type(""): return x # Python 2
+    return x.decode('utf-8') # Python 3
+if more_sensible_punctuation_sort_order: undo_alphaOnly_swap = lambda x:ST(x).replace(';',' ').replace(',',';')
 else: undo_alphaOnly_swap = lambda x:x
+def U(s):
+    if type(s)==type(u""): return s
+    return s.decode('utf-8')
+def S(s):
+    if type(u"")==type(""): return s # Python 3
+    else: return s.encode('utf-8') # Python 2
 if remove_utf8_diacritics:
     _ao = alphaOnly ; import unicodedata
-    alphaOnly = lambda x: _ao(u''.join((c for c in unicodedata.normalize('NFD',x.decode('utf-8')) if not unicodedata.category(c).startswith('M'))).encode('utf-8'))
+    alphaOnly = lambda x: _ao(S(u''.join((c for c in unicodedata.normalize('NFD',U(x)) if not unicodedata.category(c).startswith('M')))))
 
 def load(fName):
   txt = create_linemap(fName)
@@ -151,7 +174,7 @@ def load(fName):
   ret = {}
   contentStart = 0 ; header="" ; tag = ""
   altTags = []
-  for m in re.finditer(r'<a name="([^"]*)"></a>',txt):
+  for m in re.finditer(B(r'<a name="([^"]*)"></a>'),txt):
     # First, output the content from the PREVIOUS tag:
     if contentStart and contentStart==m.start():
         # oops, previous tag has NO content, so treat it as an 'alternate heading' to the tag we're about to have:
@@ -166,13 +189,18 @@ def load(fName):
             else: # we're on the first tag
                 assert not altTags
                 header=txt[:m.start()]
+                if type(u"")==type(""): header=header.decode('utf-8') # Python 3
         altTags = []
     # Now look at the new tag:
     tag = m.group(1) ; contentStart = m.end()
+    if type(u"")==type(""): tag=tag.decode('utf-8') # Python 3
   footer = txt[contentStart:]
+  if type(u"")==type(""): footer=footer.decode('utf-8') # Python 3
   if not header.strip(): header='<html><head><meta name="mobileoptimized" content="0"><meta name="viewport" content="width=device-width"></head><body>'
   if not footer.strip(): footer = '</body></html>'
-  ret = [tag2+"\t"+ttag+"".join(rest)+"\n" for tag2,(ttag,rest) in ret.iteritems()] ; ret.sort()
+  try: ret = ret.iteritems() # Python 2
+  except: ret = ret.items() # Python 3
+  ret = [tag2+"\t"+ttag+"".join(rest)+"\n" for tag2,(ttag,rest) in ret] ; ret.sort()
   open(fName+".index","w").write("".join(ret))
   open(fName+".header","w").write(header)
   open(fName+".footer","w").write(footer)
@@ -188,10 +216,10 @@ def out(html="",req=None):
   html = queryForm(shorter_lookup_prompt)+html
   if req:
       req.set_header('Content-type','text/html; charset=utf-8')
-      req.write(header+html+footer)
-  else: print "Content-type: text/html; charset=utf-8\n\n"+header+html+footer
+      req.write(B(header+html+footer))
+  else: print ("Content-type: text/html; charset=utf-8\n\n"+header+html+footer)
 def link(l,highl=""):
-  l,linkText,rest = l.decode('utf-8').split('\t',2) ; highl = highl.decode('utf-8') # TODO: configurable charset
+  l,linkText,rest = U(l).split('\t',2) ; highl = U(highl)
   mismatch = u""
   while highl and not l.startswith(highl): highl,mismatch=highl[:-1],highl[-1]+mismatch
   i = j = 0
@@ -206,8 +234,8 @@ def link(l,highl=""):
       if not nextPart.startswith(" ") and mismatch and not mismatch.startswith(" "): # show a red border around the mismatched letter to reinforce what happened (but ensure it's a border, not font colour, because we don't know what the user's background colour is)
           nextPart="<span style=\"border: thin red solid\">"+nextPart[0]+"</span>"+nextPart[1:]
       linkText = '<b>'+matchedPart+'</b>'+nextPart
-  l,linkText=l.encode('utf-8'),linkText.encode('utf-8')
-  return '<a href="'+cginame+'?q='+urllib.quote(undo_alphaOnly_swap(l))+'&e=1" onclick="return tryInline(this)">'+linkText+'</a>' # (this gives a 'click to expand/collapse' option on browsers that support it, TODO: configurable?  option to have onMouseOver previews somewhere??  careful as could run into trouble with user CSS files)
+  l,linkText=S(l),S(linkText)
+  return '<a href="'+cginame+'?q='+quote(undo_alphaOnly_swap(l))+'&e=1" onclick="return tryInline(this)">'+linkText+'</a>' # (this gives a 'click to expand/collapse' option on browsers that support it, TODO: configurable?  option to have onMouseOver previews somewhere??  careful as could run into trouble with user CSS files)
   # (Could shorten l to the shortest unique part of the word, but that might not be a good idea if the data can change while users are online)
   
 def redir(base,rest,req=None):
@@ -218,11 +246,11 @@ def redir(base,rest,req=None):
       req.set_status(302)
       req.set_header("Location",base+rest)
       return
-  print "Status: 302" # TODO: check this works on all servers
-  print "Location: "+base+rest
-  print
+  print ("Status: 302") # TODO: check this works on all servers
+  print ("Location: "+base+rest)
+  print ("")
 
-def linkSub(txt): return re.sub(r'(?i)<a href=("?)#',r'<a href=\1'+cgi_name+'?e=1&q=',txt)
+def linkSub(txt): return re.sub(r'(?i)<a href=("?)#',r'<a href=\1'+cgi_name+'?e=1&q=',ST(txt))
 
 def main(req=None):
   if req: query = req.request.arguments
@@ -240,26 +268,26 @@ def main(req=None):
   a = int(qGet("a",lines_after))
   b = int(qGet("b",lines_before))
   e = qGet("e")
-  if q and not e and a==lines_after and b==lines_before and not query.get("t",""): return redir("","?q="+urllib.quote(undo_alphaOnly_swap(q))+"&t=1#e",req=req)
+  if q and not e and a==lines_after and b==lines_before and not query.get("t",""): return redir("","?q="+quote(undo_alphaOnly_swap(q))+"&t=1#e",req=req)
   global header,footer
   txt,index,header,footer = load(html_filename)
   if not q: return out(req=req)
   q,q0 = alphaOnly(q),q
   if not q: q = q0
   if e:
-    ranges = index.linesAround(q,0,0)[1].split("\t")[2:]
+    ranges = ST(index.linesAround(q,0,0)[1]).split("\t")[2:]
     toOut = preprocess_result("<hr>".join(linkSub(txt[int(a):int(b)]) for a,b in zip(ranges[::2], ranges[1::2])))
     if e=="2":
         if req:
             req.set_header('Content-type','text/plain; charset=utf-8')
             req.write(toOut)
-        else: print "Content-type: text/plain; charset=utf-8\n\n"+toOut # for the XMLHttpRequest
+        else: print ("Content-type: text/plain; charset=utf-8\n\n"+toOut) # for the XMLHttpRequest
         return
     else: return out(toOut,req=req)
   b4,line,aftr = index.linesAround(q,b,a)
   lnks = links_to_related_services(q0)
   if lnks: lnks += '<hr>'
-  def more(a,b,tag,label): return ('<a name="%s" href="%s?q=%s&a=%d&b=%d#%s">%s</a>' % (tag,cginame,urllib.quote(undo_alphaOnly_swap(q)),a,b,tag,label)) # 'after' version of this works only if it's at the very bottom of the page, so the words above it are still on-screen when jumping to its hash
+  def more(a,b,tag,label): return ('<a name="%s" href="%s?q=%s&a=%d&b=%d#%s">%s</a>' % (tag,cginame,quote(undo_alphaOnly_swap(q)),a,b,tag,label)) # 'after' version of this works only if it's at the very bottom of the page, so the words above it are still on-screen when jumping to its hash
   if b < max_show_more and len(b4)==b: moreBefore = more(a,min(b+increment,max_show_more),"b","&lt;&lt; more")+between_before_and_after
   else: moreBefore = '<a name="b"></a>'
   if a < max_show_more and len(aftr)==a: moreAfter = between_before_and_after+more(min(a+increment,max_show_more),b,"a","more &gt;&gt;")

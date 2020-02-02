@@ -1,6 +1,7 @@
-#!/usr/bin/env python2
+#!/usr/bin/env python
+# (works in both Python 2 and Python 3)
 
-# Offline HTML Indexer v1.12 (c) 2013-15 Silas S. Brown.
+# Offline HTML Indexer v1.3 (c) 2013-15,2020 Silas S. Brown.
 
 #    This program is free software; you can redistribute it and/or modify
 #    it under the terms of the GNU General Public License as published by
@@ -12,7 +13,7 @@
 #    MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE.  See the
 #    GNU General Public License for more details.
 
-# This is a Python 2 program for creating large indices of
+# This is a Python program for creating large indices of
 # HTML text which can be queried using simple Javascript
 # that works on many mobile phone browsers without needing
 # an Internet connection or a Web server. This is useful if
@@ -53,7 +54,8 @@ max_filesize = 64*1024 # of each HTML file
 # ---------------------------------------------------------------
 
 import re,sys,os,time
-from itertools import izip
+if type("")==type(u""): izip = zip # Python 3
+else: from itertools import izip # Python 2
 
 if infile:
     sys.stderr.write("Reading from "+infile+"... ")
@@ -82,8 +84,14 @@ if more_sensible_punctuation_sort_order:
         if not c in alphabet: alphabet += c
 if remove_utf8_diacritics:
     _ao = alphaOnly ; import unicodedata
-    alphaOnly = lambda x: _ao(u''.join((c for c in unicodedata.normalize('NFD',x.decode('utf-8')) if not unicodedata.category(c).startswith('M'))).encode('utf-8'))
-fragments = zip(map(alphaOnly,fragments[::2]), fragments[1::2])
+    def S(s):
+        if type(u"")==type(""): return s # Python 3
+        else: return s.encode('utf-8') # Python 2
+    def U(s):
+        if type(s)==type(u""): return s
+        return s.decode('utf-8')
+    alphaOnly = lambda x: _ao(S(u''.join((c for c in unicodedata.normalize('NFD',U(x)) if not unicodedata.category(c).startswith('M')))))
+fragments = list(zip(map(alphaOnly,fragments[::2]), fragments[1::2]))
 fragments.sort()
 class ChangedLetters:
     def __init__(self): self.lastText = ""
@@ -160,8 +168,9 @@ def findEnd(start,docNo):
     assert eTry, "must start before the end"
     sLen = len(htmlDoc(start,start+eTry,docNo))
     if sLen > max_filesize:
-        eTry /= (sLen / max_filesize) # rough start point
-        while eTry > 1 and len(htmlDoc(start,start+eTry,docNo)) > max_filesize: eTry /= 2
+        eTry = int(eTry / int(sLen / max_filesize)) # rough start point
+        while eTry > 1 and len(htmlDoc(start,start+eTry,docNo)) > max_filesize:
+            eTry = int(eTry/2)
         if eTry < 1: eTry = 1
     while eTry < len(fragments)-start and len(htmlDoc(start,start+eTry,docNo)) < max_filesize: eTry += 1
     return start + max(1,eTry-1)
