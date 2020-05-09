@@ -3,7 +3,7 @@ function nums2marks() {
 if(document.getElementsByTagName) {
   var b=document.getElementsByTagName("BODY")[0],
       d=document.createElement("DIV"),s=document.createElement("SPAN"),
-      ffmly = "Gandhari, DejaVu Sans, Lucida Sans Unicode, Times New Roman, serif";
+      ffmly = "FreeSerif, Lucida Sans Unicode, Times New Roman, DejaVu Sans, serif";
   s.setAttribute("style","font-family:"+ffmly); d.appendChild(s);
   function wid(ih) { s.innerHTML=ih; b.appendChild(d); var w=s.offsetWidth; b.removeChild(d); return w };
   var i3_width=wid("\u01d0"),o3_width=wid("\u01d2"),sup6_width=wid("\u2076"),sup2_width=wid("\u00b2");
