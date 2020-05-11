@@ -51,6 +51,11 @@ remove_utf8_diacritics = True # or False, for removing diacritics in index headi
 max_filesize = 64*1024 # of each HTML file
 # (max_filesize can be exceeded by 1 very large entry)
 
+# Where to find history:
+# on GitHub at https://github.com/ssb22/indexer
+# and on GitLab at https://gitlab.com/ssb22/indexer
+# and on BitBucket https://bitbucket.org/ssb22/indexer
+
 # ---------------------------------------------------------------
 
 import re,sys,os,time

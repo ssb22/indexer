@@ -1,4 +1,10 @@
 // numbers to marks in gradint links iff support
+
+// Where to find history:
+// on GitHub at https://github.com/ssb22/indexer
+// and on GitLab at https://gitlab.com/ssb22/indexer
+// and on BitBucket https://bitbucket.org/ssb22/indexer
+
 function nums2marks() {
 if(document.getElementsByTagName) {
   var b=document.getElementsByTagName("BODY")[0],

@@ -87,6 +87,11 @@ ignore_text_in_parentheses = True # or False, for parentheses in index headings
 more_sensible_punctuation_sort_order = True
 remove_utf8_diacritics = True # for sorting purposes only
 
+# Where to find history:
+# on GitHub at https://github.com/ssb22/indexer
+# and on GitLab at https://gitlab.com/ssb22/indexer
+# and on BitBucket https://bitbucket.org/ssb22/indexer
+
 # --------------------------------------------------------
 
 try: import htmlentitydefs # Python 2

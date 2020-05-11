@@ -81,6 +81,11 @@ web_adjuster_extension_url2 = "http://localhost/ohi.cgi"
 
 cgi_name = "ohi.cgi" # for rewriting <a href="#..."> links
 
+# Where to find history:
+# on GitHub at https://github.com/ssb22/indexer
+# and on GitLab at https://gitlab.com/ssb22/indexer
+# and on BitBucket https://bitbucket.org/ssb22/indexer
+
 # ------------------------------------------
 
 # allow overrides:

@@ -8,6 +8,11 @@
 # Input on stdin, output on stdout
 # to pipe to Offline HTML Indexer
 
+# Where to find history:
+# on GitHub at https://github.com/ssb22/indexer
+# and on GitLab at https://gitlab.com/ssb22/indexer
+# and on BitBucket https://bitbucket.org/ssb22/indexer
+
 def asUni(s):
     if type(s)==type(u""): return s
     else: return s.decode('utf-8','replace')
