@@ -1,7 +1,7 @@
 #!/usr/bin/env python
 # (works in both Python 2 and Python 3)
 
-# Online HTML Indexer v1.3 (c) 2013-18,2020 Silas S. Brown.
+# Online HTML Indexer v1.31 (c) 2013-18,2020 Silas S. Brown.
 
 #    This program is free software; you can redistribute it and/or modify
 #    it under the terms of the GNU General Public License as published by
@@ -201,7 +201,7 @@ def load(fName):
     if type(u"")==type(""): tag=tag.decode('utf-8') # Python 3
   footer = txt[contentStart:]
   if type(u"")==type(""): footer=footer.decode('utf-8') # Python 3
-  if not header.strip(): header='<html><head><meta name="mobileoptimized" content="0"><meta name="viewport" content="width=device-width"></head><body>'
+  if not header.strip(): header='<html><head><meta name="mobileoptimized" content="0"><meta name="viewport" content="width=device-width"><script>if(window.matchMedia && window.matchMedia("(prefers-color-scheme: dark)").matches)document.write("<style>body { background-color: black; color: #c0c000; } a { color: #00b000; }</style>");</script></head><body>'
   if not footer.strip(): footer = '</body></html>'
   try: ret = ret.iteritems() # Python 2
   except: ret = ret.items() # Python 3
