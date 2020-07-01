@@ -1,1 +1,3 @@
-<resources><style name="AppBaseTheme" parent="android:Theme.Light"></style><style name="AppTheme" parent="AppBaseTheme"><item name="android:forceDarkAllowed">true</item></style></resources>
+<resources><style name="AppBaseTheme" parent="android:Theme.Light"></style><style name="AppTheme" parent="AppBaseTheme">
+<item name="android:forceDarkAllowed">true</item><!-- for Android 10 (does nothing in earlier versions, but you might have to remove this line if your SDK is too old to recognise it) -->
+</style></resources>
