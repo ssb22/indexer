@@ -91,6 +91,7 @@ remove_utf8_diacritics = True # for sorting purposes only
 # on GitHub at https://github.com/ssb22/indexer
 # and on GitLab at https://gitlab.com/ssb22/indexer
 # and on BitBucket https://bitbucket.org/ssb22/indexer
+# and at https://gitlab.developers.cam.ac.uk/ssb22/indexer
 
 # --------------------------------------------------------
 

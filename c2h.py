@@ -12,6 +12,7 @@
 # on GitHub at https://github.com/ssb22/indexer
 # and on GitLab at https://gitlab.com/ssb22/indexer
 # and on BitBucket https://bitbucket.org/ssb22/indexer
+# and at https://gitlab.developers.cam.ac.uk/ssb22/indexer
 
 def asUni(s):
     if type(s)==type(u""): return s

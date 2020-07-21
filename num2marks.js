@@ -4,6 +4,7 @@
 // on GitHub at https://github.com/ssb22/indexer
 // and on GitLab at https://gitlab.com/ssb22/indexer
 // and on BitBucket https://bitbucket.org/ssb22/indexer
+// and at https://gitlab.developers.cam.ac.uk/ssb22/indexer
 
 function nums2marks() {
 if(document.getElementsByTagName) {
