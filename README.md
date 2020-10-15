@@ -24,7 +24,7 @@ The script `ohi_latex.py` works from the same input as `ohi.py` and can be used 
 Copyright and Trademarks
 ------------------------
 
-© Silas S. Brown, licensed under the GPL.
+© Silas S. Brown, licensed under Apache 2.
 
 * Android is a trademark of Google LLC.
 
