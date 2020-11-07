@@ -28,6 +28,8 @@ Copyright and Trademarks
 
 * Android is a trademark of Google LLC.
 
+* Apache is a registered trademark of The Apache Software Foundation.
+
 * Javascript is a trademark of Oracle Corporation in the US.
 
 * Python is a trademark of the Python Software Foundation.
