@@ -31,4 +31,8 @@ else # old ADT
 fi &&
 rm bin/*ap_ bin/*apk &&
 cd .. || exit 1
-adb -d install -r $APPNAME.apk || true # no error if device not connected
+
+# Install on any attached devices:
+(sleep 300 ; killall adb) & # in case the following command gets stuck when unattended
+export adb=$SDK/platform-tools/adb
+for D in $($adb devices|grep device$|cut -f1); do $adb -s "$D" install -r ~/Documents/workspace/RTE.apk; done || true # no error if no device connected
