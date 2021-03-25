@@ -1,7 +1,7 @@
 #!/usr/bin/env python
 # (works in both Python 2 and Python 3)
 
-# Online HTML Indexer v1.32 (c) 2013-18,2020 Silas S. Brown.
+# Online HTML Indexer v1.33 (c) 2013-18,2020 Silas S. Brown.
 
 # Licensed under the Apache License, Version 2.0 (the "License");
 # you may not use this file except in compliance with the License.
@@ -240,7 +240,7 @@ def link(l,highl=""):
     else: break
   if j:
       matchedPart,nextPart = linkText[:j],linkText[j:]
-      if not nextPart.startswith(" ") and mismatch and not mismatch.startswith(" "): # show a red border around the mismatched letter to reinforce what happened (but ensure it's a border, not font colour, because we don't know what the user's background colour is)
+      if nextPart and not nextPart.startswith(" ") and mismatch and not mismatch.startswith(" "): # show a red border around the mismatched letter to reinforce what happened (but ensure it's a border, not font colour, because we don't know what the user's background colour is)
           nextPart="<span style=\"border: thin red solid\">"+nextPart[0]+"</span>"+nextPart[1:]
       linkText = '<b>'+matchedPart+'</b>'+nextPart
   l,linkText=S(l),S(linkText)
