@@ -1,7 +1,7 @@
 #!/usr/bin/env python
 # (works in both Python 2 and Python 3)
 
-# Online HTML Indexer v1.33 (c) 2013-18,2020 Silas S. Brown.
+# Online HTML Indexer v1.34 (c) 2013-18,2020,2022 Silas S. Brown.
 
 # Licensed under the Apache License, Version 2.0 (the "License");
 # you may not use this file except in compliance with the License.
@@ -304,8 +304,8 @@ def main(req=None):
   if not '<' in between_before_and_after: tableStyle,tableAround = ' style="display:inline-table"',between_before_and_after
   else: tableStyle,tableAround = "",""
   out(lnks+moreBefore+"""<script><!--
-  function tryInline(l) { l.onclick=function(){return false}; if(!(XMLHttpRequest&&l.innerHTML)) return true; var n=document.createElement("div"); l.parentNode.insertBefore(n,l.nextSibling); n.innerHTML="Loading"; if(n.innerHTML!="Loading") return true; n.setAttribute("style","border:thin blue solid"); function g(h){l.myStuff=h;n.innerHTML=h;l.onclick=function(){l.parentNode.removeChild(n);l.onclick=function(){return tryInline(l)};return false};"""+code_to_run_when_DOM_changes+"""}; if(l.myStuff) g(l.myStuff);else{var req=new XMLHttpRequest();req.open("GET",l.href.replace("&e=1","&e=2"),true);req.onreadystatechange=function(){if(req.readyState==4)g(req.responseText)};req.send()}return false }
-//--></script>"""+between_before_and_after.join(link(l) for l in b4)+tableAround+'<table border'+tableStyle+'><tr><td><a id="e" name="e"></a>'+link(line,q)+'</td></tr></table>'+tableAround+between_before_and_after.join(link(l) for l in aftr)+moreAfter,req=req)
+  function tryInline(l) { l.onclick=function(){return false}; if(!(XMLHttpRequest&&l.innerHTML)) return true; var n=document.createElement("div"); l.parentNode.insertBefore(n,l.nextSibling); n.innerHTML="Loading"; if(n.innerHTML!="Loading") return true; n.setAttribute("style","border:thin blue solid"); function g(h){l.myStuff=h;n.innerHTML=h;if(l.parentNode.nodeName=='TD') l.parentNode.parentNode.parentNode.parentNode.style.display='block';l.onclick=function(){l.parentNode.removeChild(n);if(l.parentNode.nodeName=='TD') l.parentNode.parentNode.parentNode.parentNode.style.display='inline-table';l.onclick=function(){return tryInline(l)};return false};"""+code_to_run_when_DOM_changes+"""}; if(l.myStuff) g(l.myStuff);else{var req=new XMLHttpRequest();req.open("GET",l.href.replace("&e=1","&e=2"),true);req.onreadystatechange=function(){if(req.readyState==4)g(req.responseText)};req.send()}return false }
+//--></script>"""+between_before_and_after.join(link(l) for l in b4)+tableAround+'<table border'+tableStyle+'><tbody><tr><td><a id="e" name="e"></a>'+link(line,q)+'</td></tr></tbody></table>'+tableAround+between_before_and_after.join(link(l) for l in aftr)+moreAfter,req=req)
 
 def handle(url,req):
     global web_adjuster_extension_url,web_adjuster_extension_url2
