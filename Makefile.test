@@ -1,0 +1,6 @@
+# -*- mode: Makefile -*-
+test:
+	echo kǎoyàn|python2 ohi_latex.py --dry-run
+	grep '\\kao3\\yan4' index.tex >/dev/null
+	echo kǎoyàn|python3 ohi_latex.py --dry-run
+	grep '\\kao3\\yan4' index.tex >/dev/null
