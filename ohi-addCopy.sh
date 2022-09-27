@@ -13,7 +13,7 @@
 # and on GitLab at https://gitlab.com/ssb22/indexer
 # and on BitBucket https://bitbucket.org/ssb22/indexer
 # and at https://gitlab.developers.cam.ac.uk/ssb22/indexer
-# and in China: git clone https://gitee.com/ssb22/indexer
+# and in China: https://gitee.com/ssb22/indexer
 
 if ! test -e index.html; then echo Wrong directory; exit 1; fi
 for N in [0-9]*.html; do if test -e "$N"; then python2 -c 'import sys,re ; sys.stdout.write(re.sub(u"([\u4e00-\ua6ff]([\u3000-\uffe0]*[\u4e00-\ua6ff])*)","<button onClick=\"ca()\" style=\"background:#ededed;color:inherit\">Copy</button><span>\\1</span>",sys.stdin.read().decode("utf-8")).encode("utf-8"))' < "$N" | sed -e 's,/script>,/script><script>function ca(t) { clipboard.append((window.event.target||window.event.srcElement).nextSibling.innerHTML); location.href="index.html"}</script>,' > n && mv n "$N"; fi; done &&
