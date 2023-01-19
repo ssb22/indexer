@@ -2,7 +2,7 @@
 # (works on both Python 2 and Python 3)
 
 # ohi_latex: Offline HTML Indexer for LaTeX
-# v1.32 (c) 2014-20 Silas S. Brown
+# v1.33 (c) 2014-20,2023 Silas S. Brown
 
 # Licensed under the Apache License, Version 2.0 (the "License");
 # you may not use this file except in compliance with the License.
@@ -102,7 +102,9 @@ try: import htmlentitydefs # Python 2
 except ImportError: # Python 3
   import html.entities as htmlentitydefs
   xrange,unichr,unicode = range,chr,str
-import unicodedata,re,sys,os,string
+import unicodedata,re,sys,os
+try: from string import letters # Python 2
+except: from string import ascii_letters as letters # Python 3
 
 def makeLatex(unistr):
   "Convert unistr into a LaTeX document"
@@ -295,6 +297,7 @@ def makeLatex(unistr):
     u"\u2198":"$\\searrow$",
     u"\u2199":"$\\swarrow$",
     u"\u21A6":"$\\mapsto$",
+    u"\u21C4":"$\\rightleftarrows$",
     u"\u21D0":"$\\Leftarrow$",
     u"\u21D1":"$\\Uparrow$",
     u"\u21D2":"$\\Rightarrow$",
@@ -361,6 +364,7 @@ def makeLatex(unistr):
     r"\begin{multicols}":r"\usepackage{multicol}",
     r"\braille":"\\usepackage[puttinydots]{braille}",
     r"\checkmark":"\\usepackage{amssymb}",
+    r'\rightleftarrows':"\\usepackage{amssymb}",
     r"\euro":"\\usepackage{eurosym}",
     r"\markboth":"\\usepackage{fancyhdr}", # TODO: what if page_headings is set on a document that contains no anchors and therefore can't be tested in unistr ?
     r"\href":"\\usepackage[hyperfootnotes=false]{hyperref}",
@@ -399,6 +403,7 @@ def makeLatex(unistr):
           else: needToMatch.append(unichr(start)+'-'+unichr(taken[0]-1)) # (OK in some cases we can also dispense with the '-' but let's not worry too much about that)
       start = taken[0]+1 ; taken=taken[1:]
   latex_regex1['['+''.join(needToMatch)+']+']=matchAllCJK
+  latex_regex1['[^'+unichr(0)+'-'+unichr(0xFFFF)+']+']=matchAllCJK # we also want to catch non-BMP with this on non-narrow builds
   # done init
   sys.stderr.write("making tex... ")
   unistr = my_normalize(decode_entities(unistr)) # TODO: even in anchors etc? (although hopefully remove_utf8_diacritics is on)
@@ -427,7 +432,6 @@ def makeLatex(unistr):
     return "U+%04X %s\n" % (c,name)
   if TeX_unhandled_codes:
     sys.stderr.write("Warning: makeLatex treated these characters as 'missing':\n"+"".join(explain_unhandled(c) for c in sorted(TeX_unhandled_codes)))
-    if not os.environ.get("CJK_LATEX_CYBERBIT_FALLBACK",""): sys.stderr.write("You could try setting CJK_LATEX_CYBERBIT_FALLBACK=1 before the ohi_latex command.\n")
   return ret
 
 def EmOn(*args):
@@ -523,7 +527,7 @@ def matchAccentedLatin(match):
     cc = unichr(combining_code)
     if cc in m: m=m.replace(cc,"")
     else: continue
-    if len(tex_accent)>1 or tex_accent in string.letters or len(l)>1: l="\\"+tex_accent+"{"+l+"}"
+    if len(tex_accent)>1 or tex_accent in letters or len(l)>1: l="\\"+tex_accent+"{"+l+"}"
     else: l="\\"+tex_accent+l
   for leftOver in m: l += TeX_unhandled_accent(leftOver)
   return l
@@ -580,22 +584,24 @@ def subDict(d):
 
 # -------------------------------------------------
 
-if infile:
+if __name__ == "__main__":
+ if infile:
     sys.stderr.write("Reading from "+infile+"... ")
     infile = open(infile)
-else:
+ else:
     sys.stderr.write("Reading from standard input... ")
     infile = sys.stdin
-if outfile: outf = open(outfile,'w')
-else: outf = sys.stdout
-theDoc = infile.read()
-if not type(theDoc)==type(u""): theDoc=theDoc.decode('utf-8') # Python 2
-theDoc = unicodedata.normalize('NFC',theDoc)
-fragments = re.split(u'<a name="([^"]*)"></a>',theDoc)
-if len(fragments)==1:
+ sys.stderr.flush()
+ if outfile: outf = open(outfile,'w')
+ else: outf = sys.stdout
+ theDoc = infile.read()
+ if not type(theDoc)==type(u""): theDoc=theDoc.decode('utf-8') # Python 2
+ theDoc = unicodedata.normalize('NFC',theDoc)
+ fragments = re.split(u'<a name="([^"]*)"></a>',theDoc)
+ if len(fragments)==1:
   # a document with no fragments - just do HTML to LaTeX
   texDoc = makeLatex(theDoc)
-else:
+ else:
   # odd indices should be the tag names, even should be the HTML in between
   assert len(fragments)>3, "Couldn't find 2 or more hash tags (were they formatted correctly?)"
   assert len(fragments)%2, "re.split not returning groups??"
@@ -698,9 +704,9 @@ else:
   #if inSmall: texDoc.append("</small>") # not really needed at end of doc if we just translate it to \normalsize{}
   # Now we have a document ready to convert to LaTeX:
   texDoc = makeLatex(header+''.join(texDoc)+footer)
-if not type(u"")==type(""): texDoc=texDoc.encode('utf-8') # Python 2
-outf.write(texDoc)
-if outfile:
+ if not type(u"")==type(""): texDoc=texDoc.encode('utf-8') # Python 2
+ outf.write(texDoc)
+ if outfile:
   outf.close()
   if '--dry-run' in sys.argv: sys.exit()
   if r'\hyper' in texDoc: passes=2
@@ -710,7 +716,7 @@ if outfile:
   assert not r, "pdflatex failure (see "+outfile.replace(".tex",".log")+")"
   sys.stderr.write("done\n")
   pdffile = re.sub(r"\.tex$",".pdf",outfile)
-  if links_and_bookmarks: os.system('if which qpdf 2>/dev/null >/dev/null; then /bin/echo -n "Running qpdf..." 1>&2 && qpdf --encrypt "" "" 128 --print=full --modify=all -- "'+pdffile+'" "/tmp/q'+pdffile+'" && mv "/tmp/q'+pdffile+'" "'+pdffile+'" && echo " done" 1>&2 ; fi') # this can help enable annotations on old versions of acroread (for some reason).  Doesn't really depend on links_and_bookmarks, but I'm assuming if you have links_and_bookmarks switched off you're sending it to printers and therefore don't need to enable annotations for people who have old versions of acroread.
+  if links_and_bookmarks: os.system('if which qpdf 2>/dev/null >/dev/null; then /bin/echo -n "Running qpdf..." 1>&2 && qpdf $(if qpdf --help=encryption 2>/dev/null|grep allow-weak-crypto >/dev/null; then echo --allow-weak-crypto; fi) --encrypt "" "" 128 --print=full --modify=all -- "'+pdffile+'" "/tmp/q'+pdffile+'" && mv "/tmp/q'+pdffile+'" "'+pdffile+'" && echo " done" 1>&2 ; fi') # this can help enable annotations on old versions of acroread (for some reason).  Doesn't really depend on links_and_bookmarks, but I'm assuming if you have links_and_bookmarks switched off you're sending it to printers and therefore don't need to enable annotations for people who have old versions of acroread
   if sys.platform=="darwin" and not "--no-open" in sys.argv:
     os.system('open "'+pdffile+'"') # (don't put this before the above qpdf: even though there's little chance of the race condition failing, Preview can still crash after qpdf finishes)
     import time ; time.sleep(1) # (give 'open' a chance to finish opening the file before returning control to the shell, in case the calling script renames the file or something)
