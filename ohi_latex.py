@@ -2,7 +2,7 @@
 # (works on both Python 2 and Python 3)
 
 # ohi_latex: Offline HTML Indexer for LaTeX
-# v1.33 (c) 2014-20,2023 Silas S. Brown
+# v1.34 (c) 2014-20,2023 Silas S. Brown
 
 # Licensed under the Apache License, Version 2.0 (the "License");
 # you may not use this file except in compliance with the License.
@@ -25,16 +25,26 @@
 # and miscellaneous symbols.  You could use this alone by
 # giving standard input without any 'a name' tags.
 
-# Configuration
-# -------------
+from optparse import OptionParser
+opts = OptionParser()
+opts.add_option("--infile",
+                help="Input file (defaults to standard input)")
+opts.add_option("--outfile",default="index.tex",
+                help="Output file (use - for standard output, or set a filename for pdflatex to be run on it also)")
+opts.add_option("--lulu",action="store_true",default=False,help="Use page settings for Lulu's Letter-size printing service (max 740 pages per volume, tested 2015-05)")
+opts.add_option("--createspace",action="store_true",default=False,help="Use page settings for CreateSpace's 7.5x9.25in printing service (max 828 pages per volume, not tested)")
+opts.add_option("--a4compact",action="store_true",default=False,help="Use page settings that should work on most laser printers and MIGHT be ok for binding depending on who's doing it")
+opts.add_option("--a5",action="store_true",default=False,help="Use page settings intended for 'on-screen only' use on small devices")
+opts.add_option("--dry-run",action="store_true",default=False,help="Don't run pdflatex or qpdf")
+opts.add_option("--no-open",action="store_true",default=False,help="Don't open the resulting PDF on Mac")
 
-infile = None # None = standard input, or set a "filename"
-outfile = "index.tex" # None = standard output, but if a filename is set then pdflatex will be run also
+options, args = opts.parse_args()
+globals().update(options.__dict__)
+if outfile=="-": outfile = None
 
-import sys
-if '--lulu' in sys.argv:
-  # These settings worked for Lulu's Letter-size printing service (max 740 pages per volume).  Tested 2015-05.
-  outfile = "index-lulu.tex"
+if lulu:
+  if outfile=="index.tex":
+    outfile = "index-lulu.tex"
   geometry = "paperwidth=8.5in,paperheight=11in,twoside,inner=0.8in,outer=0.5in,tmargin=0.5in,bmargin=0.5in,columnsep=8mm,includehead,headsep=0pt" # TODO: reduce headheight ?
   multicol=r"\columnsep=14pt\columnseprule=.4pt"
   twocol_columns = 3
@@ -44,24 +54,23 @@ if '--lulu' in sys.argv:
   remove_adjacent_see=2 # if you have a lot of alternate headings (with tags ending *) that just say "see" some other heading, you can automatically remove any that turn out to be right next to what they refer to (or to other alternates that refer to the same place), or that are within N entries of such (set to 0 to turn this off, 1 for right next to, 2 for next to but one, etc)
   suppress_adjacent_see = 1 # to save a bit more, suppress '<em>see</em>' when it occurs after this number of times in succession (0 = unlimited)
   class_options="" # (maybe set 12pt if the default is not too close to the page limit)
-elif '--createspace' in sys.argv:
-  # these settings should work for CreateSpace's 7.5x9.25in printing service (max 828 pages per volume).  Not tested.
-  outfile = "index-createspace.tex"
+elif createspace:
+  if outfile=="index.tex":
+    outfile = "index-createspace.tex"
   geometry = "paperwidth=7.5in,paperheight=9.25in,twoside,inner=0.8in,outer=0.5in,tmargin=0.5in,bmargin=0.5in,columnsep=8mm,includehead,headsep=0pt" # inner=0.75in but suggest more if over 600 pages
   multicol=r"\columnsep=14pt\columnseprule=.4pt"
   twocol_columns = 2 # or 3 at a push
   page_headings = True
   whole_doc_in_footnotesize=True ; links_and_bookmarks = False ; class_options="" ; remove_adjacent_see = 2 ; suppress_adjacent_see = 1 # (see 'lulu' above for these 5)
-elif '--a4compact' in sys.argv:
-  # these settings should work on most laser printers and MIGHT be ok for binding depending on who's doing it
-  outfile = "index-a4compact.tex"
+elif a4compact:
+  if outfile=="index.tex":
+    outfile = "index-a4compact.tex"
   geometry = "a4paper,twoside,inner=0.8in,outer=10mm,tmargin=10mm,bmargin=10mm,columnsep=8mm,includehead,headsep=0pt"
   multicol=r"\columnsep=14pt\columnseprule=.4pt"
   twocol_columns = 3
   page_headings = True
   whole_doc_in_footnotesize=True ; links_and_bookmarks = False ; class_options="" ; remove_adjacent_see = 2 ; suppress_adjacent_see = 1 # (see 'lulu' above for these 5)
-elif '--a5' in sys.argv:
-  # intended for 'on-screen only' use on small devices
+elif a5:
   geometry = "a5paper,lmargin=3mm,rmargin=3mm,tmargin=3mm,bmargin=3mm,columnsep=8mm"
   multicol=""
   twocol_columns = 2
@@ -708,7 +717,7 @@ if __name__ == "__main__":
  outf.write(texDoc)
  if outfile:
   outf.close()
-  if '--dry-run' in sys.argv: sys.exit()
+  if dry_run: sys.exit()
   if r'\hyper' in texDoc: passes=2
   else: passes=1 # TODO: any other values? (below line supports any)
   sys.stderr.write("Running pdflatex... ")
@@ -717,6 +726,6 @@ if __name__ == "__main__":
   sys.stderr.write("done\n")
   pdffile = re.sub(r"\.tex$",".pdf",outfile)
   if links_and_bookmarks: os.system('if which qpdf 2>/dev/null >/dev/null; then /bin/echo -n "Running qpdf..." 1>&2 && qpdf $(if qpdf --help=encryption 2>/dev/null|grep allow-weak-crypto >/dev/null; then echo --allow-weak-crypto; fi) --encrypt "" "" 128 --print=full --modify=all -- "'+pdffile+'" "/tmp/q'+pdffile+'" && mv "/tmp/q'+pdffile+'" "'+pdffile+'" && echo " done" 1>&2 ; fi') # this can help enable annotations on old versions of acroread (for some reason).  Doesn't really depend on links_and_bookmarks, but I'm assuming if you have links_and_bookmarks switched off you're sending it to printers and therefore don't need to enable annotations for people who have old versions of acroread
-  if sys.platform=="darwin" and not "--no-open" in sys.argv:
+  if sys.platform=="darwin" and not no_open:
     os.system('open "'+pdffile+'"') # (don't put this before the above qpdf: even though there's little chance of the race condition failing, Preview can still crash after qpdf finishes)
     import time ; time.sleep(1) # (give 'open' a chance to finish opening the file before returning control to the shell, in case the calling script renames the file or something)
