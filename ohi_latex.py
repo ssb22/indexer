@@ -2,7 +2,7 @@
 # (works on both Python 2 and Python 3)
 
 # ohi_latex: Offline HTML Indexer for LaTeX
-# v1.34 (c) 2014-20,2023 Silas S. Brown
+# v1.35 (c) 2014-20,2023 Silas S. Brown
 
 # Licensed under the Apache License, Version 2.0 (the "License");
 # you may not use this file except in compliance with the License.
@@ -35,10 +35,12 @@ opts.add_option("--lulu",action="store_true",default=False,help="Use page settin
 opts.add_option("--createspace",action="store_true",default=False,help="Use page settings for CreateSpace's 7.5x9.25in printing service (max 828 pages per volume, not tested)")
 opts.add_option("--a4compact",action="store_true",default=False,help="Use page settings that should work on most laser printers and MIGHT be ok for binding depending on who's doing it")
 opts.add_option("--a5",action="store_true",default=False,help="Use page settings intended for 'on-screen only' use on small devices")
+opts.add_option("--compromise",action="store_true",default=False,help="Use page settings intended for compromise between A4 and Letter, with a more spacious layout")
 opts.add_option("--dry-run",action="store_true",default=False,help="Don't run pdflatex or qpdf")
 opts.add_option("--no-open",action="store_true",default=False,help="Don't open the resulting PDF on Mac")
 
 options, args = opts.parse_args()
+assert not args,"Unknown arguments: "+repr(args)
 globals().update(options.__dict__)
 if outfile=="-": outfile = None
 
@@ -79,6 +81,13 @@ elif a5:
   links_and_bookmarks = True
   remove_adjacent_see = 0
   suppress_adjacent_see = 0
+  class_options="12pt"
+elif compromise:
+  geometry = "a4paper,paperheight=11in,lmargin=38mm,rmargin=38mm,tmargin=30mm,bmargin=46mm,columnsep=10mm"
+  multicol="" ; twocol_columns = 2
+  page_headings=whole_doc_in_footnotesize=False
+  links_and_bookmarks = True
+  remove_adjacent_see=suppress_adjacent_see=0
   class_options="12pt"
 else:
   # these settings should work on most laser printers but I don't know about binding; should be OK for on-screen use
@@ -139,17 +148,24 @@ def makeLatex(unistr):
     '<u>':r'\uline{','</u>':'}',
     '<s>':r'\sout{','<strike>':r'\sout{',
     '</s>':'}', '</strike>':'}',
-    '<big>':"\Large{}",
+    '<big>':r"\Large{}",
     '<small>':r"\offinterlineskip\lineskip2pt\footnotesize{}", # (The 'offinterlineskip' turns off the normal line spacing and makes line spacing effectively irregular depending on the height of each line; can be useful for saving paper if you have lots of additional text in 'small'; not sure if there's a way to turn interline skip back on for the rest of the paragraph etc)
     '</big>':r"\normalsize{}",'</small>':r"\normalsize{}",
+    '<biggest>':r"\Huge{}",'</biggest>':r"\normalsize{}",
     '</a>':'}', # for simple_html2latex_regex below
     '<hr>':r"\medskip\hrule{}",
     # '<center>':r"{\centering ",'</center>':r"\par}", # OK if you'll only ever use that tag after a <p> or whatever
     '<center>':r"\begin{center}",'</center>':r"\end{center}",
     '<vfill>':r'\vfill{}',
     '<ruby><rb>':r'\stack{','</rb><rt>':'}{','</rt></ruby>':'}', # only basic <ruby><rb>...</rb><rt>...</rt></ruby> is supported by this; anything else will likely make an un-TeX'able file
+    '<h1>':r'\part*{','</h1>':'}',
+    '<h1 numbered>':r'\part{',
+    '<chapter>':r'\chapter{','</chapter>':'}', # will result in pagestyle{empty} being ineffective on chapter pages (so we just take it out); will also result in page_headings not working, and h1 for part being on page of its own
     '<h2>':r'\section*{','</h2>':'}',
+    '<h2 numbered>':r'\section{',
     '<h3>':r'\subsection*{','</h3>':'}',
+    '<h3 numbered>':r'\subsection{',
+    '<title>':r'\title{','</title>':'}%title\n',
   }
   if whole_doc_in_footnotesize: simple_html2latex_noregex.update({"<big>":r"\normalsize{}","</big>":r"\footnotesize{}","<normal-size>":r"\normalsize{}","</normal-size>":r"\footnotesize{}","<small>":"","</small>":""})
   anchorsHad = {}
@@ -191,12 +207,15 @@ def makeLatex(unistr):
     # Because we might have hyperref, using this instead:
     '((https?|s?ftp)://[!-#%-(*-;=-Z^-z|~]*)':lambda m:"\\nolinkurl{"+m.group(1).replace("&amp;",r"\&").replace("%",r"\%").replace("_",r"\_").replace('#',r'\#')+"}", # matches only the characters we can handle (and additionally does not match close paren, since that's often not part of a URL when it's quoted in text; TODO: stop at &gt; ?)
     '([a-z][a-z.]+\\.(com|net|org)/[!-#%-(*-;=-Z^-z|~]*)':lambda m:"\\nolinkurl{"+m.group(1).replace("&amp;",r"\&").replace("%",r"\%").replace("_",r"\_").replace('#',r'\#')+"}",
+    '<img src=["]([^"]*)["]>':r'\\includegraphics[width=0.9\\columnwidth]{\1}',
     }
   global latex_special_chars
   latex_special_chars = {
     '\\':"$\\backslash$",
     '~':"$\\sim$",u"\u223c":"$\\sim$",
     '^':"\\^{}",
+    "...":'\\ldots{}',
+    "LaTeX":"\\LaTeX{}","TeX":"\\TeX{}",
     u"\xA0":"~",
     u"\xA3":"\\pounds{}",
     u"\xA7":"\\S{}",
@@ -337,7 +356,7 @@ def makeLatex(unistr):
     }
   latex_special_chars.update(dict((c,'$'+c+'$') for c in '|<>[]')) # always need math mode
   latex_special_chars.update(dict((c,'\\'+c) for c in '%&#$_{}')) # always need \ escape
-  latex_special_chars.update(dict((unichr(0x2800+p),"\\braillebox{"+"".join(chr(ord('1')+b) for b in range(8) if p & (1<<b))+"}") for p in xrange(256))) # Braille - might as well
+  latex_special_chars.update(dict((unichr(0x2800+p),"\\braillebox{"+"".join(chr(ord('1')+b) for b in range(8) if p & (1<<b))+"}"+("" if p else r"\allowbreak{}")) for p in xrange(256))) # Braille - might as well
   for c in list(range(0x3b1,0x3ca))+list(range(0x391,0x3aa)): # Greek stuff:
     if c==0x3a2: continue
     if c>=0x3b1: textGreek=lambda c:'\\text'+unicodedata.name(unichr(c)).replace('FINAL ','VAR').split()[-1].lower().replace('cron','kron').replace('amda','ambda')+'{}'
@@ -376,10 +395,12 @@ def makeLatex(unistr):
     r'\rightleftarrows':"\\usepackage{amssymb}",
     r"\euro":"\\usepackage{eurosym}",
     r"\markboth":"\\usepackage{fancyhdr}", # TODO: what if page_headings is set on a document that contains no anchors and therefore can't be tested in unistr ?
+    r"\title":"\\usepackage[hyperfootnotes=false]{hyperref}\hypersetup{pdfborder={0 0 0},linktoc=all}", # as will get tableofcontents
     r"\href":"\\usepackage[hyperfootnotes=false]{hyperref}",
     r"\hyper":"\\usepackage[hyperfootnotes=false]{hyperref}",
     r"\pdfbookmark":"\\usepackage[hyperfootnotes=false]{hyperref}",
     r'\nolinkurl':"\\usepackage[hyperfootnotes=false]{hyperref}", # or "\\url":"\\usepackage{url}", but must use hyperref instead if might be using hyperref for other things (see comments above)
+    r"\includegraphics":"\\usepackage{graphicx}",
     r'\sout':"\\usepackage[normalem]{ulem}",
     r'\stack':r"\newsavebox\stackBox\def\fitbox#1{\sbox\stackBox{#1}\ifdim \wd\stackBox >\columnwidth \vskip 0pt \resizebox*{\columnwidth}{!}{#1} \vskip 0pt \else{#1}\fi}\def\stack#1#2{\fitbox{\shortstack{\raisebox{0pt}[2.3ex][0ex]{#2} \\ \raisebox{0pt}[1.9ex][0.5ex]{#1}}}}", # (I also gave these measurements to Wenlin; they work for basic ruby with rb=hanzi rt=pinyin)
     r'\sym':"\\usepackage{chessfss}",
@@ -419,16 +440,23 @@ def makeLatex(unistr):
   global used_cjk,emphasis ; used_cjk=emphasis=False
   mySubDict = subDict(latex_regex1)
   unistr = mySubDict(unistr)
-  ret = r'\documentclass['+class_options+r']{article}\usepackage[T1]{fontenc}\usepackage{pinyin}\PYdeactivate\usepackage{parskip}'
+  ret = r'\documentclass['+class_options+']{'+('report' if r'\chapter' in unistr else 'article')+r'}\usepackage[T1]{fontenc}\usepackage{pinyin}\PYdeactivate\usepackage{parskip}'
   ret += r'\IfFileExists{microtype.sty}{\usepackage{microtype}}{\pdfadjustspacing=2\pdfprotrudechars=2}' # nicer line breaking (but the PDFs may be larger)
   ret += r'\raggedbottom'
   ret += r'\usepackage['+geometry+']{geometry}'
   ret += '\n'.join(set(v for (k,v) in latex_preamble.items() if k in unistr))
+  if r'\title{' in unistr:
+    title = re.findall(r'\\title{.*?}%title',unistr,flags=re.DOTALL)[0] # might have <br>s in it
+    ret += title[:title.rindex('%')]+r"\date{}\usepackage{tocloft}\clubpenalty1000\widowpenalty1000"
+    unistr = unistr.replace(title+'\n',"",1)
+  else: title = None
   ret += r'\begin{document}'
+  if title: ret += r'\maketitle\addtocounter{page}{1}\renewcommand{\cftchapleader}{\cftdotfill{\cftdotsep}}\tableofcontents\renewcommand{\baselinestretch}{1.1}\selectfont'
   if page_headings: ret += r'\pagestyle{fancy}\fancyhead{}\fancyfoot{}\fancyhead[LE]{\rightmark}\fancyhead[RO]{\leftmark}\thispagestyle{empty}'
-  else: ret += r'\pagestyle{empty}'
+  elif not r"\chapter{" in unistr: ret += r'\pagestyle{empty}'
   if used_cjk: ret += r"\begin{CJK}{UTF8}{}"
-  if whole_doc_in_footnotesize: ret += r'\footnotesize{}'
+  if whole_doc_in_footnotesize: ret += r'\footnotesize'
+  if not ret[-1]=='}': ret += '{}'
   ret += unistr # the document itself
   if used_cjk: ret += r"\end{CJK}"
   ret += r'\end{document}'+'\n'
@@ -718,7 +746,8 @@ if __name__ == "__main__":
  if outfile:
   outf.close()
   if dry_run: sys.exit()
-  if r'\hyper' in texDoc: passes=2
+  if r'\tableofcontents' in texDoc: passes=3
+  elif r'\hyper' in texDoc: passes=2
   else: passes=1 # TODO: any other values? (below line supports any)
   sys.stderr.write("Running pdflatex... ")
   r=os.system("&&".join(['pdflatex -draftmode -file-line-error -halt-on-error "'+outfile+'" >/dev/null']*(passes-1)+['pdflatex -file-line-error -halt-on-error "'+outfile+'" >/dev/null'])) # >/dev/null added because there'll likely be many hbox warnings; log file is more manageable than having them on-screen
