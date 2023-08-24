@@ -405,7 +405,7 @@ def makeLatex(unistr):
     r'\stack':r"\newsavebox\stackBox\def\fitbox#1{\sbox\stackBox{#1}\ifdim \wd\stackBox >\columnwidth \vskip 0pt \resizebox*{\columnwidth}{!}{#1} \vskip 0pt \else{#1}\fi}\def\stack#1#2{\fitbox{\shortstack{\raisebox{0pt}[2.3ex][0ex]{#2} \\ \raisebox{0pt}[1.9ex][0.5ex]{#1}}}}", # (I also gave these measurements to Wenlin; they work for basic ruby with rb=hanzi rt=pinyin)
     r'\sym':"\\usepackage{chessfss}",
     r"\textipa":"\\usepackage[safe]{tipa}",
-    r'\text':"\\usepackage{textgreek}",
+    r'\text':"\\usepackage{textgreek} % sudo apt install texlive-science", # (if you don't have texlive-full, e.g. because it depends on vprerex and the QT libraries are messed up in Ubuntu 22)
     r'\uline':"\\usepackage[normalem]{ulem}",
     }
   latex_special_chars.update(simple_html2latex_noregex)
@@ -444,7 +444,7 @@ def makeLatex(unistr):
   ret += r'\IfFileExists{microtype.sty}{\usepackage{microtype}}{\pdfadjustspacing=2\pdfprotrudechars=2}' # nicer line breaking (but the PDFs may be larger)
   ret += r'\raggedbottom'
   ret += r'\usepackage['+geometry+']{geometry}'
-  ret += '\n'.join(set(v for (k,v) in latex_preamble.items() if k in unistr))
+  ret += '\n'.join(set(v for (k,v) in latex_preamble.items() if k in unistr))+'\n'
   if r'\title{' in unistr:
     title = re.findall(r'\\title{.*?}%title',unistr,flags=re.DOTALL)[0] # might have <br>s in it
     ret += title[:title.rindex('%')]+r"\date{}\usepackage{tocloft}\clubpenalty1000\widowpenalty1000"
