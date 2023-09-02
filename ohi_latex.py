@@ -2,7 +2,7 @@
 # (works on both Python 2 and Python 3)
 
 # ohi_latex: Offline HTML Indexer for LaTeX
-# v1.35 (c) 2014-20,2023 Silas S. Brown
+# v1.36 (c) 2014-20,2023 Silas S. Brown
 
 # Licensed under the Apache License, Version 2.0 (the "License");
 # you may not use this file except in compliance with the License.
@@ -235,9 +235,9 @@ def makeLatex(unistr):
     u"\xB8":"\\c{}",
     u"\xB9":r"\raisebox{-0.3ex}{$^1$}",
     u"\xBB":"\\guillemotright{}",
-    u"\xBC":"$\\frac14$",
-    u"\xBD":"$\\frac12$",
-    u"\xBE":"$\\frac34$",
+    u"\xBC":"\\sfrac14",
+    u"\xBD":"\\sfrac12",
+    u"\xBE":"\\sfrac34",
     u"\xC6":"\\AE{}",
     u"\xD7":"$\\times$",
     u"\xD8":"\\O{}",
@@ -314,6 +314,21 @@ def makeLatex(unistr):
     u"\u2079":r"\raisebox{-0.3ex}{$^9$}",
     u"\u20AC":"\\euro{}",
     u"\u2122":"\\textsuperscript{TM}",
+    u"\u2150":"\\sfrac17",
+    u"\u2151":"\\sfrac19",
+    u"\u2152":"\\sfrac1{10}",
+    u"\u2153":"\\sfrac13",
+    u"\u2154":"\\sfrac23",
+    u"\u2155":"\\sfrac15",
+    u"\u2156":"\\sfrac25",
+    u"\u2157":"\\sfrac35",
+    u"\u2158":"\\sfrac45",
+    u"\u2159":"\\sfrac16",
+    u"\u215A":"\\sfrac56",
+    u"\u215B":"\\sfrac18",
+    u"\u215C":"\\sfrac38",
+    u"\u215D":"\\sfrac58",
+    u"\u215E":"\\sfrac78",
     u"\u2190":"$\\leftarrow$",
     u"\u2191":"$\\uparrow$",
     u"\u2192":"$\\rightarrow$",
@@ -391,6 +406,7 @@ def makeLatex(unistr):
     r"\CJKfamily":r"\usepackage{CJK}",
     r"\begin{multicols}":r"\usepackage{multicol}",
     r"\braille":"\\usepackage[puttinydots]{braille}",
+    r"\sfrac":"\\usepackage{xfrac}",
     r"\checkmark":"\\usepackage{amssymb}",
     r'\rightleftarrows':"\\usepackage{amssymb}",
     r"\euro":"\\usepackage{eurosym}",
