@@ -1,7 +1,7 @@
 #!/usr/bin/env python
 # (works in both Python 2 and Python 3)
 
-# Online HTML Indexer v1.34 (c) 2013-18,2020,2022 Silas S. Brown.
+# Online HTML Indexer v1.35 (c) 2013-18,2020,2022-23 Silas S. Brown.
 
 # Licensed under the Apache License, Version 2.0 (the "License");
 # you may not use this file except in compliance with the License.
@@ -80,8 +80,6 @@ web_adjuster_extension_mode = False
 
 web_adjuster_extension_url = "http://example.org/ohi.cgi"
 web_adjuster_extension_url2 = "http://localhost/ohi.cgi"
-
-cgi_name = "ohi.cgi" # for rewriting <a href="#..."> links
 
 # Where to find history:
 # on GitHub at https://github.com/ssb22/indexer
@@ -221,8 +219,11 @@ else:
 
 def queryForm(prompt): return "<form action=\""+cginame+"\">"+prompt+'<input type="text" name="q"><input type="Submit" value="OK"></form>'
 def out(html="",req=None):
-  if not html: html='<script><!--\ndocument.forms[0].q.focus();\n//--></script>' # TODO: else which browsers need <br> after the </form> in the line below?
-  html = queryForm(shorter_lookup_prompt)+html
+  if html: lookup_prompt = shorter_lookup_prompt
+  else:
+      lookup_prompt = frontpage_lookup_prompt
+      html='<script><!--\ndocument.forms[0].q.focus();\n//--></script>' # TODO: else which browsers need <br> after the </form> in the line below?
+  html = queryForm(lookup_prompt)+html
   if req:
       req.set_header('Content-type','text/html; charset=utf-8')
       req.write(B(header+html+footer))
@@ -254,12 +255,12 @@ def redir(base,rest,req=None):
   if req:
       req.set_status(302)
       req.set_header("Location",base+rest)
-      return
-  print ("Status: 302") # TODO: check this works on all servers
-  print ("Location: "+base+rest)
-  print ("")
+  else:
+      print ("Status: 302") # TODO: check this works on all servers
+      print ("Location: "+base+rest)
+      print ("")
 
-def linkSub(txt): return re.sub(r'(?i)<a href=("?)#',r'<a href=\1'+cgi_name+'?e=1&q=',ST(txt))
+def linkSub(txt): return re.sub(r'(?i)<a href=("?)#',r'<a href=\1'+cginame+'?e=1&q=',ST(txt))
 
 def main(req=None):
   if req: query = req.request.arguments
