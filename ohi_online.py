@@ -1,7 +1,7 @@
 #!/usr/bin/env python
 # (works in both Python 2 and Python 3)
 
-# Online HTML Indexer v1.35 (c) 2013-18,2020,2022-23 Silas S. Brown.
+# Online HTML Indexer v1.36 (c) 2013-18,2020,2022-23 Silas S. Brown.
 
 # Licensed under the Apache License, Version 2.0 (the "License");
 # you may not use this file except in compliance with the License.
@@ -22,6 +22,7 @@
 # adjacent anchors, giving alternate labels to the same
 # fragment; there should not be any whitespace between
 # adjacent anchors.
+# Limited support for the Gemini protocol is also available.
 
 # Configuration
 # -------------
@@ -91,11 +92,15 @@ web_adjuster_extension_url2 = "http://localhost/ohi.cgi"
 # ------------------------------------------
 
 # allow overrides:
-import sys ; sys.path = ['.','..'] + sys.path
+import sys, os ; sys.path = ['.','..'] + sys.path
+sp = os.environ.get("SCRIPT_PATH","")
+if '/' in sp: sys.path=[sp[:sp.rindex('/')],sp[:sp.rfind('/',0,sp.rindex('/'))]]+sys.path # e.g. /var/gemini/cgi-bin and /var/gemini (although symlinking to a home directory is usually better)
 try: import ohi_config
 except ImportError: ohi_config = None
 
-if not web_adjuster_extension_mode:
+gemini_mode = os.environ.get("SERVER_PROTOCOL","")=="GEMINI"
+
+if not web_adjuster_extension_mode and not gemini_mode:
     import cgitb ; cgitb.enable() # remove this if you don't want tracebacks in the browser
 
 import mmap, os, cgi, re
@@ -215,18 +220,28 @@ def load(fName):
 
 if web_adjuster_extension_mode: cginame = web_adjuster_extension_url[web_adjuster_extension_url.rindex('/')+1:]
 else:
-  cginame = os.sep+sys.argv[0] ; cginame=cginame[cginame.rindex(os.sep)+1:]
+  cginame = os.sep+os.environ.get("SCRIPT_PATH",sys.argv[0])
+  cginame=cginame[cginame.rindex(os.sep)+1:]
+
+try: import htmlentitydefs
+except: import html.entities as htmlentitydefs
+try: unichr # Python 2
+except: unichr = chr # Python 3
+def html2gmi(html): return re.sub("[&]#([0-9]+);",lambda m:unichr(int(m.group(1))),re.sub("[&]#x([0-9A-Fa-f]+);",lambda m:unichr(int(m.group(1),16)),re.sub("[&]([a-zA-Z0-9]+);",lambda m:unichr(htmlentitydefs.name2codepoint.get(m.group(1),63)),re.sub("\n+","\n",re.sub("<[^>]*>","",re.sub("<script>.*?</script>","",re.sub('<a href="([^"]*)"[^>]*>',r"\n=> \1 ",html.replace("<br>","\n").replace("</a>","\n")),flags=re.DOTALL)))))).replace("\n | \n","\n") # TODO: call into html2gmi.py for typography?
 
 def queryForm(prompt): return "<form action=\""+cginame+"\">"+prompt+'<input type="text" name="q"><input type="Submit" value="OK"></form>'
 def out(html="",req=None):
   if html: lookup_prompt = shorter_lookup_prompt
   else:
       lookup_prompt = frontpage_lookup_prompt
+      if gemini_mode:
+          print ("10 "+html2gmi(shorter_lookup_prompt).strip().split("\n")[-1]+"\r") ; return
       html='<script><!--\ndocument.forms[0].q.focus();\n//--></script>' # TODO: else which browsers need <br> after the </form> in the line below?
-  html = queryForm(lookup_prompt)+html
+  if not gemini_mode: html = queryForm(lookup_prompt)+html
   if req:
       req.set_header('Content-type','text/html; charset=utf-8')
       req.write(B(header+html+footer))
+  elif gemini_mode: print ("20 text/gemini; charset=utf-8\r\n"+html2gmi(html))
   else: print ("Content-type: text/html; charset=utf-8\n\n"+header+html+footer)
 def link(l,highl=""):
   l,linkText,rest = U(l).split('\t',2) ; highl = U(highl)
@@ -255,6 +270,7 @@ def redir(base,rest,req=None):
   if req:
       req.set_status(302)
       req.set_header("Location",base+rest)
+  elif gemini_mode: print ("30 "+base+rest+"\r")
   else:
       print ("Status: 302") # TODO: check this works on all servers
       print ("Location: "+base+rest)
@@ -263,11 +279,13 @@ def redir(base,rest,req=None):
 def linkSub(txt): return re.sub(r'(?i)<a href=("?)#',r'<a href=\1'+cginame+'?e=1&q=',ST(txt))
 
 def main(req=None):
+  qs = os.environ.get('QUERY_STRING','')
   if req: query = req.request.arguments
   elif web_adjuster_extension_mode:
       load(html_filename)
       sys.stderr.write("Index is now up-to-date\n")
       return
+  elif not '=' in qs and len(qs.strip()): return redir("","?t=1&q="+qs.strip()) # ?word -> ?q=word (especially for Gemini but anyway)
   else: query = cgi.parse()
   def qGet(k,default=""):
       v = query.get(k,default)
@@ -297,7 +315,7 @@ def main(req=None):
   b4,line,aftr = index.linesAround(q,b,a)
   lnks = links_to_related_services(q0)
   if lnks: lnks += '<hr>'
-  def more(a,b,tag,label): return ('<a name="%s" href="%s?q=%s&a=%d&b=%d#%s">%s</a>' % (tag,cginame,quote(undo_alphaOnly_swap(q)),a,b,tag,label)) # 'after' version of this works only if it's at the very bottom of the page, so the words above it are still on-screen when jumping to its hash
+  def more(a,b,tag,label): return ('<a href="%s?q=%s&a=%d&b=%d#%s" name="%s">%s</a>' % (cginame,quote(undo_alphaOnly_swap(q)),a,b,tag,tag,label)) # 'after' version of this works only if it's at the very bottom of the page, so the words above it are still on-screen when jumping to its hash
   if b < max_show_more and len(b4)==b: moreBefore = more(a,min(b+increment,max_show_more),"b","&lt;&lt; more")+between_before_and_after
   else: moreBefore = '<a name="b"></a>'
   if a < max_show_more and len(aftr)==a: moreAfter = between_before_and_after+more(min(a+increment,max_show_more),b,"a","more &gt;&gt;")
