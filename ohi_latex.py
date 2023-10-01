@@ -2,7 +2,7 @@
 # (works on both Python 2 and Python 3)
 
 # ohi_latex: Offline HTML Indexer for LaTeX
-# v1.36 (c) 2014-20,2023 Silas S. Brown
+# v1.37 (c) 2014-20,2023 Silas S. Brown
 
 # Licensed under the Apache License, Version 2.0 (the "License");
 # you may not use this file except in compliance with the License.
@@ -160,7 +160,7 @@ def makeLatex(unistr):
     '<ruby><rb>':r'\stack{','</rb><rt>':'}{','</rt></ruby>':'}', # only basic <ruby><rb>...</rb><rt>...</rt></ruby> is supported by this; anything else will likely make an un-TeX'able file
     '<h1>':r'\part*{','</h1>':'}',
     '<h1 numbered>':r'\part{',
-    '<chapter>':r'\chapter{','</chapter>':'}', # will result in pagestyle{empty} being ineffective on chapter pages (so we just take it out); will also result in page_headings not working, and h1 for part being on page of its own
+    '<chapter>':r'\chapter{','</chapter>':'}', # will result in pagestyle{empty} being ineffective on chapter pages (so we just take it out, plus we slightly increase A5 margins); will also result in page_headings not working, and h1 for part being on page of its own
     '<h2>':r'\section*{','</h2>':'}',
     '<h2 numbered>':r'\section{',
     '<h3>':r'\subsection*{','</h3>':'}',
@@ -459,6 +459,8 @@ def makeLatex(unistr):
   ret = r'\documentclass['+class_options+']{'+('report' if r'\chapter' in unistr else 'article')+r'}\usepackage[T1]{fontenc}\usepackage{pinyin}\PYdeactivate\usepackage{parskip}'
   ret += r'\IfFileExists{microtype.sty}{\usepackage{microtype}}{\pdfadjustspacing=2\pdfprotrudechars=2}' # nicer line breaking (but the PDFs may be larger)
   ret += r'\raggedbottom'
+  global geometry
+  if a5 and r"\chapter{" in unistr: geometry=geometry.replace("lmargin=3mm,rmargin=3mm,tmargin=3mm,bmargin=3mm","lmargin=5mm,rmargin=5mm,tmargin=4mm,bmargin=4mm")
   ret += r'\usepackage['+geometry+']{geometry}'
   ret += '\n'.join(set(v for (k,v) in latex_preamble.items() if k in unistr))+'\n'
   if r'\title{' in unistr:
@@ -766,10 +768,14 @@ if __name__ == "__main__":
   elif r'\hyper' in texDoc: passes=2
   else: passes=1 # TODO: any other values? (below line supports any)
   sys.stderr.write("Running pdflatex... ")
+  for ext in ["aux","log","toc","out","pdf"]:
+    # ensure doesn't mess up new TeX run (e.g. if required packages for TOC have changed)
+    try: os.remove(re.sub(r"tex$",ext,outfile))
+    except: pass
   r=os.system("&&".join(['pdflatex -draftmode -file-line-error -halt-on-error "'+outfile+'" >/dev/null']*(passes-1)+['pdflatex -file-line-error -halt-on-error "'+outfile+'" >/dev/null'])) # >/dev/null added because there'll likely be many hbox warnings; log file is more manageable than having them on-screen
-  assert not r, "pdflatex failure (see "+outfile.replace(".tex",".log")+")"
+  assert not r, "pdflatex failure (see "+re.sub(r"tex$","log",outfile)+")"
   sys.stderr.write("done\n")
-  pdffile = re.sub(r"\.tex$",".pdf",outfile)
+  pdffile = re.sub(r"tex$","pdf",outfile)
   if links_and_bookmarks: os.system('if which qpdf 2>/dev/null >/dev/null; then /bin/echo -n "Running qpdf..." 1>&2 && qpdf $(if qpdf --help=encryption 2>/dev/null|grep allow-weak-crypto >/dev/null; then echo --allow-weak-crypto; fi) --encrypt "" "" 128 --print=full --modify=all -- "'+pdffile+'" "/tmp/q'+pdffile+'" && mv "/tmp/q'+pdffile+'" "'+pdffile+'" && echo " done" 1>&2 ; fi') # this can help enable annotations on old versions of acroread (for some reason).  Doesn't really depend on links_and_bookmarks, but I'm assuming if you have links_and_bookmarks switched off you're sending it to printers and therefore don't need to enable annotations for people who have old versions of acroread
   if sys.platform=="darwin" and not no_open:
     os.system('open "'+pdffile+'"') # (don't put this before the above qpdf: even though there's little chance of the race condition failing, Preview can still crash after qpdf finishes)
