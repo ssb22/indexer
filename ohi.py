@@ -1,7 +1,7 @@
 #!/usr/bin/env python
 # (works in both Python 2 and Python 3)
 
-# Offline HTML Indexer v1.32 (c) 2013-15,2020 Silas S. Brown.
+# Offline HTML Indexer v1.33 (c) 2013-15,2020,2023 Silas S. Brown.
 
 # Licensed under the Apache License, Version 2.0 (the "License");
 # you may not use this file except in compliance with the License.
@@ -150,7 +150,8 @@ return inner(a,i,mid,hi);
 js_binchop_dx = js_binchop.replace("return a[mid]","return mid")
 def js_hashjump(hashtags): return """<script><!--
 var h=location.hash; if(h.length > 1) { if(h!='#_h' && h!='#_f') { var n="#"+%s(%s,h.slice(1)); if (h!=n) location.hash=n; } } else location.href="index.html"
-//--></script>""" % (js_binchop,old_javascript_array(hashtags)) # (the h!=n test is needed to avoid loop on some  browsers e.g. PocketIE7)
+//-->
+</script>""" % (js_binchop,old_javascript_array(hashtags)) # (the h!=n test is needed to avoid loop on some  browsers e.g. PocketIE7)
 # #_h and #_f are special hashes for header and footer, used for "Next page" and "Previous page" links
 # (HTML5 defaults type to text/javascript, as do all pre-HTML5 browsers including NN2's 'script language="javascript"' thing, so we might as well save a few bytes)
 
@@ -220,8 +221,10 @@ function jump() {
   location.href=%s(%s,val)+".html#"+val
 }
 if(navigator.userAgent.indexOf("Opera/9.50" /* sometimes found on WM6.1 phones from 2008 */) >= 0) document.write("<p><b>WARNING:</"+"b> Your version of Opera may have trouble jumping to anchors; please try Opera 10 or above.</"+"p>")
-//--></script><noscript><p><b>ERROR:</b> Javascript needs to be switched on for this form to work.</p></noscript>
+//-->
+</script><noscript><p><b>ERROR:</b> Javascript needs to be switched on for this form to work.</p></noscript>
 <form action="#" onSubmit="jump();return false">Lookup: <input type="text" name="q"><input type="submit" value="ok"></form><script><!--
 if(location.hash.length > 1) { document.forms[0].q.value = location.hash.slice(1).replace(/(\+|%%20)/g,' '); jump(); } else document.forms[0].q.focus();
-//--></script>%s""" % (hashReload(linkSub(header)),js_alphabet,js_binchop_dx,old_javascript_array(fragments[s][0] for s in startsList),hashReload(linkSub(footer))))
+//-->
+</script>%s""" % (hashReload(linkSub(header)),js_alphabet,js_binchop_dx,old_javascript_array(fragments[s][0] for s in startsList),hashReload(linkSub(footer))))
 sys.stderr.write(" %d files\n" % (len(startsList)+1))
