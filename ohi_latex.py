@@ -2,7 +2,7 @@
 # (works on both Python 2 and Python 3)
 
 # ohi_latex: Offline HTML Indexer for LaTeX
-# v1.37 (c) 2014-20,2023 Silas S. Brown
+# v1.38 (c) 2014-20,2023 Silas S. Brown
 
 # Licensed under the Apache License, Version 2.0 (the "License");
 # you may not use this file except in compliance with the License.
@@ -205,7 +205,7 @@ def makeLatex(unistr):
     # URLs: the following commented-out line is OK for \usepackage{url}, but NOT if hyperref is also present (it faults on the & character)
     # '((https?|s?ftp)://[!-;=-{}]*)':lambda m:"\\url|"+m.group(1).replace("&amp;","&")+"|", # TODO: other entities? (regexp misses out | and also < because we want it to stop at the next tag)
     # Because we might have hyperref, using this instead:
-    '((https?|s?ftp)://[!-#%-(*-;=-Z^-z|~]*)':lambda m:"\\nolinkurl{"+m.group(1).replace("&amp;",r"\&").replace("%",r"\%").replace("_",r"\_").replace('#',r'\#')+"}", # matches only the characters we can handle (and additionally does not match close paren, since that's often not part of a URL when it's quoted in text; TODO: stop at &gt; ?)
+    '((https?|s?ftp|gemini)://[!-#%-(*-;=-Z^-z|~]*)':lambda m:"\\nolinkurl{"+m.group(1).replace("&amp;",r"\&").replace("%",r"\%").replace("_",r"\_").replace('#',r'\#')+"}", # matches only the characters we can handle (and additionally does not match close paren, since that's often not part of a URL when it's quoted in text; TODO: stop at &gt; ?)
     '([a-z][a-z.]+\\.(com|net|org)/[!-#%-(*-;=-Z^-z|~]*)':lambda m:"\\nolinkurl{"+m.group(1).replace("&amp;",r"\&").replace("%",r"\%").replace("_",r"\_").replace('#',r'\#')+"}",
     '<img src=["]([^"]*)["]>':r'\\includegraphics[width=0.9\\columnwidth]{\1}',
     }
@@ -411,7 +411,7 @@ def makeLatex(unistr):
     r'\rightleftarrows':"\\usepackage{amssymb}",
     r"\euro":"\\usepackage{eurosym}",
     r"\markboth":"\\usepackage{fancyhdr}", # TODO: what if page_headings is set on a document that contains no anchors and therefore can't be tested in unistr ?
-    r"\title":"\\usepackage[hyperfootnotes=false]{hyperref}\hypersetup{pdfborder={0 0 0},linktoc=all}", # as will get tableofcontents
+    r"\title":"\\usepackage[hyperfootnotes=false]{hyperref}", # as will get tableofcontents
     r"\href":"\\usepackage[hyperfootnotes=false]{hyperref}",
     r"\hyper":"\\usepackage[hyperfootnotes=false]{hyperref}",
     r"\pdfbookmark":"\\usepackage[hyperfootnotes=false]{hyperref}",
@@ -467,6 +467,7 @@ def makeLatex(unistr):
     title = re.findall(r'\\title{.*?}%title',unistr,flags=re.DOTALL)[0] # might have <br>s in it
     ret += title[:title.rindex('%')]+r"\date{}\usepackage{tocloft}\clubpenalty1000\widowpenalty1000"
     unistr = unistr.replace(title+'\n',"",1)
+    ret += r'\hypersetup{pdfborder={0 0 0},linktoc=all}' # for table of contents
   else: title = None
   ret += r'\begin{document}'
   if title: ret += r'\maketitle\addtocounter{page}{1}\renewcommand{\cftchapleader}{\cftdotfill{\cftdotsep}}\tableofcontents\renewcommand{\baselinestretch}{1.1}\selectfont'
