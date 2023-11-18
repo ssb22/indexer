@@ -2,7 +2,7 @@
 # (works on both Python 2 and Python 3)
 
 # ohi_latex: Offline HTML Indexer for LaTeX
-# v1.38 (c) 2014-20,2023 Silas S. Brown
+# v1.39 (c) 2014-20,2023 Silas S. Brown
 
 # Licensed under the Apache License, Version 2.0 (the "License");
 # you may not use this file except in compliance with the License.
@@ -465,9 +465,8 @@ def makeLatex(unistr):
   ret += '\n'.join(set(v for (k,v) in latex_preamble.items() if k in unistr))+'\n'
   if r'\title{' in unistr:
     title = re.findall(r'\\title{.*?}%title',unistr,flags=re.DOTALL)[0] # might have <br>s in it
-    ret += title[:title.rindex('%')]+r"\date{}\usepackage{tocloft}\clubpenalty1000\widowpenalty1000"
+    ret += title[:title.rindex('%')]+r"\date{}\usepackage{tocloft}\clubpenalty1000\widowpenalty1000\advance\cftchapnumwidth 0.5em\hypersetup{pdfborder={0 0 0},linktoc=all}"
     unistr = unistr.replace(title+'\n',"",1)
-    ret += r'\hypersetup{pdfborder={0 0 0},linktoc=all}' # for table of contents
   else: title = None
   ret += r'\begin{document}'
   if title: ret += r'\maketitle\addtocounter{page}{1}\renewcommand{\cftchapleader}{\cftdotfill{\cftdotsep}}\tableofcontents\renewcommand{\baselinestretch}{1.1}\selectfont'
