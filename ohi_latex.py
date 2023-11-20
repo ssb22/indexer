@@ -2,7 +2,7 @@
 # (works on both Python 2 and Python 3)
 
 # ohi_latex: Offline HTML Indexer for LaTeX
-# v1.39 (c) 2014-20,2023 Silas S. Brown
+# v1.391 (c) 2014-20,2023 Silas S. Brown
 
 # Licensed under the Apache License, Version 2.0 (the "License");
 # you may not use this file except in compliance with the License.
@@ -160,7 +160,7 @@ def makeLatex(unistr):
     '<ruby><rb>':r'\stack{','</rb><rt>':'}{','</rt></ruby>':'}', # only basic <ruby><rb>...</rb><rt>...</rt></ruby> is supported by this; anything else will likely make an un-TeX'able file
     '<h1>':r'\part*{','</h1>':'}',
     '<h1 numbered>':r'\part{',
-    '<chapter>':r'\chapter{','</chapter>':'}', # will result in pagestyle{empty} being ineffective on chapter pages (so we just take it out, plus we slightly increase A5 margins); will also result in page_headings not working, and h1 for part being on page of its own
+    '<chapter>':r'\chapter{','</chapter>':'}',
     '<h2>':r'\section*{','</h2>':'}',
     '<h2 numbered>':r'\section{',
     '<h3>':r'\subsection*{','</h3>':'}',
@@ -456,7 +456,7 @@ def makeLatex(unistr):
   global used_cjk,emphasis ; used_cjk=emphasis=False
   mySubDict = subDict(latex_regex1)
   unistr = mySubDict(unistr)
-  ret = r'\documentclass['+class_options+']{'+('report' if r'\chapter' in unistr else 'article')+r'}\usepackage[T1]{fontenc}\usepackage{pinyin}\PYdeactivate\usepackage{parskip}'
+  ret = r'\documentclass['+class_options+(((',' if class_options else '')+'twoside') if r'\chapter' in unistr else '')+']{'+('report' if r'\chapter' in unistr else 'article')+r'}\usepackage[T1]{fontenc}\usepackage{pinyin}\PYdeactivate\usepackage{parskip}'
   ret += r'\IfFileExists{microtype.sty}{\usepackage{microtype}}{\pdfadjustspacing=2\pdfprotrudechars=2}' # nicer line breaking (but the PDFs may be larger)
   ret += r'\raggedbottom'
   global geometry
@@ -465,11 +465,12 @@ def makeLatex(unistr):
   ret += '\n'.join(set(v for (k,v) in latex_preamble.items() if k in unistr))+'\n'
   if r'\title{' in unistr:
     title = re.findall(r'\\title{.*?}%title',unistr,flags=re.DOTALL)[0] # might have <br>s in it
-    ret += title[:title.rindex('%')]+r"\date{}\usepackage{tocloft}\clubpenalty1000\widowpenalty1000\advance\cftchapnumwidth 0.5em\hypersetup{pdfborder={0 0 0},linktoc=all}"
+    ret += title[:title.rindex('%')]+r"\date{}\usepackage{tocloft}\usepackage{fancyhdr}\clubpenalty1000\widowpenalty1000\advance\cftchapnumwidth 0.5em\hypersetup{pdfborder={0 0 0},linktoc=all}"
     unistr = unistr.replace(title+'\n',"",1)
   else: title = None
   ret += r'\begin{document}'
-  if title: ret += r'\maketitle\addtocounter{page}{1}\renewcommand{\cftchapleader}{\cftdotfill{\cftdotsep}}\tableofcontents\renewcommand{\baselinestretch}{1.1}\selectfont'
+  if r"\chapter{" in unistr: ret += r'\pagestyle{fancy}\fancyhf{}\renewcommand{\headrulewidth}{0pt}\fancyfoot[LE,RO]{\thepage}\fancypagestyle{plain}{\fancyhf{}\renewcommand{\headrulewidth}{0pt}\fancyhf[lef,rof]{\thepage}}'
+  if title: ret += r'\maketitle\renewcommand{\cftchapleader}{\cftdotfill{\cftdotsep}}\tableofcontents\renewcommand{\baselinestretch}{1.1}\selectfont'
   if page_headings: ret += r'\pagestyle{fancy}\fancyhead{}\fancyfoot{}\fancyhead[LE]{\rightmark}\fancyhead[RO]{\leftmark}\thispagestyle{empty}'
   elif not r"\chapter{" in unistr: ret += r'\pagestyle{empty}'
   if used_cjk: ret += r"\begin{CJK}{UTF8}{}"
