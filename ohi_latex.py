@@ -2,7 +2,7 @@
 # (works on both Python 2 and Python 3)
 
 # ohi_latex: Offline HTML Indexer for LaTeX
-# v1.391 (c) 2014-20,2023 Silas S. Brown
+# v1.392 (c) 2014-20,2023 Silas S. Brown
 
 # Licensed under the Apache License, Version 2.0 (the "License");
 # you may not use this file except in compliance with the License.
@@ -210,7 +210,8 @@ def makeLatex(unistr):
     '<img src=["]([^"]*)["]>':r'\\includegraphics[width=0.9\\columnwidth]{\1}',
     }
   global latex_special_chars
-  latex_special_chars = {
+  latex_special_chars = dict((unichr(u),"\\usym{%X}" % u) for u in range(0x2600,0x27C0)) # utfsym fallback, TODO: add 1F000..1F0FF, 1F300..1F64F, 1F680..1F6FF, beware we might be on a narrow Python build
+  latex_special_chars.update({
     '\\':"$\\backslash$",
     '~':"$\\sim$",u"\u223c":"$\\sim$",
     '^':"\\^{}",
@@ -368,7 +369,7 @@ def makeLatex(unistr):
     u"\uFB02":"fl",
     u"\uFB03":"ffi",
     u"\uFB04":"ffl",
-    }
+    })
   latex_special_chars.update(dict((c,'$'+c+'$') for c in '|<>[]')) # always need math mode
   latex_special_chars.update(dict((c,'\\'+c) for c in '%&#$_{}')) # always need \ escape
   latex_special_chars.update(dict((unichr(0x2800+p),"\\braillebox{"+"".join(chr(ord('1')+b) for b in range(8) if p & (1<<b))+"}"+("" if p else r"\allowbreak{}")) for p in xrange(256))) # Braille - might as well
@@ -406,6 +407,7 @@ def makeLatex(unistr):
     r"\CJKfamily":r"\usepackage{CJK}",
     r"\begin{multicols}":r"\usepackage{multicol}",
     r"\braille":"\\usepackage[puttinydots]{braille}",
+    r"\usym":r"\usepackage{utfsym}",
     r"\sfrac":"\\usepackage{xfrac}",
     r"\checkmark":"\\usepackage{amssymb}",
     r'\rightleftarrows':"\\usepackage{amssymb}",
