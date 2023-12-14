@@ -1,10 +1,33 @@
 #!/usr/bin/env python3
+"""
+Anemone 0.2 (http://ssb22.user.srcf.net/anemone)
+(c) 2023 Silas S. Brown.  License: Apache 2
+Run program with --help for usage instructions.
+"""
 
-generator = "Anemone 0.1 (http://ssb22.user.srcf.net/anemone)"
+# Licensed under the Apache License, Version 2.0 (the "License");
+# you may not use this file except in compliance with the License.
+# You may obtain a copy of the License at
+# 
+#     http://www.apache.org/licenses/LICENSE-2.0
+# 
+# Unless required by applicable law or agreed to in writing, software
+# distributed under the License is distributed on an "AS IS" BASIS,
+# WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
+# See the License for the specific language governing permissions and
+# limitations under the License.
+
+# Where to find history:
+# on GitHub at https://github.com/ssb22/indexer
+# and on GitLab at https://gitlab.com/ssb22/indexer
+# and on BitBucket https://bitbucket.org/ssb22/indexer
+# and at https://gitlab.developers.cam.ac.uk/ssb22/indexer
+# and in China: https://gitee.com/ssb22/indexer
 
 from argparse import ArgumentParser
+generator=__doc__.strip().split('\n')[0]
 args = ArgumentParser(prog="anemone",description=generator)
-args.add_argument("files",metavar="file",nargs="+",help="file name of: an MP3 recording, a text file containing its title, a JSON file containing its time markers, an HTML file containing its full text, or the output ZIP file.  Only one output file may be specified, but any number of the other files can be included.  Nice files only please, this code is not fully tested on messy markup.")
+args.add_argument("files",metavar="file",nargs="+",help="file name of: an MP3 recording, a text file containing its title, a JSON file containing its time markers, an XHTML file containing its full text, or the output ZIP file.  Only one output file may be specified, but any number of the other files can be included.  If no other files are given then titles are taken from the MP3 filenames.")
 args.add_argument("--lang",default="en",
                 help="the ISO 639 language code of the publication")
 args.add_argument("--title",default="",help="the title of the publication")
@@ -45,7 +68,6 @@ def parse_args():
     if jsonFiles and not len(recordingFiles)==len(jsonFiles): errExit(f"If JSON marker files are specified, there must be exactly one JSON file for each recording file.  We got f{len(jsonFiles)} JSON files and f{len(recordingFiles)} recording files.")
     if textFiles and not len(recordingFiles)==len(textFiles): errExit(f"If text files are specified, there must be exactly one text file for each recording file.  We got f{len(textFiles)} txt files and f{len(recordingFiles)} recording files.")
     if htmlFiles and not len(recordingFiles)==len(htmlFiles): errExit(f"If HTML files are specified, there must be exactly one HTML file for each recording file.  We got f{len(htmlFiles)} HTML files and f{len(recordingFiles)} recording files.")
-    if not textFiles and not htmlFiles: errExit("Please add either text files or HTML files")
     if not outputFile: outputFile=f"output_daisy{os.extsep}zip"
     global title
     if not title: title=outputFile.replace(f"{os.extsep}zip","").replace("_daisy","")
@@ -57,7 +79,8 @@ def main():
     write_all(get_texts())
 
 def get_texts():
-    if textFiles: return [open(f).read().strip() for f in textFiles] # section titles only (TODO: option to read these from MP3 filenames?)
+    if textFiles: return [open(f).read().strip() for f in textFiles] # section titles only, from text files
+    elif not htmlFiles: return [r[:r.rindex(f"{os.extsep}mp3")] for r in recordingFiles] # section titles only, from MP3 filenames
     recordingTexts = []
     for h,j in zip(htmlFiles,jsonFiles):
         markers = json.load(open(j))['markers']
@@ -73,7 +96,7 @@ def get_texts():
                 if attrs.get(attribute,None) in want_pids:
                     self.theStartTag = tag
                     a = attrs[attribute]
-                    id_to_content[a] = (('h1' if tag.startswith('h') else tag if tag=='span' else 'p'),[]) # TODO: multiple heading depths (here and elsewhere)
+                    id_to_content[a] = ((tag if re.match('h[1-6]$',tag) or tag=='span' else 'p'),[])
                     self.addTo = id_to_content[a][1]
                 elif not self.addTo==None and tag in allowedInlineTags: self.addTo.append(f'<{tag}>')
             def handle_endtag(self,tag):
@@ -102,7 +125,7 @@ def parseTime(t):
 def write_all(recordingTexts):
     "each item is: 1 text for section title of whole recording, or [(type,text),time,(type,text),time,(type,text)]"
     assert len(recordingFiles) == len(recordingTexts)
-    headings = [([u[1] for u in t if type(u)==tuple and u[0].startswith('h')] if type(t)==list else t) for t in recordingTexts] # TODO: multi-depth headings (currently we're making them all h1 in the TOC)
+    headings = [([u+(v//2,) for v,u in enumerate(t) if type(u)==tuple and u[0].startswith('h')] if type(t)==list else t) for t in recordingTexts]
     hasFullText = any(type(t)==list for t in recordingTexts)
     z = ZipFile(outputFile,"w")
     secsSoFar = 0
@@ -125,7 +148,7 @@ def ncc_html(headings = [],
              hasFullText = False,
              totalSecs = 0):
     "Returns the Navigation Control Centre (NCC)"
-    # h1..h6 (ncc:depth set to highest: TODO)
+    headingsR = HReduce(headings)
 
     # TODO can we extract page numbers from the html?
     # NCC can have
@@ -154,22 +177,25 @@ def ncc_html(headings = [],
     <meta name="ncc:maxPageNormal" content="0" />
     <meta name="ncc:pageNormal" content="0" />
     <meta name="ncc:pageSpecial" content="0" />
-    <meta name="ncc:tocItems" content="{len(headings)}" />
+    <meta name="ncc:tocItems" content="{len(headingsR)}" />
     <meta name="ncc:totalTime" content="{int(totalSecs/3600)}:{int(totalSecs/60)%60:02d}:{totalSecs%60:02f}" />
     <meta name="ncc:multimediaType" content="{"audioFullText" if hasFullText else "audioNcc"}" />
-    <meta name="ncc:depth" content="1" />
+    <meta name="ncc:depth" content="{max(int(h[0][1:]) for h in headingsR)}" />
     <meta name="ncc:files" content="{(3 if hasFullText else 2)+len(headings)*2}" />
   </head>
   <body>"""+''.join(f"""
-    <h1 class="section" id="s{s+1}.0">
-      <a href="{s+1:04d}.smil#t{s+1}.0">{t[0] if type(t)==list else t}</a>
-    </h1>""" for s,t in enumerate(headings))+"""
+    <{t[0]} class="section" id="s{s+1}">
+      <a href="{t[2]+1:04d}.smil#t{t[2]+1}.{t[3]}">{t[1]}</a>
+    </{t[0]}>""" for s,t in enumerate(headingsR))+"""
   </body>
 </html>
 """
 
+def HReduce(headings): return reduce(lambda a,b:a+b,[([(hType,hText,recNoOffset,hOffset) for (hType,hText,hOffset) in i] if type(i)==list else [('h1',i,recNoOffset,0)]) for recNoOffset,i in enumerate(headings)],[])
+
 def master_smil(headings = [],
                 totalSecs = 0):
+    headings = HReduce(headings)
     return f"""<?xml version="1.0"?>
 <!DOCTYPE smil PUBLIC "-//W3C//DTD SMIL 1.0//EN" "http://www.w3.org/TR/REC-smil/SMIL10.dtd">
 <smil>
@@ -183,7 +209,7 @@ def master_smil(headings = [],
     </layout>
   </head>
   <body>"""+'\n'.join(f"""
-    <ref title="{t[0] if type(t)==list else t}" src="{s+1:04d}.smil" id="ms_{s+1:04d}" />""" for s,t in enumerate(headings))+"""
+    <ref title="{deHTML(t[1])}" src="{t[2]+1:04d}.smil#t{t[2]+1}.{t[3]}" id="ms_{s+1:04d}" />""" for s,t in enumerate(headings))+"""
   </body>
 </smil>
 """
