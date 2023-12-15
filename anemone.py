@@ -1,6 +1,6 @@
 #!/usr/bin/env python3
 """
-Anemone 0.2 (http://ssb22.user.srcf.net/anemone)
+Anemone 0.3 (http://ssb22.user.srcf.net/anemone)
 (c) 2023 Silas S. Brown.  License: Apache 2
 Run program with --help for usage instructions.
 """
@@ -86,7 +86,7 @@ def get_texts():
         markers = json.load(open(j))['markers']
         want_pids = [str(m[[k for k in m.keys() if k.lower().endswith("id")][0]]) for m in markers]
         id_to_content = {}
-        allowedInlineTags=['em','i','b','strong'] # TODO: are inline links allowed for footnotes and references?  will need to rewrite their destinations if so
+        allowedInlineTags=[] # Dolphin EasyReader does not render <strong> and <em>, and constructs like "(<em>Publication name</em>" result in incorrect space after "(" so best leave it out.  TODO: does any reader allow inline links for footnotes and references?  will need to rewrite their destinations if so
         class PidsExtractor(HTMLParser):
             def __init__(self):
                 HTMLParser.__init__(self)
@@ -132,15 +132,16 @@ def write_all(recordingTexts):
     durations = [] ; pSoFar = 0
     for recNo in range(1,len(recordingTexts)+1):
         secsThisRecording = MP3(recordingFiles[recNo-1]).info.length
+        rTxt = recordingTexts[recNo-1]
         durations.append(secsThisRecording)
-        z.writestr(f"aud{recNo:04d}.mp3",open(recordingFiles[recNo-1],'rb').read())
-        z.writestr(f'{recNo:04d}.smil',section_smil(recNo,secsSoFar,secsThisRecording,pSoFar,recordingTexts[recNo-1]))
+        z.writestr(f"{recNo:04d}.mp3",open(recordingFiles[recNo-1],'rb').read())
+        z.writestr(f'{recNo:04d}.smil',section_smil(recNo,secsSoFar,secsThisRecording,pSoFar,rTxt))
+        z.writestr(f'{recNo:04d}.htm',text_htm((rTxt[::2] if type(rTxt)==list else [('h1',rTxt)]),pSoFar))
         secsSoFar += secsThisRecording
-        pSoFar += (1+len(recordingTexts[recNo-1])//2 if type(recordingTexts[recNo-1])==list else 1)
+        pSoFar += (1+len(rTxt)//2 if type(rTxt)==list else 1)
     z.writestr('master.smil',master_smil(headings,secsSoFar))
     z.writestr('ncc.html',ncc_html(headings,hasFullText,secsSoFar))
     z.writestr('er_book_info.xml',er_book_info(durations)) # not DAISY standard but EasyReader can use this
-    z.writestr('text.htm',text_htm(reduce(lambda a,b:a+b,[(t[::2] if type(t)==list else [('h1',t)]) for t in recordingTexts])))
     z.close()
     sys.stderr.write(f"Wrote {outputFile}\n")
 
@@ -150,10 +151,12 @@ def ncc_html(headings = [],
     "Returns the Navigation Control Centre (NCC)"
     headingsR = HReduce(headings)
 
-    # TODO can we extract page numbers from the html?
+    # TODO can we extract page numbers from the html?  e.g. from span id="pageN"
     # NCC can have
-    # <span class="value" id="value"><a href="smil#fragment">span content</a></span>
+    # <span class="page-normal" id="someID"><a href="smil#fragment">47</a></span>
+    # after the appropriate heading etc
     # class page-front or page-normal (or page-special) for iv, 1, ...
+    # ncc:pageFront etc also need updating
 
     global date
     if not date: date = "%04d-%02d-%02d" % time.localtime()[:3]
@@ -181,7 +184,7 @@ def ncc_html(headings = [],
     <meta name="ncc:totalTime" content="{int(totalSecs/3600)}:{int(totalSecs/60)%60:02d}:{totalSecs%60:02f}" />
     <meta name="ncc:multimediaType" content="{"audioFullText" if hasFullText else "audioNcc"}" />
     <meta name="ncc:depth" content="{max(int(h[0][1:]) for h in headingsR)}" />
-    <meta name="ncc:files" content="{(3 if hasFullText else 2)+len(headings)*2}" />
+    <meta name="ncc:files" content="{2+len(headings)*(3 if hasFullText else 2)}" />
   </head>
   <body>"""+''.join(f"""
     <{t[0]} class="section" id="s{s+1}">
@@ -238,9 +241,9 @@ def section_smil(recNo=1,
   <body>
     <seq id="sq{recNo}" dur="{secsThisRecording:f}s">"""+"".join(f"""
       <par endsync="last" id="pr{recNo}.{i//2}">
-        <text id="t{recNo}.{i//2}" src="text.htm#p{startP+i//2}" />
+        <text id="t{recNo}.{i//2}" src="{recNo:04d}.htm#p{startP+i//2}" />
         <seq id="sq{recNo}.{i//2}a">
-          <audio src="aud{recNo:04d}.mp3" clip-begin="npt={textsAndTimes[i-1]:f}s" clip-end="npt={textsAndTimes[i+1]:f}s" id="aud{recNo}.{i//2}" />
+          <audio src="{recNo:04d}.mp3" clip-begin="npt={textsAndTimes[i-1]:f}s" clip-end="npt={textsAndTimes[i+1]:f}s" id="aud{recNo}.{i//2}" />
         </seq>
       </par>""" for i in range(1,len(textsAndTimes),2))+"""
     </seq>
@@ -250,7 +253,7 @@ def section_smil(recNo=1,
 
 def deHTML(t): return re.sub('<[^>]*>','',t).replace('"','&quot;') # for inclusion in attributes
 
-def text_htm(paras):
+def text_htm(paras,offset=0):
     "paras = [(type,text),(type,text),...], type=h1/p/span, text is xhtml i.e. & use &amp; etc"
     return f"""<?xml version="1.0"?>
 <!DOCTYPE html PUBLIC "-//W3C//DTD XHTML 1.0 Transitional//EN" "http://www.w3.org/TR/xhtml1/DTD/xhtml1-transitional.dtd">
@@ -258,10 +261,10 @@ def text_htm(paras):
 	<head>
 		<title>{title}</title>
 		<meta content="text/html; charset=utf-8" http-equiv="content-type"/>
-		<meta name="GENERATOR" content="{generator}"/>
+		<meta name="generator" content="{generator}"/>
 	</head>
 	<body>
-"""+"\n".join(f"<{tag} id=\"p{num}\"{' class='+chr(34)+'sentence'+chr(34) if tag=='span' else ''}>{text}{'' if tag=='p' else ('</'+tag+'>')}{'' if tag.startswith('h') or (num+1<len(paras) and paras[num+1][0]=='span') else '</p>'}" for num,(tag,text) in enumerate(paras))+"""
+"""+"\n".join(f"<{tag} id=\"p{num+offset}\"{' class='+chr(34)+'sentence'+chr(34) if tag=='span' else ''}>{text}{'' if tag=='p' else ('</'+tag+'>')}{'' if tag.startswith('h') or (num+1<len(paras) and paras[num+1][0]=='span') else '</p>'}" for num,(tag,text) in enumerate(paras))+"""
         </body>
 </html>
 """
