@@ -1,6 +1,6 @@
 #!/usr/bin/env python3
 """
-Anemone 0.3 (http://ssb22.user.srcf.net/anemone)
+Anemone 0.4 (http://ssb22.user.srcf.net/anemone)
 (c) 2023 Silas S. Brown.  License: Apache 2
 Run program with --help for usage instructions.
 """
@@ -29,13 +29,14 @@ generator=__doc__.strip().split('\n')[0]
 args = ArgumentParser(prog="anemone",description=generator)
 args.add_argument("files",metavar="file",nargs="+",help="file name of: an MP3 recording, a text file containing its title, a JSON file containing its time markers, an XHTML file containing its full text, or the output ZIP file.  Only one output file may be specified, but any number of the other files can be included.  If no other files are given then titles are taken from the MP3 filenames.")
 args.add_argument("--lang",default="en",
-                help="the ISO 639 language code of the publication")
+                help="the ISO 639 language code of the publication (defaults to en for English)")
 args.add_argument("--title",default="",help="the title of the publication")
 args.add_argument("--creator",default="",help="the creator name, if known")
 args.add_argument("--publisher",default="",help="the publisher name, if known")
 args.add_argument("--reader",default="",help="the name of the reader who voiced the recordings, if known")
 args.add_argument("--date",help="the publication date as YYYY-MM-DD, default is current date")
-args.add_argument("--attribute",default="data-pid",help="the attribute used in the HTML to indicate segment numbers corresponding to JSON marker entries")
+args.add_argument("--marker-attribute",default="data-pid",help="the attribute used in the HTML to indicate a segment number corresponding to a JSON time marker entry, default is data-pid")
+args.add_argument("--page-attribute",default="data-no",help="the attribute used in the HTML to indicate a page number, default is data-no")
 
 import time, sys, os, re, json
 from functools import reduce
@@ -84,18 +85,23 @@ def get_texts():
     recordingTexts = []
     for h,j in zip(htmlFiles,jsonFiles):
         markers = json.load(open(j))['markers']
-        want_pids = [str(m[[k for k in m.keys() if k.lower().endswith("id")][0]]) for m in markers]
+        want_pids = [jsonAttr(m,"id") for m in markers]
         id_to_content = {}
+        pageNos = []
         allowedInlineTags=[] # Dolphin EasyReader does not render <strong> and <em>, and constructs like "(<em>Publication name</em>" result in incorrect space after "(" so best leave it out.  TODO: does any reader allow inline links for footnotes and references?  will need to rewrite their destinations if so
         class PidsExtractor(HTMLParser):
             def __init__(self):
                 HTMLParser.__init__(self)
                 self.addTo = None
+                self.pageNoGoesAfter = 0
             def handle_starttag(self,tag,attrs):
                 attrs = dict(attrs)
-                if attrs.get(attribute,None) in want_pids:
+                pageNo = attrs.get(page_attribute,None)
+                if pageNo: pageNos.append((self.pageNoGoesAfter,pageNo))
+                if attrs.get(marker_attribute,None) in want_pids:
                     self.theStartTag = tag
-                    a = attrs[attribute]
+                    a = attrs[marker_attribute]
+                    self.pageNoGoesAfter = want_pids.index(a)
                     id_to_content[a] = ((tag if re.match('h[1-6]$',tag) or tag=='span' else 'p'),[])
                     self.addTo = id_to_content[a][1]
                 elif not self.addTo==None and tag in allowedInlineTags: self.addTo.append(f'<{tag}>')
@@ -109,13 +115,18 @@ def get_texts():
         PidsExtractor().feed(open(h).read())
         rTxt = []
         for i in range(len(markers)):
-            if i: rTxt.append(parseTime(markers[i]['startTime']))
+            if i: rTxt.append(parseTime(jsonAttr(markers[i],"time")))
             tag,content = id_to_content[want_pids[i]]
             content = ''.join(content).strip()
             rTxt.append((tag,content))
-        recordingTexts.append(rTxt)
+        recordingTexts.append((rTxt,pageNos))
     return recordingTexts
 
+def jsonAttr(d,suffix):
+    keys = [k for k in d.keys() if k.lower().endswith(suffix)]
+    if not keys: errExit(f"No *{suffix} in {repr(keys)}")
+    if len(keys)>1: errExit(f"More than one *{suffix} in {repr(keys)}")
+    return str(d[keys[0]])
 def parseTime(t):
     tot = 0.0 ; mul = 1
     for u in reversed(t.split(':')):
@@ -123,10 +134,10 @@ def parseTime(t):
     return tot
 
 def write_all(recordingTexts):
-    "each item is: 1 text for section title of whole recording, or [(type,text),time,(type,text),time,(type,text)]"
+    "each item is: 1 text for section title of whole recording, or ([(type,text),time,(type,text),time,(type,text)],[(goesBefore,pageNo),...])"
     assert len(recordingFiles) == len(recordingTexts)
-    headings = [([u+(v//2,) for v,u in enumerate(t) if type(u)==tuple and u[0].startswith('h')] if type(t)==list else t) for t in recordingTexts]
-    hasFullText = any(type(t)==list for t in recordingTexts)
+    headings = [([u+(v//2,) for v,u in enumerate(t[0]) if type(u)==tuple and u[0].startswith('h')] if type(t)==tuple else t) for t in recordingTexts]
+    hasFullText = any(type(t)==tuple for t in recordingTexts)
     z = ZipFile(outputFile,"w")
     secsSoFar = 0
     durations = [] ; pSoFar = 0
@@ -135,29 +146,25 @@ def write_all(recordingTexts):
         rTxt = recordingTexts[recNo-1]
         durations.append(secsThisRecording)
         z.writestr(f"{recNo:04d}.mp3",open(recordingFiles[recNo-1],'rb').read())
-        z.writestr(f'{recNo:04d}.smil',section_smil(recNo,secsSoFar,secsThisRecording,pSoFar,rTxt))
-        z.writestr(f'{recNo:04d}.htm',text_htm((rTxt[::2] if type(rTxt)==list else [('h1',rTxt)]),pSoFar))
+        z.writestr(f'{recNo:04d}.smil',section_smil(recNo,secsSoFar,secsThisRecording,pSoFar,rTxt[0] if type(rTxt)==tuple else rTxt))
+        z.writestr(f'{recNo:04d}.htm',text_htm((rTxt[0][::2] if type(rTxt)==tuple else [('h1',rTxt)]),pSoFar))
         secsSoFar += secsThisRecording
-        pSoFar += (1+len(rTxt)//2 if type(rTxt)==list else 1)
+        pSoFar += (1+len(rTxt[0])//2 if type(rTxt)==tuple else 1)
     z.writestr('master.smil',master_smil(headings,secsSoFar))
-    z.writestr('ncc.html',ncc_html(headings,hasFullText,secsSoFar))
+    z.writestr('ncc.html',ncc_html(headings,hasFullText,secsSoFar,[(t[1] if type(t)==tuple else []) for t in recordingTexts]))
     z.writestr('er_book_info.xml',er_book_info(durations)) # not DAISY standard but EasyReader can use this
     z.close()
     sys.stderr.write(f"Wrote {outputFile}\n")
 
 def ncc_html(headings = [],
              hasFullText = False,
-             totalSecs = 0):
-    "Returns the Navigation Control Centre (NCC)"
+             totalSecs = 0, pageNos=[]):
+    """Returns the Navigation Control Centre (NCC)
+    pageNos is [[(goesAfter,pageNo),...],...]"""
+    pages = max([max([int(N) for after,N in PNs],default=0) for PNs in pageNos],default=0)
+    # TODO: we assume all pages are 'normal' pages
+    # (not 'front' pages in Roman letters etc)
     headingsR = HReduce(headings)
-
-    # TODO can we extract page numbers from the html?  e.g. from span id="pageN"
-    # NCC can have
-    # <span class="page-normal" id="someID"><a href="smil#fragment">47</a></span>
-    # after the appropriate heading etc
-    # class page-front or page-normal (or page-special) for iv, 1, ...
-    # ncc:pageFront etc also need updating
-
     global date
     if not date: date = "%04d-%02d-%02d" % time.localtime()[:3]
     return f"""<?xml version="1.0" encoding="utf-8"?>
@@ -177,8 +184,8 @@ def ncc_html(headings = [],
     <meta name="dc:format" content="Daisy 2.02" />
     <meta name="ncc:charset" content="utf-8" />
     <meta name="ncc:pageFront" content="0" />
-    <meta name="ncc:maxPageNormal" content="0" />
-    <meta name="ncc:pageNormal" content="0" />
+    <meta name="ncc:maxPageNormal" content="{pages}" />
+    <meta name="ncc:pageNormal" content="{pages}" />
     <meta name="ncc:pageSpecial" content="0" />
     <meta name="ncc:tocItems" content="{len(headingsR)}" />
     <meta name="ncc:totalTime" content="{int(totalSecs/3600)}:{int(totalSecs/60)%60:02d}:{totalSecs%60:02f}" />
@@ -189,7 +196,8 @@ def ncc_html(headings = [],
   <body>"""+''.join(f"""
     <{t[0]} class="section" id="s{s+1}">
       <a href="{t[2]+1:04d}.smil#t{t[2]+1}.{t[3]}">{t[1]}</a>
-    </{t[0]}>""" for s,t in enumerate(headingsR))+"""
+    </{t[0]}>""" for s,t in enumerate(headingsR))+''.join(''.join(f"""
+    <span class="page-normal" id="page{N}"><a href="{r+1:04d}.smil#t{r+1}.{after}">{N}</a></span>""" for (after,N) in PNs) for r,PNs in enumerate(pageNos))+"""
   </body>
 </html>
 """
