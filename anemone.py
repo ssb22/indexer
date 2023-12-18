@@ -1,6 +1,6 @@
 #!/usr/bin/env python3
 """
-Anemone 0.4 (http://ssb22.user.srcf.net/anemone)
+Anemone 0.5 (http://ssb22.user.srcf.net/anemone)
 (c) 2023 Silas S. Brown.  License: Apache 2
 Run program with --help for usage instructions.
 """
@@ -40,7 +40,7 @@ args.add_argument("--page-attribute",default="data-no",help="the attribute used 
 
 import time, sys, os, re, json
 from functools import reduce
-from zipfile import ZipFile
+from zipfile import ZipFile, ZIP_DEFLATED
 from html.parser import HTMLParser
 from mutagen.mp3 import MP3 # pip install mutagen
 
@@ -138,7 +138,7 @@ def write_all(recordingTexts):
     assert len(recordingFiles) == len(recordingTexts)
     headings = [([u+(v//2,) for v,u in enumerate(t[0]) if type(u)==tuple and u[0].startswith('h')] if type(t)==tuple else t) for t in recordingTexts]
     hasFullText = any(type(t)==tuple for t in recordingTexts)
-    z = ZipFile(outputFile,"w")
+    z = ZipFile(outputFile,"w",ZIP_DEFLATED,False)
     secsSoFar = 0
     durations = [] ; pSoFar = 0
     for recNo in range(1,len(recordingTexts)+1):
