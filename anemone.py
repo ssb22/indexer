@@ -1,6 +1,6 @@
 #!/usr/bin/env python3
 """
-Anemone 0.5 (http://ssb22.user.srcf.net/anemone)
+Anemone 0.6 (http://ssb22.user.srcf.net/anemone)
 (c) 2023 Silas S. Brown.  License: Apache 2
 Run program with --help for usage instructions.
 """
@@ -139,6 +139,19 @@ def write_all(recordingTexts):
     headings = [([u+(v//2,) for v,u in enumerate(t[0]) if type(u)==tuple and u[0].startswith('h')] if type(t)==tuple else t) for t in recordingTexts]
     hasFullText = any(type(t)==tuple for t in recordingTexts)
     z = ZipFile(outputFile,"w",ZIP_DEFLATED,False)
+    if hasFullText: z.writestr("0000.txt","""
+    If you're reading this, it likely means your
+    operating system has unpacked the ZIP file
+    and is showing you its contents.  While it
+    is possible to extract recordings and text
+    this way, it is better to send the whole ZIP
+    to a DAISY reader so that its recordings and
+    text can be connected with each other.  You
+    might wish to close this file and navigate
+    up a level to find the original ZIP file so
+    it can be sent to a DAISY reader as a whole.
+""") # TODO: message in other languages?
+    # (it's iOS users that need the above, apparently.  Can't DAISY have a non-ZIP extension so Apple systems don't automatically unpack it?  but we do need to manually unpack if writing to a CD-ROM for old devices.  Can't Apple look at some kind of embedded "don't auto-unpack this zip" request?)
     secsSoFar = 0
     durations = [] ; pSoFar = 0
     for recNo in range(1,len(recordingTexts)+1):
@@ -152,6 +165,11 @@ def write_all(recordingTexts):
         pSoFar += (1+len(rTxt[0])//2 if type(rTxt)==tuple else 1)
     z.writestr('master.smil',master_smil(headings,secsSoFar))
     z.writestr('ncc.html',ncc_html(headings,hasFullText,secsSoFar,[(t[1] if type(t)==tuple else []) for t in recordingTexts]))
+    z.writestr('style.css',"""
+body,p,h1,h2,h3,h4,h5,h6 {
+    font-family: Arial, Helvetica, sans-serif;
+}
+""") # EasyReader for iOS, unlike Android, does not default to sans-serif, but TODO: this stylesheet does NOT fix it!  Not sure what "book's default font" is, if it's not the stylesheet....
     z.writestr('er_book_info.xml',er_book_info(durations)) # not DAISY standard but EasyReader can use this
     z.close()
     sys.stderr.write(f"Wrote {outputFile}\n")
@@ -270,6 +288,7 @@ def text_htm(paras,offset=0):
 		<title>{title}</title>
 		<meta content="text/html; charset=utf-8" http-equiv="content-type"/>
 		<meta name="generator" content="{generator}"/>
+                <link rel="stylesheet" type="text/css" href="style.css"/>
 	</head>
 	<body>
 """+"\n".join(f"<{tag} id=\"p{num+offset}\"{' class='+chr(34)+'sentence'+chr(34) if tag=='span' else ''}>{text}{'' if tag=='p' else ('</'+tag+'>')}{'' if tag.startswith('h') or (num+1<len(paras) and paras[num+1][0]=='span') else '</p>'}" for num,(tag,text) in enumerate(paras))+"""
