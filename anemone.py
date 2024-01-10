@@ -1,6 +1,6 @@
 #!/usr/bin/env python3
 """
-Anemone 0.7 (http://ssb22.user.srcf.net/anemone)
+Anemone 0.8 (http://ssb22.user.srcf.net/anemone)
 (c) 2023-24 Silas S. Brown.  License: Apache 2
 Run program with --help for usage instructions.
 """
@@ -37,9 +37,11 @@ args.add_argument("--reader",default="",help="the name of the reader who voiced 
 args.add_argument("--date",help="the publication date as YYYY-MM-DD, default is current date")
 args.add_argument("--marker-attribute",default="data-pid",help="the attribute used in the HTML to indicate a segment number corresponding to a JSON time marker entry, default is data-pid")
 args.add_argument("--page-attribute",default="data-no",help="the attribute used in the HTML to indicate a page number, default is data-no")
+args.add_argument("--mp3-recode",action="store_true",help="re-code the MP3 files to ensure they are constant bitrate and more likely to work with the more limited DAISY-reading programs like FSReader 3 (this option requires LAME)")
 
-import time, sys, os, re, json
+import time, sys, os, re, json, math
 from functools import reduce
+from subprocess import run, PIPE
 from zipfile import ZipFile, ZIP_DEFLATED
 from html.parser import HTMLParser
 from mutagen.mp3 import MP3 # pip install mutagen
@@ -161,7 +163,7 @@ def write_all(recordingTexts):
         secsThisRecording = MP3(recordingFiles[recNo-1]).info.length
         rTxt = recordingTexts[recNo-1]
         durations.append(secsThisRecording)
-        z.writestr(f"{recNo:04d}.mp3",open(recordingFiles[recNo-1],'rb').read())
+        z.writestr(f"{recNo:04d}.mp3",run(["lame",recordingFiles[recNo-1],"-m","m","--resample","44.1","-c","--cbr","-b","96","-q","0","-o","-"],check=True,stdout=PIPE).stdout if mp3_recode else open(recordingFiles[recNo-1],'rb').read()) # TODO: if lame is single-threaded, we can probably do these in parallel on a multicore system
         z.writestr(f'{recNo:04d}.smil',section_smil(recNo,secsSoFar,secsThisRecording,pSoFar,rTxt[0] if type(rTxt)==tuple else rTxt))
         z.writestr(f'{recNo:04d}.htm',text_htm((rTxt[0][::2] if type(rTxt)==tuple else [('h1',rTxt)]),pSoFar))
         secsSoFar += secsThisRecording
@@ -204,7 +206,7 @@ def ncc_html(headings = [],
     <meta name="ncc:pageNormal" content="{pages}" />
     <meta name="ncc:pageSpecial" content="0" />
     <meta name="ncc:tocItems" content="{len(headingsR)}" />
-    <meta name="ncc:totalTime" content="{int(totalSecs/3600)}:{int(totalSecs/60)%60:02d}:{totalSecs%60:02f}" />
+    <meta name="ncc:totalTime" content="{int(totalSecs/3600)}:{int(totalSecs/60)%60:02d}:{math.ceil(totalSecs%60):02d}" />
     <meta name="ncc:multimediaType" content="{"audioFullText" if hasFullText else "audioNcc"}" />
     <meta name="ncc:depth" content="{max(int(h[0][1:]) for h in headingsR)}" />
     <meta name="ncc:files" content="{2+len(headings)*(3 if hasFullText else 2)}" />
@@ -230,7 +232,7 @@ def master_smil(headings = [],
     <meta name="dc:title" content="{title}" />
     <meta name="ncc:generator" content="{generator}" />
     <meta name="dc:format" content="Daisy 2.02" />
-    <meta name="ncc:timeInThisSmil" content="{int(totalSecs/3600)}:{int(totalSecs/60)%60:02d}:{totalSecs%60:02f}" />
+    <meta name="ncc:timeInThisSmil" content="{int(totalSecs/3600)}:{int(totalSecs/60)%60:02d}:{totalSecs%60:06.3f}" />
     <layout>
       <region id="textView" />
     </layout>
@@ -254,8 +256,8 @@ def section_smil(recNo=1,
   <head>
     <meta name="ncc:generator" content="{generator}" />
     <meta name="dc:format" content="Daisy 2.02" />
-    <meta name="ncc:totalElapsedTime" content="{int(totalSecsSoFar/3600)}:{int(totalSecsSoFar/60)%60:02d}:{totalSecsSoFar%60:02f}" />
-    <meta name="ncc:timeInThisSmil" content="{int(secsThisRecording/3600)}:{int(secsThisRecording/60)%60:02d}:{secsThisRecording%60:02f}" />
+    <meta name="ncc:totalElapsedTime" content="{int(totalSecsSoFar/3600)}:{int(totalSecsSoFar/60)%60:02d}:{totalSecsSoFar%60:06.3f}" />
+    <meta name="ncc:timeInThisSmil" content="{int(secsThisRecording/3600)}:{int(secsThisRecording/60)%60:02d}:{secsThisRecording%60:06.3f}" />
     <meta name="title" content="{deHTML(textsAndTimes[1][1])}" />
     <meta name="dc:title" content="{deHTML(textsAndTimes[1][1])}" />
     <layout>
@@ -263,11 +265,11 @@ def section_smil(recNo=1,
     </layout>
   </head>
   <body>
-    <seq id="sq{recNo}" dur="{secsThisRecording:f}s">"""+"".join(f"""
+    <seq id="sq{recNo}" dur="{secsThisRecording:.3f}s">"""+"".join(f"""
       <par endsync="last" id="pr{recNo}.{i//2}">
         <text id="t{recNo}.{i//2}" src="{recNo:04d}.htm#p{startP+i//2}" />
         <seq id="sq{recNo}.{i//2}a">
-          <audio src="{recNo:04d}.mp3" clip-begin="npt={textsAndTimes[i-1]:f}s" clip-end="npt={textsAndTimes[i+1]:f}s" id="aud{recNo}.{i//2}" />
+          <audio src="{recNo:04d}.mp3" clip-begin="npt={textsAndTimes[i-1]:.3f}s" clip-end="npt={textsAndTimes[i+1]:.3f}s" id="aud{recNo}.{i//2}" />
         </seq>
       </par>""" for i in range(1,len(textsAndTimes),2))+"""
     </seq>
