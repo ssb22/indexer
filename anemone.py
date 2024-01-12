@@ -1,6 +1,6 @@
 #!/usr/bin/env python3
 """
-Anemone 0.8 (http://ssb22.user.srcf.net/anemone)
+Anemone 0.9 (http://ssb22.user.srcf.net/anemone)
 (c) 2023-24 Silas S. Brown.  License: Apache 2
 Run program with --help for usage instructions.
 """
@@ -31,6 +31,7 @@ args.add_argument("files",metavar="file",nargs="+",help="file name of: an MP3 re
 args.add_argument("--lang",default="en",
                 help="the ISO 639 language code of the publication (defaults to en for English)")
 args.add_argument("--title",default="",help="the title of the publication")
+args.add_argument("--url",default="",help="the URL or ISBN of the publication")
 args.add_argument("--creator",default="",help="the creator name, if known")
 args.add_argument("--publisher",default="",help="the publisher name, if known")
 args.add_argument("--reader",default="",help="the name of the reader who voiced the recordings, if known")
@@ -38,6 +39,7 @@ args.add_argument("--date",help="the publication date as YYYY-MM-DD, default is 
 args.add_argument("--marker-attribute",default="data-pid",help="the attribute used in the HTML to indicate a segment number corresponding to a JSON time marker entry, default is data-pid")
 args.add_argument("--page-attribute",default="data-no",help="the attribute used in the HTML to indicate a page number, default is data-no")
 args.add_argument("--mp3-recode",action="store_true",help="re-code the MP3 files to ensure they are constant bitrate and more likely to work with the more limited DAISY-reading programs like FSReader 3 (this option requires LAME)")
+args.add_argument("--allow-jumps",action="store_true",help="Allow jumps in things like heading levels, e.g. h1 to h3 if the input HTML does it.  This seems OK on modern readers but might cause older reading devices to give an error.  Without this option, headings are promoted where necessary to ensure only incremental depth increase, and extra page numbers are inserted if numbers are skipped.") # and is flagged up by the validator
 
 import time, sys, os, re, json, math
 from functools import reduce
@@ -45,6 +47,8 @@ from subprocess import run, PIPE
 from zipfile import ZipFile, ZIP_DEFLATED
 from html.parser import HTMLParser
 from mutagen.mp3 import MP3 # pip install mutagen
+from concurrent.futures import ThreadPoolExecutor
+from multiprocessing import cpu_count
 
 def parse_args():
     global recordingFiles, jsonFiles, textFiles, htmlFiles, outputFile
@@ -84,7 +88,7 @@ def main():
 def get_texts():
     if textFiles: return [open(f).read().strip() for f in textFiles] # section titles only, from text files
     elif not htmlFiles: return [r[:r.rindex(f"{os.extsep}mp3")] for r in recordingFiles] # section titles only, from MP3 filenames
-    recordingTexts = []
+    recordingTexts = [] ; highestPage = [0]
     for h,j in zip(htmlFiles,jsonFiles):
         markers = json.load(open(j))['markers']
         want_pids = [jsonAttr(m,"id") for m in markers]
@@ -99,7 +103,11 @@ def get_texts():
             def handle_starttag(self,tag,attrs):
                 attrs = dict(attrs)
                 pageNo = attrs.get(page_attribute,None)
-                if pageNo: pageNos.append((self.pageNoGoesAfter,pageNo))
+                if pageNo:
+                    if not allow_jumps:
+                        for i in range(highestPage[0]+1, int(pageNo)): pageNos.append((self.pageNoGoesAfter,str(i))) # TODO: is this really the best place to put them if we don't know where they are?  Page 1 might be the title page, etc
+                    pageNos.append((self.pageNoGoesAfter,pageNo))
+                    highestPage[0] = int(pageNo)
                 if attrs.get(marker_attribute,None) in want_pids:
                     self.theStartTag = tag
                     a = attrs[marker_attribute]
@@ -140,8 +148,12 @@ def write_all(recordingTexts):
     assert len(recordingFiles) == len(recordingTexts)
     headings = [([u+(v//2,) for v,u in enumerate(t[0]) if type(u)==tuple and u[0].startswith('h')] if type(t)==tuple else t) for t in recordingTexts]
     hasFullText = any(type(t)==tuple for t in recordingTexts)
+    if mp3_recode: # parallelise lame if possible
+        executor = ThreadPoolExecutor(max_workers=cpu_count())
+        recordings=[executor.submit(lambda *_:run(["lame","--quiet",f,"-m","m","--resample","44.1","-c","--cbr","-b","96","-q","0","-o","-"],check=True,stdout=PIPE).stdout) for f in recordingFiles]
     z = ZipFile(outputFile,"w",ZIP_DEFLATED,False)
-    if hasFullText: z.writestr("0000.txt","""
+    def D(s): return s.replace("\n","\r\n") # in case old readers require DOS line endings
+    if hasFullText: z.writestr("0000.txt",D("""
     If you're reading this, it likely means your
     operating system has unpacked the ZIP file
     and is showing you its contents.  While it
@@ -155,7 +167,7 @@ def write_all(recordingTexts):
     to EasyReader as a whole.  Some other DAISY
     readers need to be pointed at the NCC file
     instead, or at the whole directory.
-""") # TODO: message in other languages?
+""")) # TODO: message in other languages?
     # (it's iOS users that need the above, apparently.  Can't DAISY have a non-ZIP extension so Apple systems don't automatically unpack it?  but we do need to manually unpack if writing to a CD-ROM for old devices.  Can't Apple look at some kind of embedded "don't auto-unpack this zip" request?)
     secsSoFar = 0
     durations = [] ; pSoFar = 0
@@ -163,14 +175,16 @@ def write_all(recordingTexts):
         secsThisRecording = MP3(recordingFiles[recNo-1]).info.length
         rTxt = recordingTexts[recNo-1]
         durations.append(secsThisRecording)
-        z.writestr(f"{recNo:04d}.mp3",run(["lame",recordingFiles[recNo-1],"-m","m","--resample","44.1","-c","--cbr","-b","96","-q","0","-o","-"],check=True,stdout=PIPE).stdout if mp3_recode else open(recordingFiles[recNo-1],'rb').read()) # TODO: if lame is single-threaded, we can probably do these in parallel on a multicore system
-        z.writestr(f'{recNo:04d}.smil',section_smil(recNo,secsSoFar,secsThisRecording,pSoFar,rTxt[0] if type(rTxt)==tuple else rTxt))
-        z.writestr(f'{recNo:04d}.htm',text_htm((rTxt[0][::2] if type(rTxt)==tuple else [('h1',rTxt)]),pSoFar))
+        if mp3_recode: sys.stderr.write(f"{recNo:04d}.mp3..."),sys.stderr.flush()
+        z.writestr(f"{recNo:04d}.mp3",recordings[recNo-1].result() if mp3_recode else open(recordingFiles[recNo-1],'rb').read())
+        if mp3_recode: sys.stderr.write("\n")
+        z.writestr(f'{recNo:04d}.smil',D(section_smil(recNo,secsSoFar,secsThisRecording,pSoFar,rTxt[0] if type(rTxt)==tuple else rTxt)))
+        z.writestr(f'{recNo:04d}.htm',D(text_htm((rTxt[0][::2] if type(rTxt)==tuple else [('h1',rTxt)]),pSoFar)))
         secsSoFar += secsThisRecording
         pSoFar += (1+len(rTxt[0])//2 if type(rTxt)==tuple else 1)
-    z.writestr('master.smil',master_smil(headings,secsSoFar))
-    z.writestr('ncc.html',ncc_html(headings,hasFullText,secsSoFar,[(t[1] if type(t)==tuple else []) for t in recordingTexts]))
-    z.writestr('er_book_info.xml',er_book_info(durations)) # not DAISY standard but EasyReader can use this
+    z.writestr('master.smil',D(master_smil(headings,secsSoFar)))
+    z.writestr('ncc.html',D(ncc_html(headings,hasFullText,secsSoFar,[(t[1] if type(t)==tuple else []) for t in recordingTexts])))
+    z.writestr('er_book_info.xml',D(er_book_info(durations))) # not DAISY standard but EasyReader can use this
     z.close()
     sys.stderr.write(f"Wrote {outputFile}\n")
 
@@ -182,7 +196,7 @@ def ncc_html(headings = [],
     pages = max([max([int(N) for after,N in PNs],default=0) for PNs in pageNos],default=0)
     # TODO: we assume all pages are 'normal' pages
     # (not 'front' pages in Roman letters etc)
-    headingsR = HReduce(headings)
+    headingsR = normaliseDepth(HReduce(headings))
     global date
     if not date: date = "%04d-%02d-%02d" % time.localtime()[:3]
     return f"""<?xml version="1.0" encoding="utf-8"?>
@@ -196,23 +210,25 @@ def ncc_html(headings = [],
     <meta name="dc:language" content="{lang}" scheme="ISO 639" />
     <meta name="dc:publisher" content="{publisher}" />
     <meta name="dc:title" content="{title}" />
+    <meta name="dc:type" content="text" />
+    <meta name="dc:identifier" content="{url}" />
+    <meta name="dc:format" content="Daisy 2.02" />
     <meta name="ncc:narrator" content="{reader}" />
     <meta name="ncc:producedDate" content="{date}" />
     <meta name="ncc:generator" content="{generator}" />
-    <meta name="dc:format" content="Daisy 2.02" />
     <meta name="ncc:charset" content="utf-8" />
     <meta name="ncc:pageFront" content="0" />
     <meta name="ncc:maxPageNormal" content="{pages}" />
     <meta name="ncc:pageNormal" content="{pages}" />
     <meta name="ncc:pageSpecial" content="0" />
-    <meta name="ncc:tocItems" content="{len(headingsR)}" />
+    <meta name="ncc:tocItems" content="{len(headingsR)+sum(len(PNs) for PNs in pageNos)}" />
     <meta name="ncc:totalTime" content="{int(totalSecs/3600)}:{int(totalSecs/60)%60:02d}:{math.ceil(totalSecs%60):02d}" />
     <meta name="ncc:multimediaType" content="{"audioFullText" if hasFullText else "audioNcc"}" />
     <meta name="ncc:depth" content="{max(int(h[0][1:]) for h in headingsR)}" />
     <meta name="ncc:files" content="{2+len(headings)*(3 if hasFullText else 2)}" />
   </head>
   <body>"""+''.join(f"""
-    <{t[0]} class="section" id="s{s+1}">
+    <{t[0]} class="{'section' if s or allow_jumps else 'title'}" id="s{s+1}">
       <a href="{t[2]+1:04d}.smil#t{t[2]+1}.{t[3]}">{t[1]}</a>
     </{t[0]}>""" for s,t in enumerate(headingsR))+''.join(''.join(f"""
     <span class="page-normal" id="page{N}"><a href="{r+1:04d}.smil#t{r+1}.{after}">{N}</a></span>""" for (after,N) in PNs) for r,PNs in enumerate(pageNos))+"""
@@ -222,6 +238,16 @@ def ncc_html(headings = [],
 
 def HReduce(headings): return reduce(lambda a,b:a+b,[([(hType,hText,recNoOffset,hOffset) for (hType,hText,hOffset) in i] if type(i)==list else [('h1',i,recNoOffset,0)]) for recNoOffset,i in enumerate(headings)],[])
 
+def normaliseDepth(items):
+    if allow_jumps: return items
+    curDepth = 0
+    for i in range(len(items)):
+      if items[i][0].lower().startswith('h'):
+        depth = int(items[i][0][1:])
+        if depth > curDepth+1: items[i]=(f'h{curDepth+1}',)+items[i][1:]
+        curDepth = depth
+    return items
+
 def master_smil(headings = [],
                 totalSecs = 0):
     headings = HReduce(headings)
@@ -230,8 +256,8 @@ def master_smil(headings = [],
 <smil>
   <head>
     <meta name="dc:title" content="{title}" />
-    <meta name="ncc:generator" content="{generator}" />
     <meta name="dc:format" content="Daisy 2.02" />
+    <meta name="ncc:generator" content="{generator}" />
     <meta name="ncc:timeInThisSmil" content="{int(totalSecs/3600)}:{int(totalSecs/60)%60:02d}:{totalSecs%60:06.3f}" />
     <layout>
       <region id="textView" />
@@ -254,8 +280,8 @@ def section_smil(recNo=1,
 <!DOCTYPE smil PUBLIC "-//W3C//DTD SMIL 1.0//EN" "http://www.w3.org/TR/REC-smil/SMIL10.dtd">
 <smil>
   <head>
-    <meta name="ncc:generator" content="{generator}" />
     <meta name="dc:format" content="Daisy 2.02" />
+    <meta name="ncc:generator" content="{generator}" />
     <meta name="ncc:totalElapsedTime" content="{int(totalSecsSoFar/3600)}:{int(totalSecsSoFar/60)%60:02d}:{totalSecsSoFar%60:06.3f}" />
     <meta name="ncc:timeInThisSmil" content="{int(secsThisRecording/3600)}:{int(secsThisRecording/60)%60:02d}:{secsThisRecording%60:06.3f}" />
     <meta name="title" content="{deHTML(textsAndTimes[1][1])}" />
@@ -290,7 +316,7 @@ def text_htm(paras,offset=0):
 		<meta name="generator" content="{generator}"/>
 	</head>
 	<body>
-"""+"\n".join(f"<{tag} id=\"p{num+offset}\"{' class='+chr(34)+'sentence'+chr(34) if tag=='span' else ''}>{text}{'' if tag=='p' else ('</'+tag+'>')}{'' if tag.startswith('h') or (num+1<len(paras) and paras[num+1][0]=='span') else '</p>'}" for num,(tag,text) in enumerate(paras))+"""
+"""+"\n".join(f"<{tag} id=\"p{num+offset}\"{' class='+chr(34)+'sentence'+chr(34) if tag=='span' else ''}>{text}{'' if tag=='p' else ('</'+tag+'>')}{'' if tag.startswith('h') or (num+1<len(paras) and paras[num+1][0]=='span') else '</p>'}" for num,(tag,text) in enumerate(normaliseDepth(paras)))+"""
         </body>
 </html>
 """
