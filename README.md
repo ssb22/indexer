@@ -1,6 +1,6 @@
-# indexer
-Offline HTML Indexer etc from http://ssb22.user.srcf.net/gradint/ohi.html
-(also mirrored at http://ssb22.gitlab.io/gradint/ohi.html just in case)
+ indexer
+Offline HTML Indexer etc from http://ssb22.user.srcf.net/indexer/
+(also mirrored at http://ssb22.gitlab.io/indexer/ just in case)
 
 This is a Python program (compatible with both Python 2 and Python 3), for creating large indices of HTML text which can be queried using simple Javascript that works on many mobile phone browsers without needing an Internet connection or a Web server. This is useful if you want to load a dictionary or other reference onto your phone (or computer) for use when connectivity is not available.
 
@@ -10,7 +10,7 @@ By default, the input HTML is read from standard input, and the output is writte
 
 As an example, `c2h.py` is a simple CEDICT to HTML script can produce offline HTML files for CEDICT.
 
-Users of the Android platform might also wish to make an APK from the HTML. `ohi-addCopy.sh` is a shell script to add Copy buttons to any hanzi strings to the HTML files, which should work when it’s put into an APK using [html2apk](http://ssb22.user.srcf.net/gradint/html2apk.html) (but they won’t work in standalone HTML).
+Users of the Android platform might also wish to make an APK from the HTML. `ohi-addCopy.sh` is a shell script to add Copy buttons to any hanzi strings to the HTML files, which should work when it’s put into an APK using [html2apk](http://ssb22.user.srcf.net/indexer/html2apk.html) (but they won’t work in standalone HTML).
 
 Online version
 --------------
