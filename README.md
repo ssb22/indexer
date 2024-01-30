@@ -54,6 +54,8 @@ The daisy anemone is a sea creature on the rocky Western shores of Britain and I
 
 * HIMS QBraille XL: can display the text (after opening with Space and Enter); does not play audio
 
+* DAISY Pipeline (2023): Please do not use this to convert an Anemone-produced Daisy 2 book to Daisy 3.  The resulting Daisy 3 is not likely to play on anything and I don't yet know why.
+
 Copyright and Trademarks
 ------------------------
 

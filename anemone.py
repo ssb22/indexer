@@ -1,6 +1,6 @@
 #!/usr/bin/env python3
 """
-Anemone 0.9 (http://ssb22.user.srcf.net/anemone)
+Anemone 0.91 (http://ssb22.user.srcf.net/anemone)
 (c) 2023-24 Silas S. Brown.  License: Apache 2
 Run program with --help for usage instructions.
 """
@@ -38,6 +38,8 @@ args.add_argument("--reader",default="",help="the name of the reader who voiced 
 args.add_argument("--date",help="the publication date as YYYY-MM-DD, default is current date")
 args.add_argument("--marker-attribute",default="data-pid",help="the attribute used in the HTML to indicate a segment number corresponding to a JSON time marker entry, default is data-pid")
 args.add_argument("--page-attribute",default="data-no",help="the attribute used in the HTML to indicate a page number, default is data-no")
+daisy3 = False # NOT WORKING.  Passes the validator (in EPUB3 conversion) but EasyReader on Windows from opf (and Android from zip) "Failed to load book" and said it was text no audio.  Same thing happened with Daisy Pipeline 2023's Daisy 2 to Daisy 3 output.  FSReader crashes on import (both in our file and in pipeline output).
+# args.add_argument("--daisy3",action="store_true",help="Use the Daisy 3 format instead of the Daisy 2.02 format.  This requires more modern readers.  Anemone does not yet support Daisy 3 only features like tables in the text.")
 args.add_argument("--mp3-recode",action="store_true",help="re-code the MP3 files to ensure they are constant bitrate and more likely to work with the more limited DAISY-reading programs like FSReader 3 (this option requires LAME)")
 args.add_argument("--allow-jumps",action="store_true",help="Allow jumps in things like heading levels, e.g. h1 to h3 if the input HTML does it.  This seems OK on modern readers but might cause older reading devices to give an error.  Without this option, headings are promoted where necessary to ensure only incremental depth increase, and extra page numbers are inserted if numbers are skipped.") # and is flagged up by the validator
 
@@ -153,7 +155,7 @@ def write_all(recordingTexts):
         recordings=[executor.submit(lambda *_:run(["lame","--quiet",f,"-m","m","--resample","44.1","-c","--cbr","-b","96","-q","0","-o","-"],check=True,stdout=PIPE).stdout) for f in recordingFiles]
     z = ZipFile(outputFile,"w",ZIP_DEFLATED,False)
     def D(s): return s.replace("\n","\r\n") # in case old readers require DOS line endings
-    if hasFullText: z.writestr("0000.txt",D("""
+    if hasFullText: z.writestr("0000.txt",D(f"""
     If you're reading this, it likely means your
     operating system has unpacked the ZIP file
     and is showing you its contents.  While it
@@ -165,7 +167,7 @@ def write_all(recordingTexts):
     close this file and navigate up a level to
     find the original ZIP file so it can be sent
     to EasyReader as a whole.  Some other DAISY
-    readers need to be pointed at the NCC file
+    readers need to be pointed at the {'OPF' if daisy3 else 'NCC'} file
     instead, or at the whole directory.
 """)) # TODO: message in other languages?
     # (it's iOS users that need the above, apparently.  Can't DAISY have a non-ZIP extension so Apple systems don't automatically unpack it?  but we do need to manually unpack if writing to a CD-ROM for old devices.  Can't Apple look at some kind of embedded "don't auto-unpack this zip" request?)
@@ -179,12 +181,16 @@ def write_all(recordingTexts):
         z.writestr(f"{recNo:04d}.mp3",recordings[recNo-1].result() if mp3_recode else open(recordingFiles[recNo-1],'rb').read())
         if mp3_recode: sys.stderr.write("\n")
         z.writestr(f'{recNo:04d}.smil',D(section_smil(recNo,secsSoFar,secsThisRecording,pSoFar,rTxt[0] if type(rTxt)==tuple else rTxt)))
-        z.writestr(f'{recNo:04d}.htm',D(text_htm((rTxt[0][::2] if type(rTxt)==tuple else [('h1',rTxt)]),pSoFar)))
+        z.writestr(f'{recNo:04d}.{"xml" if daisy3 else "htm"}',D(text_htm((rTxt[0][::2] if type(rTxt)==tuple else [('h1',rTxt)]),pSoFar)))
         secsSoFar += secsThisRecording
         pSoFar += (1+len(rTxt[0])//2 if type(rTxt)==tuple else 1)
-    z.writestr('master.smil',D(master_smil(headings,secsSoFar)))
-    z.writestr('ncc.html',D(ncc_html(headings,hasFullText,secsSoFar,[(t[1] if type(t)==tuple else []) for t in recordingTexts])))
-    z.writestr('er_book_info.xml',D(er_book_info(durations))) # not DAISY standard but EasyReader can use this
+    if daisy3:
+        z.writestr('dtbook.2005.basic.css',D(d3css))
+        z.writestr('package.opf',D(package_opf(hasFullText,len(recordingTexts),secsSoFar)))
+        z.writestr('text.res',D(textres))
+    else: z.writestr('master.smil',D(master_smil(headings,secsSoFar)))
+    z.writestr('navigation.ncx' if daisy3 else 'ncc.html',D(ncc_html(headings,hasFullText,secsSoFar,[(t[1] if type(t)==tuple else []) for t in recordingTexts])))
+    if not daisy3: z.writestr('er_book_info.xml',D(er_book_info(durations))) # not DAISY standard but EasyReader can use this
     z.close()
     sys.stderr.write(f"Wrote {outputFile}\n")
 
@@ -199,20 +205,22 @@ def ncc_html(headings = [],
     headingsR = normaliseDepth(HReduce(headings))
     global date
     if not date: date = "%04d-%02d-%02d" % time.localtime()[:3]
-    return f"""<?xml version="1.0" encoding="utf-8"?>
-<!DOCTYPE html PUBLIC "-//W3C//DTD XHTML 1.0 Transitional//EN" "http://www.w3.org/TR/xhtml1/DTD/xhtml1-transitional.dtd">
-<html lang="{lang}" xml:lang="{lang}" xmlns="http://www.w3.org/1999/xhtml">
+    return deBlank(f"""<?xml version="1.0" encoding="utf-8"?>
+{'<!DOCTYPE ncx PUBLIC "-//NISO//DTD ncx 2005-1//EN" "http://www.daisy.org/z3986/2005/ncx-2005-1.dtd">' if daisy3 else '<!DOCTYPE html PUBLIC "-//W3C//DTD XHTML 1.0 Transitional//EN" "http://www.w3.org/TR/xhtml1/DTD/xhtml1-transitional.dtd">'}
+<{'ncx xmlns="http://www.daisy.org/z3986/2005/ncx/" version="2005-1"' if daisy3 else f'html lang="{lang}" xmlns="http://www.w3.org/1999/xhtml"'} xml:lang="{lang}">
   <head>
-    <meta content="text/html; charset=utf-8" http-equiv="Content-type" />
-    <title>{title}</title>
+    {'<meta name="dtb:uid" content=""/>' if daisy3 else '<meta content="text/html; charset=utf-8" http-equiv="Content-type" />'}
+    {f'<meta name="dtb:totalPageCount" content="{pages}" />' if daisy3 else ''}
+    {f'<meta name="dtb:maxPageNumber" content="{pages}" />' if daisy3 else ''}
+    {'' if daisy3 else f'<title>{title}</title>'}
     <meta name="dc:creator" content="{creator}" />
     <meta name="dc:date" content="{date}" scheme="yyyy-mm-dd" />
     <meta name="dc:language" content="{lang}" scheme="ISO 639" />
-    <meta name="dc:publisher" content="{publisher}" />
-    <meta name="dc:title" content="{title}" />
+    <meta name="dc:publisher" content="{deHTML(publisher)}" />
+    <meta name="dc:title" content="{deHTML(title)}" />
     <meta name="dc:type" content="text" />
     <meta name="dc:identifier" content="{url}" />
-    <meta name="dc:format" content="Daisy 2.02" />
+    <meta name="dc:format" content="{'ANSI/NISO Z39.86-2005' if daisy3 else 'Daisy 2.02'}" />
     <meta name="ncc:narrator" content="{reader}" />
     <meta name="ncc:producedDate" content="{date}" />
     <meta name="ncc:generator" content="{generator}" />
@@ -227,14 +235,24 @@ def ncc_html(headings = [],
     <meta name="ncc:depth" content="{max(int(h[0][1:]) for h in headingsR)}" />
     <meta name="ncc:files" content="{2+len(headings)*(3 if hasFullText else 2)}" />
   </head>
-  <body>"""+''.join(f"""
+  {f'<docTitle><text>{title}</text></docTitle>' if daisy3 else ''}
+  {f'<docAuthor><text>{creator}</text></docAuthor>' if daisy3 else ''}
+  <{'navMap' if daisy3 else 'body'}>"""+''.join((f"""
+    <navPoint id="s{s+1}" class="{t[0]}" playOrder="{s+1}">
+      <navLabel><text>{t[1]}</text></navLabel>
+      <content src="{t[2]+1:04d}.smil#t{t[2]+1}.{t[3]}"/>
+    {'</navPoint>'*sum(1 for j in range((1 if s+1==len(headingsR) else int(headingsR[s+1][0][1])),int(t[0][1])+1) if str(j) in ''.join((i[0][1] if i[0][1]>=('1' if s+1==len(headingsR) else headingsR[s+1][0][1]) else '0') for i in reversed(headingsR[:s+1])).split('0',1)[0])}""" if daisy3 else f"""
     <{t[0]} class="{'section' if s or allow_jumps else 'title'}" id="s{s+1}">
       <a href="{t[2]+1:04d}.smil#t{t[2]+1}.{t[3]}">{t[1]}</a>
-    </{t[0]}>""" for s,t in enumerate(headingsR))+''.join(''.join(f"""
-    <span class="page-normal" id="page{N}"><a href="{r+1:04d}.smil#t{r+1}.{after}">{N}</a></span>""" for (after,N) in PNs) for r,PNs in enumerate(pageNos))+"""
-  </body>
-</html>
-"""
+    </{t[0]}>""") for s,t in enumerate(headingsR))+('</navMap><pageList>' if daisy3 else '')+''.join(''.join((f"""
+    <pageTarget class="pagenum" type="normal" value="{N}" id="page{N}" playOrder="{len(headingsR)+sum(len(P) for P in pageNos[:r])+PO+1}">
+      <navLabel><text>{N}</text></navLabel>
+      <content src="{r+1:04d}.smil#t{r+1}.{after}"/>
+    </pageTarget>""" if daisy3 else f"""
+    <span class="page-normal" id="page{N}"><a href="{r+1:04d}.smil#t{r+1}.{after}">{N}</a></span>""") for (PO,(after,N)) in enumerate(PNs)) for r,PNs in enumerate(pageNos))+f"""
+  </{'pageList' if daisy3 else 'body'}>
+</{'ncx' if daisy3 else 'html'}>
+""")
 
 def HReduce(headings): return reduce(lambda a,b:a+b,[([(hType,hText,recNoOffset,hOffset) for (hType,hText,hOffset) in i] if type(i)==list else [('h1',i,recNoOffset,0)]) for recNoOffset,i in enumerate(headings)],[])
 
@@ -255,7 +273,7 @@ def master_smil(headings = [],
 <!DOCTYPE smil PUBLIC "-//W3C//DTD SMIL 1.0//EN" "http://www.w3.org/TR/REC-smil/SMIL10.dtd">
 <smil>
   <head>
-    <meta name="dc:title" content="{title}" />
+    <meta name="dc:title" content="{deHTML(title)}" />
     <meta name="dc:format" content="Daisy 2.02" />
     <meta name="ncc:generator" content="{generator}" />
     <meta name="ncc:timeInThisSmil" content="{int(totalSecs/3600)}:{int(totalSecs/60)%60:02d}:{totalSecs%60:06.3f}" />
@@ -276,50 +294,100 @@ def section_smil(recNo=1,
                  textsAndTimes=[]):
     if not type(textsAndTimes)==list: textsAndTimes=[textsAndTimes]
     textsAndTimes = [0]+textsAndTimes+[secsThisRecording]
-    return f"""<?xml version="1.0" encoding="utf-8"?>
-<!DOCTYPE smil PUBLIC "-//W3C//DTD SMIL 1.0//EN" "http://www.w3.org/TR/REC-smil/SMIL10.dtd">
-<smil>
+    return deBlank(f"""<?xml version="1.0" encoding="utf-8"?>
+{'' if daisy3 else '<!DOCTYPE smil PUBLIC "-//W3C//DTD SMIL 1.0//EN" "http://www.w3.org/TR/REC-smil/SMIL10.dtd">'}
+{'<smil xmlns="http://www.w3.org/2001/SMIL20/">' if daisy3 else '<smil>'}
   <head>
-    <meta name="dc:format" content="Daisy 2.02" />
-    <meta name="ncc:generator" content="{generator}" />
-    <meta name="ncc:totalElapsedTime" content="{int(totalSecsSoFar/3600)}:{int(totalSecsSoFar/60)%60:02d}:{totalSecsSoFar%60:06.3f}" />
+    {'<meta name="dtb:uid" content=""/>' if daisy3 else '<meta name="dc:format" content="Daisy 2.02" />'}
+    <meta name="{'dtb' if daisy3 else 'ncc'}:generator" content="{generator}" />
+    <meta name="{'dtb' if daisy3 else 'ncc'}:totalElapsedTime" content="{int(totalSecsSoFar/3600)}:{int(totalSecsSoFar/60)%60:02d}:{totalSecsSoFar%60:06.3f}" />""" + ("" if daisy3 else f"""
     <meta name="ncc:timeInThisSmil" content="{int(secsThisRecording/3600)}:{int(secsThisRecording/60)%60:02d}:{secsThisRecording%60:06.3f}" />
     <meta name="title" content="{deHTML(textsAndTimes[1][1])}" />
     <meta name="dc:title" content="{deHTML(textsAndTimes[1][1])}" />
     <layout>
       <region id="textView" />
-    </layout>
+    </layout>""")+f"""
   </head>
   <body>
     <seq id="sq{recNo}" dur="{secsThisRecording:.3f}s">"""+"".join(f"""
-      <par endsync="last" id="pr{recNo}.{i//2}">
-        <text id="t{recNo}.{i//2}" src="{recNo:04d}.htm#p{startP+i//2}" />
+      <par {'' if daisy3 else 'endsync="last" '}id="pr{recNo}.{i//2}">
+        {'' if daisy3 else f'<text id="t{recNo}.{i//2}" src="{recNo:04d}.htm#p{startP+i//2}" />'}
         <seq id="sq{recNo}.{i//2}a">
-          <audio src="{recNo:04d}.mp3" clip-begin="npt={textsAndTimes[i-1]:.3f}s" clip-end="npt={textsAndTimes[i+1]:.3f}s" id="aud{recNo}.{i//2}" />
+          <audio src="{recNo:04d}.mp3" clip{'B' if daisy3 else '-b'}egin="npt={textsAndTimes[i-1]:.3f}s" clip{'E' if daisy3 else '-e'}nd="npt={textsAndTimes[i+1]:.3f}s" id="aud{recNo}.{i//2}" />
         </seq>
       </par>""" for i in range(1,len(textsAndTimes),2))+"""
     </seq>
   </body>
 </smil>
-"""
+""")
+def deBlank(s): return re.sub("\n *\n","\n",s)
 
 def deHTML(t): return re.sub('<[^>]*>','',t).replace('"','&quot;') # for inclusion in attributes
 
+def package_opf(hasFullText,numRecs,totalSecs):
+    return f"""<?xml version="1.0" encoding="utf-8"?>
+<!DOCTYPE package
+  PUBLIC "+//ISBN 0-9673008-1-9//DTD OEB 1.2 Package//EN" "http://openebook.org/dtds/oeb-1.2/oebpkg12.dtd">
+<package xmlns="http://openebook.org/namespaces/oeb-package/1.0/"
+         unique-identifier="uid">
+   <metadata>
+      <dc-metadata>
+         <dc:Format xmlns:dc="http://purl.org/dc/elements/1.1/">ANSI/NISO Z39.86-2005</dc:Format>
+         <dc:Language xmlns:dc="http://purl.org/dc/elements/1.1/">{lang}</dc:Language>
+         <dc:Date xmlns:dc="http://purl.org/dc/elements/1.1/">{date}</dc:Date>
+         <dc:Publisher xmlns:dc="http://purl.org/dc/elements/1.1/">{publisher}</dc:Publisher>
+         <dc:Title xmlns:dc="http://purl.org/dc/elements/1.1/">{title}</dc:Title>
+         <dc:Identifier xmlns:dc="http://purl.org/dc/elements/1.1/" id="uid"/>
+         <dc:Creator xmlns:dc="http://purl.org/dc/elements/1.1/">{creator}</dc:Creator>
+         <dc:Type xmlns:dc="http://purl.org/dc/elements/1.1/">text</dc:Type>
+      </dc-metadata>
+      <x-metadata>
+         <meta name="dtb:multimediaType" content="{"audioFullText" if hasFullText else "audioNcc"}"/>
+         <meta name="dtb:totalTime" content="{int(totalSecs/3600)}:{int(totalSecs/60)%60:02d}:{math.ceil(totalSecs%60):02d}"/>
+         <meta name="dtb:multimediaContent" content="audio,text"/>
+         <meta xmlns:dc="http://purl.org/dc/elements/1.1/"
+               name="dtb:narrator"
+               content="{deHTML(reader)}"/>
+         <meta xmlns:dc="http://purl.org/dc/elements/1.1/"
+               name="dtb:producedDate"
+               content="{date}"/>
+      </x-metadata>
+   </metadata>
+   <manifest>
+      <item href="package.opf" id="opf" media-type="text/xml"/>"""+''.join(f"""
+      <item href="{i:04d}.mp3" id="opf-{i}" media-type="audio/mpeg"/>""" for i in range(1,numRecs+1))+f"""
+      <item href="dtbook.2005.basic.css" id="opf-{numRecs+1}" media-type="text/css"/>"""+''.join(f"""
+      <item href="{i:04d}.xml" id="opf-{i+numRecs+1}" media-type="application/x-dtbook+xml"/>""" for i in range(1,numRecs+1))+''.join(f"""
+      <item href="{i:04d}.smil" id="{i:04d}" media-type="application/smil+xml"/>""" for i in range(1,numRecs+1))+f"""
+      <item href="navigation.ncx"
+            id="ncx"
+            media-type="application/x-dtbncx+xml"/>
+      <item href="text.res"
+            id="resource"
+            media-type="application/x-dtbresource+xml"/>
+   </manifest>
+   <spine>"""+"".join(f"""
+      <itemref idref="{i:04d}"/>""" for i in range(1,numRecs+1))+"""
+   </spine>
+</package>
+"""
+
 def text_htm(paras,offset=0):
     "paras = [(type,text),(type,text),...], type=h1/p/span, text is xhtml i.e. & use &amp; etc"
-    return f"""<?xml version="1.0"?>
-<!DOCTYPE html PUBLIC "-//W3C//DTD XHTML 1.0 Transitional//EN" "http://www.w3.org/TR/xhtml1/DTD/xhtml1-transitional.dtd">
-<html lang="{lang}" xml:lang="{lang}" xmlns="http://www.w3.org/1999/xhtml">
-	<head>
-		<title>{title}</title>
-		<meta content="text/html; charset=utf-8" http-equiv="content-type"/>
-		<meta name="generator" content="{generator}"/>
-	</head>
-	<body>
-"""+"\n".join(f"<{tag} id=\"p{num+offset}\"{' class='+chr(34)+'sentence'+chr(34) if tag=='span' else ''}>{text}{'' if tag=='p' else ('</'+tag+'>')}{'' if tag.startswith('h') or (num+1<len(paras) and paras[num+1][0]=='span') else '</p>'}" for num,(tag,text) in enumerate(normaliseDepth(paras)))+"""
-        </body>
-</html>
-"""
+    return deBlank(f"""<?xml version="1.0"{' encoding="utf-8"' if daisy3 else ''}?>{'<?xml-stylesheet type="text/css" href="dtbook.2005.basic.css"?>' if daisy3 else ''}
+{'<!DOCTYPE dtbook PUBLIC "-//NISO//DTD dtbook 2005-3//EN" "http://www.daisy.org/z3986/2005/dtbook-2005-3.dtd">' if daisy3 else '<!DOCTYPE html PUBLIC "-//W3C//DTD XHTML 1.0 Transitional//EN" "http://www.w3.org/TR/xhtml1/DTD/xhtml1-transitional.dtd">'}
+<{'dtbook xmlns="http://www.daisy.org/z3986/2005/dtbook/" version="2005-2"' if daisy3 else f'html lang="{lang}" xmlns="http://www.w3.org/1999/xhtml"'} xml:lang="{lang}">
+    <head>
+        {f'<meta name="dc:Title" content="{deHTML(title)}"/>' if daisy3 else f'<title>{title}</title>'}
+        {'<meta name="dtb:uid" content=""/>' if daisy3 else '<meta content="text/html; charset=utf-8" http-equiv="content-type"/>'}
+        <meta name="generator" content="{generator}"/>
+    </head>
+    <{'book' if daisy3 else 'body'}>
+        {f'<frontmatter><doctitle>{title}</doctitle></frontmatter><bodymatter>' if daisy3 else ''}
+"""+"\n".join(f"{''.join(f'<level{n}>' for n in range(min(int(tag[1:]),next(int(paras[p][0][1:]) for p in range(num-1,-1,-1) if paras[p][0].startswith('h'))+1) if any(paras[P][0].startswith('h') for P in range(num-1,-1,-1)) else 1,int(tag[1:])+1)) if daisy3 and tag.startswith('h') else ''}{'<level1>' if daisy3 and not num and not tag.startswith('h') else ''}<{tag} id=\"p{num+offset}\"{' class='+chr(34)+'sentence'+chr(34) if tag=='span' else ''}>{text}{'' if tag=='p' else ('</'+tag+'>')}{'' if tag.startswith('h') or (num+1<len(paras) and paras[num+1][0]=='span') else '</p>'}{''.join(f'</level{n}>' for n in range(next(int(paras[p][0][1:]) for p in range(num,-1,-1) if paras[p][0].startswith('h')) if any(paras[P][0].startswith('h') for P in range(num,-1,-1)) else 1,0 if num+1==len(paras) else int(paras[num+1][0][1:])-1,-1)) if daisy3 and (num+1==len(paras) or paras[num+1][0].startswith('h')) else ''}" for num,(tag,text) in enumerate(normaliseDepth(paras)))+f"""
+        </{'bodymatter></book' if daisy3 else 'body'}>
+</{'dtbook' if daisy3 else 'html'}>
+""")
 
 def er_book_info(durations):
     "durations = list of secsThisRecording"
@@ -330,5 +398,38 @@ def er_book_info(durations):
     </smil_info>
 </book_info>
 """
+
+d3css = """/* Simplified from Z39.86 committee CSS, removed non-dark background (allow custom) */
+dtbook { display:block; width: 100% }
+head { display: none }
+book {
+ display: block;
+ font-family: arial, verdana, sans-serif;
+ line-height: 1.5em;
+ margin-top: 4em;
+ margin-bottom: 2em;
+ margin-left: 6em;
+ margin-right: 6em;
+}
+bodymatter {
+  display: block; margin-top: 1em; margin-bottom: 1em }
+h1, h2, h3, h4, h5, h6 {
+  display: block; font-weight: bold; margin-bottom: 0.5em }
+h1 { font-size: 1.7em; margin-top: 1.5em }
+h2 { font-size: 1.5em; margin-top: 1.2em }
+h3 { font-size: 1.4em; margin-top: 1.0em }
+h4 { font-size: 1.3em; margin-top: 1.0em }
+h5 { font-size: 1.2em; margin-top: 1.0em }
+h6 { margin-top: 1.0em }
+p { display: block; margin-top: 0.7em }
+a { display: inline; text-decoration: underline }
+em { display: inline; font-style: italic }
+strong { display: inline; font-weight: bold }
+span { display: inline; }
+"""
+textres = """<?xml version="1.0" encoding="utf-8"?>
+<!DOCTYPE resources
+  PUBLIC "-//NISO//DTD resource 2005-1//EN" "http://www.daisy.org/z3986/2005/resource-2005-1.dtd">
+<resources xmlns="http://www.daisy.org/z3986/2005/resource/" version="2005-1"><!-- SKIPPABLE NCX --><scope nsuri="http://www.daisy.org/z3986/2005/ncx/"><nodeSet id="ns001" select="//smilCustomTest[@bookStruct='LINE_NUMBER']"><resource xml:lang="en" id="r001"><text>Row</text></resource></nodeSet><nodeSet id="ns002" select="//smilCustomTest[@bookStruct='NOTE']"><resource xml:lang="en" id="r002"><text>Note</text></resource></nodeSet><nodeSet id="ns003" select="//smilCustomTest[@bookStruct='NOTE_REFERENCE']"><resource xml:lang="en" id="r003"><text>Note reference</text></resource></nodeSet><nodeSet id="ns004" select="//smilCustomTest[@bookStruct='ANNOTATION']"><resource xml:lang="en" id="r004"><text>Annotation</text></resource></nodeSet><nodeSet id="ns005" select="//smilCustomTest[@id='annoref']"><resource xml:lang="en" id="r005"><text>Annotation reference</text></resource></nodeSet><nodeSet id="ns006" select="//smilCustomTest[@bookStruct='PAGE_NUMBER']"><resource xml:lang="en" id="r006"><text>Page</text></resource></nodeSet><nodeSet id="ns007" select="//smilCustomTest[@bookStruct='OPTIONAL_SIDEBAR']"><resource xml:lang="en" id="r007"><text>Optional sidebar</text></resource></nodeSet><nodeSet id="ns008" select="//smilCustomTest[@bookStruct='OPTIONAL_PRODUCER_NOTE']"><resource xml:lang="en" id="r008"><text>Optional producer note</text></resource></nodeSet></scope><!-- ESCAPABLE SMIL --><scope nsuri="http://www.w3.org/2001/SMIL20/"><nodeSet id="esns001" select="//seq[@bookStruct='line']"><resource xml:lang="en" id="esr001"><text>Row</text></resource></nodeSet><nodeSet id="esns002" select="//seq[@class='note']"><resource xml:lang="en" id="esr002"><text>Note</text></resource></nodeSet><nodeSet id="esns003" select="//seq[@class='noteref']"><resource xml:lang="en" id="esr003"><text>Note reference</text></resource></nodeSet><nodeSet id="esns004" select="//seq[@class='annotation']"><resource xml:lang="en" id="esr004"><text>Annotation</text></resource></nodeSet><nodeSet id="esns005" select="//seq[@class='annoref']"><resource xml:lang="en" id="esr005"><text>Annotation reference</text></resource></nodeSet><nodeSet id="esns006" select="//seq[@class='pagenum']"><resource xml:lang="en" id="esr006"><text>Page</text></resource></nodeSet><nodeSet id="esns007" select="//seq[@class='sidebar']"><resource xml:lang="en" id="esr007"><text>Optional sidebar</text></resource></nodeSet><nodeSet id="esns008" select="//seq[@class='prodnote']"><resource xml:lang="en" id="esr008"><text>Optional producer note</text></resource></nodeSet></scope><!-- ESCAPABLE DTBOOK --><scope nsuri="http://www.daisy.org/z3986/2005/dtbook/"><nodeSet id="ns009" select="//annotation"><resource xml:lang="en" id="r009"><text>Annotation</text></resource></nodeSet><nodeSet id="ns010" select="//blockquote"><resource xml:lang="en" id="r010"><text>Quote</text></resource></nodeSet><nodeSet id="ns011" select="//code"><resource xml:lang="en" id="r011"><text>Code</text></resource></nodeSet><nodeSet id="ns012" select="//list"><resource xml:lang="en" id="r012"><text>List</text></resource></nodeSet><nodeSet id="ns018" select="//note"><resource xml:lang="en" id="r018"><text>Note</text></resource></nodeSet><nodeSet id="ns013" select="//poem"><resource xml:lang="en" id="r013"><text>Poem</text></resource></nodeSet><nodeSet id="ns0014" select="//prodnote[@render='optional']"><resource xml:lang="en" id="r014"><text>Optional producer note</text></resource></nodeSet><nodeSet id="ns015" select="//sidebar[@render='optional']"><resource xml:lang="en" id="r015"><text>Optional sidebar</text></resource></nodeSet><nodeSet id="ns016" select="//table"><resource xml:lang="en" id="r016"><text>Table</text></resource></nodeSet><nodeSet id="ns017" select="//tr"><resource xml:lang="en" id="r017"><text>Table row</text></resource></nodeSet></scope></resources>"""
 
 if __name__ == "__main__": main()
