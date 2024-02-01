@@ -1,6 +1,6 @@
 #!/usr/bin/env python3
 """
-Anemone 0.91 (http://ssb22.user.srcf.net/anemone)
+Anemone 0.92 (http://ssb22.user.srcf.net/anemone)
 (c) 2023-24 Silas S. Brown.  License: Apache 2
 Run program with --help for usage instructions.
 """
@@ -38,8 +38,7 @@ args.add_argument("--reader",default="",help="the name of the reader who voiced 
 args.add_argument("--date",help="the publication date as YYYY-MM-DD, default is current date")
 args.add_argument("--marker-attribute",default="data-pid",help="the attribute used in the HTML to indicate a segment number corresponding to a JSON time marker entry, default is data-pid")
 args.add_argument("--page-attribute",default="data-no",help="the attribute used in the HTML to indicate a page number, default is data-no")
-daisy3 = False # NOT WORKING.  Passes the validator (in EPUB3 conversion) but EasyReader on Windows from opf (and Android from zip) "Failed to load book" and said it was text no audio.  Same thing happened with Daisy Pipeline 2023's Daisy 2 to Daisy 3 output.  FSReader crashes on import (both in our file and in pipeline output).
-# args.add_argument("--daisy3",action="store_true",help="Use the Daisy 3 format instead of the Daisy 2.02 format.  This requires more modern readers.  Anemone does not yet support Daisy 3 only features like tables in the text.")
+args.add_argument("--daisy3",action="store_true",help="Use the Daisy 3 format instead of the Daisy 2.02 format.  This requires more modern readers.  Anemone does not yet support Daisy 3 only features like tables in the text.")
 args.add_argument("--mp3-recode",action="store_true",help="re-code the MP3 files to ensure they are constant bitrate and more likely to work with the more limited DAISY-reading programs like FSReader 3 (this option requires LAME)")
 args.add_argument("--allow-jumps",action="store_true",help="Allow jumps in things like heading levels, e.g. h1 to h3 if the input HTML does it.  This seems OK on modern readers but might cause older reading devices to give an error.  Without this option, headings are promoted where necessary to ensure only incremental depth increase, and extra page numbers are inserted if numbers are skipped.") # and is flagged up by the validator
 
@@ -223,7 +222,7 @@ def ncc_html(headings = [],
     <meta name="dc:format" content="{'ANSI/NISO Z39.86-2005' if daisy3 else 'Daisy 2.02'}" />
     <meta name="ncc:narrator" content="{reader}" />
     <meta name="ncc:producedDate" content="{date}" />
-    <meta name="ncc:generator" content="{generator}" />
+    <meta name="{'dtb' if daisy3 else 'ncc'}:generator" content="{generator}" />
     <meta name="ncc:charset" content="utf-8" />
     <meta name="ncc:pageFront" content="0" />
     <meta name="ncc:maxPageNormal" content="{pages}" />
@@ -232,7 +231,7 @@ def ncc_html(headings = [],
     <meta name="ncc:tocItems" content="{len(headingsR)+sum(len(PNs) for PNs in pageNos)}" />
     <meta name="ncc:totalTime" content="{int(totalSecs/3600)}:{int(totalSecs/60)%60:02d}:{math.ceil(totalSecs%60):02d}" />
     <meta name="ncc:multimediaType" content="{"audioFullText" if hasFullText else "audioNcc"}" />
-    <meta name="ncc:depth" content="{max(int(h[0][1:]) for h in headingsR)}" />
+    <meta name="{'dtb' if daisy3 else 'ncc'}:depth" content="{max(int(h[0][1:]) for h in headingsR)}" />
     <meta name="ncc:files" content="{2+len(headings)*(3 if hasFullText else 2)}" />
   </head>
   {f'<docTitle><text>{title}</text></docTitle>' if daisy3 else ''}
@@ -295,7 +294,7 @@ def section_smil(recNo=1,
     if not type(textsAndTimes)==list: textsAndTimes=[textsAndTimes]
     textsAndTimes = [0]+textsAndTimes+[secsThisRecording]
     return deBlank(f"""<?xml version="1.0" encoding="utf-8"?>
-{'' if daisy3 else '<!DOCTYPE smil PUBLIC "-//W3C//DTD SMIL 1.0//EN" "http://www.w3.org/TR/REC-smil/SMIL10.dtd">'}
+{'<!DOCTYPE smil PUBLIC "-//NISO//DTD dtbsmil 2005-2//EN" "http://www.daisy.org/z3986/2005/dtbsmil-2005-2.dtd">' if daisy3 else '<!DOCTYPE smil PUBLIC "-//W3C//DTD SMIL 1.0//EN" "http://www.w3.org/TR/REC-smil/SMIL10.dtd">'}
 {'<smil xmlns="http://www.w3.org/2001/SMIL20/">' if daisy3 else '<smil>'}
   <head>
     {'<meta name="dtb:uid" content=""/>' if daisy3 else '<meta name="dc:format" content="Daisy 2.02" />'}
@@ -311,10 +310,10 @@ def section_smil(recNo=1,
   <body>
     <seq id="sq{recNo}" dur="{secsThisRecording:.3f}s">"""+"".join(f"""
       <par {'' if daisy3 else 'endsync="last" '}id="pr{recNo}.{i//2}">
-        {'' if daisy3 else f'<text id="t{recNo}.{i//2}" src="{recNo:04d}.htm#p{startP+i//2}" />'}
-        <seq id="sq{recNo}.{i//2}a">
-          <audio src="{recNo:04d}.mp3" clip{'B' if daisy3 else '-b'}egin="npt={textsAndTimes[i-1]:.3f}s" clip{'E' if daisy3 else '-e'}nd="npt={textsAndTimes[i+1]:.3f}s" id="aud{recNo}.{i//2}" />
-        </seq>
+        <text id="t{recNo}.{i//2}" src="{recNo:04d}.{'xml' if daisy3 else 'htm'}#p{startP+i//2}" />
+        {'' if daisy3 else f'<seq id="sq{recNo}.{i//2}a">'}
+          <audio src="{recNo:04d}.mp3" clip{'B' if daisy3 else '-b'}egin="{'' if daisy3 else 'npt='}{textsAndTimes[i-1]:.3f}s" clip{'E' if daisy3 else '-e'}nd="{'' if daisy3 else 'npt='}{textsAndTimes[i+1]:.3f}s" id="aud{recNo}.{i//2}" />
+        {'' if daisy3 else '</seq>'}
       </par>""" for i in range(1,len(textsAndTimes),2))+"""
     </seq>
   </body>
@@ -331,25 +330,23 @@ def package_opf(hasFullText,numRecs,totalSecs):
 <package xmlns="http://openebook.org/namespaces/oeb-package/1.0/"
          unique-identifier="uid">
    <metadata>
-      <dc-metadata>
-         <dc:Format xmlns:dc="http://purl.org/dc/elements/1.1/">ANSI/NISO Z39.86-2005</dc:Format>
-         <dc:Language xmlns:dc="http://purl.org/dc/elements/1.1/">{lang}</dc:Language>
-         <dc:Date xmlns:dc="http://purl.org/dc/elements/1.1/">{date}</dc:Date>
-         <dc:Publisher xmlns:dc="http://purl.org/dc/elements/1.1/">{publisher}</dc:Publisher>
-         <dc:Title xmlns:dc="http://purl.org/dc/elements/1.1/">{title}</dc:Title>
-         <dc:Identifier xmlns:dc="http://purl.org/dc/elements/1.1/" id="uid"/>
-         <dc:Creator xmlns:dc="http://purl.org/dc/elements/1.1/">{creator}</dc:Creator>
-         <dc:Type xmlns:dc="http://purl.org/dc/elements/1.1/">text</dc:Type>
+      <dc-metadata xmlns:dc="http://purl.org/dc/elements/1.1/">
+         <dc:Format>ANSI/NISO Z39.86-2005</dc:Format>
+         <dc:Language>{lang}</dc:Language>
+         <dc:Date>{date}</dc:Date>
+         <dc:Publisher>{publisher}</dc:Publisher>
+         <dc:Title>{title}</dc:Title>
+         <dc:Identifier id="uid"/>
+         <dc:Creator>{creator}</dc:Creator>
+         <dc:Type>text</dc:Type>
       </dc-metadata>
       <x-metadata>
          <meta name="dtb:multimediaType" content="{"audioFullText" if hasFullText else "audioNcc"}"/>
          <meta name="dtb:totalTime" content="{int(totalSecs/3600)}:{int(totalSecs/60)%60:02d}:{math.ceil(totalSecs%60):02d}"/>
          <meta name="dtb:multimediaContent" content="audio,text"/>
-         <meta xmlns:dc="http://purl.org/dc/elements/1.1/"
-               name="dtb:narrator"
+         <meta name="dtb:narrator"
                content="{deHTML(reader)}"/>
-         <meta xmlns:dc="http://purl.org/dc/elements/1.1/"
-               name="dtb:producedDate"
+         <meta name="dtb:producedDate"
                content="{date}"/>
       </x-metadata>
    </metadata>
