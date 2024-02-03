@@ -1,6 +1,6 @@
 #!/usr/bin/env python3
 """
-Anemone 0.92 (http://ssb22.user.srcf.net/anemone)
+Anemone 0.93 (http://ssb22.user.srcf.net/anemone)
 (c) 2023-24 Silas S. Brown.  License: Apache 2
 Run program with --help for usage instructions.
 """
@@ -38,6 +38,7 @@ args.add_argument("--reader",default="",help="the name of the reader who voiced 
 args.add_argument("--date",help="the publication date as YYYY-MM-DD, default is current date")
 args.add_argument("--marker-attribute",default="data-pid",help="the attribute used in the HTML to indicate a segment number corresponding to a JSON time marker entry, default is data-pid")
 args.add_argument("--page-attribute",default="data-no",help="the attribute used in the HTML to indicate a page number, default is data-no")
+args.add_argument("--image-attribute",default="data-zoom",help="the attribute used in the HTML to indicate an absolute image URL to be included in the DAISY file, default is data-zoom (currently working only in Daisy 2 format, not Daisy 3)")
 args.add_argument("--daisy3",action="store_true",help="Use the Daisy 3 format instead of the Daisy 2.02 format.  This requires more modern readers.  Anemone does not yet support Daisy 3 only features like tables in the text.")
 args.add_argument("--mp3-recode",action="store_true",help="re-code the MP3 files to ensure they are constant bitrate and more likely to work with the more limited DAISY-reading programs like FSReader 3 (this option requires LAME)")
 args.add_argument("--allow-jumps",action="store_true",help="Allow jumps in things like heading levels, e.g. h1 to h3 if the input HTML does it.  This seems OK on modern readers but might cause older reading devices to give an error.  Without this option, headings are promoted where necessary to ensure only incremental depth increase, and extra page numbers are inserted if numbers are skipped.") # and is flagged up by the validator
@@ -50,10 +51,13 @@ from html.parser import HTMLParser
 from mutagen.mp3 import MP3 # pip install mutagen
 from concurrent.futures import ThreadPoolExecutor
 from multiprocessing import cpu_count
+from urllib.request import urlopen
+from urllib.parse import unquote
+from pathlib import Path # Python 3.5+
 
 def parse_args():
-    global recordingFiles, jsonFiles, textFiles, htmlFiles, outputFile
-    recordingFiles,jsonFiles,textFiles,htmlFiles,outputFile=[],[],[],[],None
+    global recordingFiles, jsonFiles, textFiles, htmlFiles, imageFiles, outputFile
+    recordingFiles,jsonFiles,textFiles,htmlFiles,imageFiles,outputFile=[],[],[],[],[],None
     globals().update(args.parse_args().__dict__)
     for f in files:
         if f.endswith(f"{os.extsep}zip"):
@@ -100,9 +104,17 @@ def get_texts():
             def __init__(self):
                 HTMLParser.__init__(self)
                 self.addTo = None
+                self.imgsMaybeAdd = None
                 self.pageNoGoesAfter = 0
             def handle_starttag(self,tag,attrs):
                 attrs = dict(attrs)
+                imgURL = attrs.get(image_attribute,None)
+                if imgURL and re.match("https*://.*[.][^/]*$",imgURL) and not (self.addTo==None and self.imgsMaybeAdd==None):
+                    img = f'<img src="{imageFiles.index(imgURL) if imgURL in imageFiles else len(imageFiles)}{imgURL[imgURL.rindex("."):]}" {f"""id="i{imageFiles.index(imgURL) if imgURL in imageFiles else len(imageFiles)}" """ if daisy3 else ""}/>' # will be moved after paragraph by text_htm
+                    if not imgURL in imageFiles:
+                        imageFiles.append(imgURL)
+                    if self.addTo==None: self.imgsMaybeAdd.append(img)
+                    else: self.addTo.append(img)
                 pageNo = attrs.get(page_attribute,None)
                 if pageNo:
                     if not allow_jumps:
@@ -114,11 +126,14 @@ def get_texts():
                     a = attrs[marker_attribute]
                     self.pageNoGoesAfter = want_pids.index(a)
                     id_to_content[a] = ((tag if re.match('h[1-6]$',tag) or tag=='span' else 'p'),[])
+                    if self.imgsMaybeAdd: self.imgsMaybeAddTo += self.imgsMaybeAdd
                     self.addTo = id_to_content[a][1]
                 elif not self.addTo==None and tag in allowedInlineTags: self.addTo.append(f'<{tag}>')
             def handle_endtag(self,tag):
                 if not self.addTo==None:
-                    if tag==self.theStartTag: self.addTo = None
+                    if tag==self.theStartTag:
+                        self.imgsMaybeAddTo, self.addTo = self.addTo, None
+                        self.imgsMaybeAdd = []
                     elif tag in allowedInlineTags: self.addTo.append(f'</{tag}>')
             def handle_data(self,data):
                 if not self.addTo==None:
@@ -183,6 +198,7 @@ def write_all(recordingTexts):
         z.writestr(f'{recNo:04d}.{"xml" if daisy3 else "htm"}',D(text_htm((rTxt[0][::2] if type(rTxt)==tuple else [('h1',rTxt)]),pSoFar)))
         secsSoFar += secsThisRecording
         pSoFar += (1+len(rTxt[0])//2 if type(rTxt)==tuple else 1)
+    for n,u in enumerate(imageFiles): z.writestr(f'{n}{u[u.rindex("."):]}',fetch(u))
     if daisy3:
         z.writestr('dtbook.2005.basic.css',D(d3css))
         z.writestr('package.opf',D(package_opf(hasFullText,len(recordingTexts),secsSoFar)))
@@ -192,6 +208,15 @@ def write_all(recordingTexts):
     if not daisy3: z.writestr('er_book_info.xml',D(er_book_info(durations))) # not DAISY standard but EasyReader can use this
     z.close()
     sys.stderr.write(f"Wrote {outputFile}\n")
+
+def fetch(url):
+    fn = unquote(re.sub('.*?://','',url))
+    if os.path.exists(fn): return open(fn,'rb').read() # TODO: check with If-Modified-Since?
+    sys.stderr.write("Fetching "+url+"...")
+    dat = urlopen(url).read()
+    if '/' in fn: Path(fn[:fn.rindex('/')]).mkdir(parents=True,exist_ok=True)
+    sys.stderr.write("\n")
+    open(fn,'wb').write(dat) ; return dat
 
 def ncc_html(headings = [],
              hasFullText = False,
@@ -232,7 +257,7 @@ def ncc_html(headings = [],
     <meta name="ncc:totalTime" content="{int(totalSecs/3600)}:{int(totalSecs/60)%60:02d}:{math.ceil(totalSecs%60):02d}" />
     <meta name="ncc:multimediaType" content="{"audioFullText" if hasFullText else "audioNcc"}" />
     <meta name="{'dtb' if daisy3 else 'ncc'}:depth" content="{max(int(h[0][1:]) for h in headingsR)}" />
-    <meta name="ncc:files" content="{2+len(headings)*(3 if hasFullText else 2)}" />
+    <meta name="ncc:files" content="{2+len(headings)*(3 if hasFullText else 2)+len(imageFiles)}" />
   </head>
   {f'<docTitle><text>{title}</text></docTitle>' if daisy3 else ''}
   {f'<docAuthor><text>{creator}</text></docAuthor>' if daisy3 else ''}
@@ -343,7 +368,7 @@ def package_opf(hasFullText,numRecs,totalSecs):
       <x-metadata>
          <meta name="dtb:multimediaType" content="{"audioFullText" if hasFullText else "audioNcc"}"/>
          <meta name="dtb:totalTime" content="{int(totalSecs/3600)}:{int(totalSecs/60)%60:02d}:{math.ceil(totalSecs%60):02d}"/>
-         <meta name="dtb:multimediaContent" content="audio,text"/>
+         <meta name="dtb:multimediaContent" content="audio,text{',image' if imageFiles else ''}"/>
          <meta name="dtb:narrator"
                content="{deHTML(reader)}"/>
          <meta name="dtb:producedDate"
@@ -352,9 +377,10 @@ def package_opf(hasFullText,numRecs,totalSecs):
    </metadata>
    <manifest>
       <item href="package.opf" id="opf" media-type="text/xml"/>"""+''.join(f"""
-      <item href="{i:04d}.mp3" id="opf-{i}" media-type="audio/mpeg"/>""" for i in range(1,numRecs+1))+f"""
-      <item href="dtbook.2005.basic.css" id="opf-{numRecs+1}" media-type="text/css"/>"""+''.join(f"""
-      <item href="{i:04d}.xml" id="opf-{i+numRecs+1}" media-type="application/x-dtbook+xml"/>""" for i in range(1,numRecs+1))+''.join(f"""
+      <item href="{i:04d}.mp3" id="opf-{i}" media-type="audio/mpeg"/>""" for i in range(1,numRecs+1))+''.join(f"""
+      <item href="{i}{u[u.rindex("."):]}" id="opf-{i+numRecs+1}" media-type="image/{u[u.rindex(".")+1:].lower().replace("jpg","jpeg")}"/>""" for i,u in enumerate(imageFiles))+f"""
+      <item href="dtbook.2005.basic.css" id="opf-{len(imageFiles)+numRecs+1}" media-type="text/css"/>"""+''.join(f"""
+      <item href="{i:04d}.xml" id="opf-{i+len(imageFiles)+numRecs+1}" media-type="application/x-dtbook+xml"/>""" for i in range(1,numRecs+1))+''.join(f"""
       <item href="{i:04d}.smil" id="{i:04d}" media-type="application/smil+xml"/>""" for i in range(1,numRecs+1))+f"""
       <item href="navigation.ncx"
             id="ncx"
@@ -381,7 +407,7 @@ def text_htm(paras,offset=0):
     </head>
     <{'book' if daisy3 else 'body'}>
         {f'<frontmatter><doctitle>{title}</doctitle></frontmatter><bodymatter>' if daisy3 else ''}
-"""+"\n".join(f"{''.join(f'<level{n}>' for n in range(min(int(tag[1:]),next(int(paras[p][0][1:]) for p in range(num-1,-1,-1) if paras[p][0].startswith('h'))+1) if any(paras[P][0].startswith('h') for P in range(num-1,-1,-1)) else 1,int(tag[1:])+1)) if daisy3 and tag.startswith('h') else ''}{'<level1>' if daisy3 and not num and not tag.startswith('h') else ''}<{tag} id=\"p{num+offset}\"{' class='+chr(34)+'sentence'+chr(34) if tag=='span' else ''}>{text}{'' if tag=='p' else ('</'+tag+'>')}{'' if tag.startswith('h') or (num+1<len(paras) and paras[num+1][0]=='span') else '</p>'}{''.join(f'</level{n}>' for n in range(next(int(paras[p][0][1:]) for p in range(num,-1,-1) if paras[p][0].startswith('h')) if any(paras[P][0].startswith('h') for P in range(num,-1,-1)) else 1,0 if num+1==len(paras) else int(paras[num+1][0][1:])-1,-1)) if daisy3 and (num+1==len(paras) or paras[num+1][0].startswith('h')) else ''}" for num,(tag,text) in enumerate(normaliseDepth(paras)))+f"""
+"""+"\n".join(f"""{''.join(f'<level{n}>' for n in range(min(int(tag[1:]),next(int(paras[p][0][1:]) for p in range(num-1,-1,-1) if paras[p][0].startswith('h'))+1) if any(paras[P][0].startswith('h') for P in range(num-1,-1,-1)) else 1,int(tag[1:])+1)) if daisy3 and tag.startswith('h') else ''}{'<level1>' if daisy3 and not num and not tag.startswith('h') else ''}<{tag} id=\"p{num+offset}\"{' class="sentence"' if tag=='span' else ''}>{re.sub('<img src="[^"]*" [^/]*/>','',text)}{'' if tag=='p' else ('</'+tag+'>')}{'' if tag.startswith('h') or (num+1<len(paras) and paras[num+1][0]=='span') else '</p>'}{'<p><imggroup>' if daisy3 and re.search('<img src="',text) else ''}{''.join(re.findall('<img src="[^"]*" [^/]*/>',text))}{'</imggroup></p>' if daisy3 and re.search('<img src="',text) else ''}{''.join(f'</level{n}>' for n in range(next(int(paras[p][0][1:]) for p in range(num,-1,-1) if paras[p][0].startswith('h')) if any(paras[P][0].startswith('h') for P in range(num,-1,-1)) else 1,0 if num+1==len(paras) else int(paras[num+1][0][1:])-1,-1)) if daisy3 and (num+1==len(paras) or paras[num+1][0].startswith('h')) else ''}""" for num,(tag,text) in enumerate(normaliseDepth(paras)))+f"""
         </{'bodymatter></book' if daisy3 else 'body'}>
 </{'dtbook' if daisy3 else 'html'}>
 """)
