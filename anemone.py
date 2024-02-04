@@ -1,6 +1,6 @@
 #!/usr/bin/env python3
 """
-Anemone 0.93 (http://ssb22.user.srcf.net/anemone)
+Anemone 0.94 (http://ssb22.user.srcf.net/anemone)
 (c) 2023-24 Silas S. Brown.  License: Apache 2
 Run program with --help for usage instructions.
 """
@@ -38,8 +38,8 @@ args.add_argument("--reader",default="",help="the name of the reader who voiced 
 args.add_argument("--date",help="the publication date as YYYY-MM-DD, default is current date")
 args.add_argument("--marker-attribute",default="data-pid",help="the attribute used in the HTML to indicate a segment number corresponding to a JSON time marker entry, default is data-pid")
 args.add_argument("--page-attribute",default="data-no",help="the attribute used in the HTML to indicate a page number, default is data-no")
-args.add_argument("--image-attribute",default="data-zoom",help="the attribute used in the HTML to indicate an absolute image URL to be included in the DAISY file, default is data-zoom (currently working only in Daisy 2 format, not Daisy 3)")
-args.add_argument("--daisy3",action="store_true",help="Use the Daisy 3 format instead of the Daisy 2.02 format.  This requires more modern readers.  Anemone does not yet support Daisy 3 only features like tables in the text.")
+args.add_argument("--image-attribute",default="data-zoom",help="the attribute used in the HTML to indicate an absolute image URL to be included in the DAISY file, default is data-zoom")
+args.add_argument("--daisy3",action="store_true",help="Use the Daisy 3 format (ANSI/NISO Z39.86) instead of the Daisy 2.02 format.  This may require more modern reader software, and Anemone does not yet support Daisy 3 only features like tables in the text.")
 args.add_argument("--mp3-recode",action="store_true",help="re-code the MP3 files to ensure they are constant bitrate and more likely to work with the more limited DAISY-reading programs like FSReader 3 (this option requires LAME)")
 args.add_argument("--allow-jumps",action="store_true",help="Allow jumps in things like heading levels, e.g. h1 to h3 if the input HTML does it.  This seems OK on modern readers but might cause older reading devices to give an error.  Without this option, headings are promoted where necessary to ensure only incremental depth increase, and extra page numbers are inserted if numbers are skipped.") # and is flagged up by the validator
 
@@ -339,7 +339,7 @@ def section_smil(recNo=1,
         {'' if daisy3 else f'<seq id="sq{recNo}.{i//2}a">'}
           <audio src="{recNo:04d}.mp3" clip{'B' if daisy3 else '-b'}egin="{'' if daisy3 else 'npt='}{textsAndTimes[i-1]:.3f}s" clip{'E' if daisy3 else '-e'}nd="{'' if daisy3 else 'npt='}{textsAndTimes[i+1]:.3f}s" id="aud{recNo}.{i//2}" />
         {'' if daisy3 else '</seq>'}
-      </par>""" for i in range(1,len(textsAndTimes),2))+"""
+      </par>{''.join(f'<par><text id="t{recNo}.{i//2}.{j}" src="{recNo:04d}.xml#{re.sub(".*"+chr(34)+" id=.","",imageID)}"/></par>' for j,imageID in enumerate(re.findall('<img src="[^"]*" id="[^"]*',textsAndTimes[i][1]))) if daisy3 else ''}""" for i in range(1,len(textsAndTimes),2))+"""
     </seq>
   </body>
 </smil>

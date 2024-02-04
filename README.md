@@ -26,7 +26,7 @@ Anemone DAISY maker
 from http://ssb22.user.srcf.net/indexer/anemone.html
 (also mirrored at http://ssb22.gitlab.io/indexer/anemone.html just in case)
 
-`anemone.py` is a Python 3 script to put together a DAISY file from HTML text, MP3 audio recordings and time index data.  It produces DAISY 2.02 files by default, or DAISY 3 if an option is set.  It currently can produce one of two different types of digital talking book:
+`anemone.py` is a Python 3 script to put together a DAISY file from HTML text, MP3 audio recordings and time index data.  It produces DAISY 2.02 files by default, or DAISY 3 (i.e. ANSI/NISO Z39.86) if an option is set.  It currently can produce one of two different types of digital talking book:
 
 1. Full audio with basic Navigation Control Centre only: this requires a list of MP3 files for the audio, one MP3 per section, and the title of each section can be placed either in a separate text file or in the filename of the MP3 file.
 
@@ -38,21 +38,21 @@ The daisy anemone is a sea creature on the rocky Western shores of Britain and I
 
 ### Behaviour of DAISY readers in 2024
 
-* Dolphin EasyReader 10 (iOS, Android and Chromebook): is able to open the ZIP and play the audio while highlighting the paragraphs in a ‘full audio plus full text’ book (both Daisy 2 and Daisy 3 tested; all other readers tested only on Daisy 2)
+* Dolphin EasyReader 10 (iOS, Android and Chromebook): is able to open the ZIP and play the audio while highlighting the paragraphs in a ‘full audio plus full text’ book, both Daisy 2 and Daisy 3
 
-* Dolphin EasyReader 10 (Windows): ZIP needs to be unpacked separately and NCC file opened
+* Dolphin EasyReader 10 (Windows): ditto but ZIP needs to be unpacked separately and NCC or OPF file opened
 
-* JAWS FSReader 3 (Windows): ZIP needs to be unpacked separately and NCC file opened; may work better without JAWS running; synchronisation with audio seems to require --mp3-recode
+* JAWS FSReader 3 (Windows): is able to play audio while highlighting paragraphs is both Daisy 2 and Daisy 3, but ZIP needs to be unpacked separately and NCC or OPF file opened; may work better without JAWS running; synchronisation with audio seems to require `--mp3-recode`; images are not scaled to fit
 
-* HumanWare Brailliant: does not show text if there is audio (hopefully it can still be used for navigation)
+* HumanWare Brailliant: does not show text if there is audio (hopefully it can still be used for navigation); tested only with Daisy 2
 
-* Pronto Notetaker: ZIP needs to be unpacked to a “Daisy” folder on SD or USB, and the device just plays the audio
+* Pronto Notetaker: ZIP needs to be unpacked to a “Daisy” folder on SD or USB, and the device just plays the audio; tested only with Daisy 2
 
-* US Library of Congress NLS Player: unpack the ZIP onto a blank USB stick of capacity 4 GB or less—plays; navigation works if you use --mp3-recode
+* US Library of Congress NLS Player: unpack the ZIP onto a blank USB stick of capacity 4 GB or less—plays; navigation works if you use --mp3-recode; tested only with Daisy 2
 
-* HumanWare Victor Reader Stream: ZIP needs to be unpacked into "Other Books"; audio plays, device can navigate by section
+* HumanWare Victor Reader Stream: ZIP needs to be unpacked into "Other Books"; audio plays, device can navigate by section; tested only with Daisy 2
 
-* HIMS QBraille XL: can display the text (after opening with Space and Enter); does not play audio
+* HIMS QBraille XL: can display the text (after opening with Space and Enter); does not play audio; tested only with Daisy 2
 
 * DAISY Pipeline (2023): Please do not use this to convert an Anemone-produced Daisy 2 book to Daisy 3.  The resulting Daisy 3 is not likely to play on anything.  If Daisy 3 is required, use Anemone's `--daisy3` option to produce it directly.
 
