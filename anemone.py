@@ -1,6 +1,6 @@
 #!/usr/bin/env python3
 """
-Anemone 0.94 (http://ssb22.user.srcf.net/anemone)
+Anemone 0.95 (http://ssb22.user.srcf.net/anemone)
 (c) 2023-24 Silas S. Brown.  License: Apache 2
 Run program with --help for usage instructions.
 """
@@ -27,7 +27,7 @@ Run program with --help for usage instructions.
 from argparse import ArgumentParser
 generator=__doc__.strip().split('\n')[0]
 args = ArgumentParser(prog="anemone",description=generator)
-args.add_argument("files",metavar="file",nargs="+",help="file name of: an MP3 recording, a text file containing its title, a JSON file containing its time markers, an XHTML file containing its full text, or the output ZIP file.  Only one output file may be specified, but any number of the other files can be included.  If no other files are given then titles are taken from the MP3 filenames.")
+args.add_argument("files",metavar="file",nargs="+",help="file name of: an MP3 recording, a text file containing its title (if no full text), a JSON file containing its time markers, an XHTML file containing its full text, or the output ZIP file.  Only one output file may be specified, but any number of the other files can be included; URLs may be given if they are to be fetched (HTML assumed if no extension).  If only MP3 files are given then titles are taken from their filenames.")
 args.add_argument("--lang",default="en",
                 help="the ISO 639 language code of the publication (defaults to en for English)")
 args.add_argument("--title",default="",help="the title of the publication")
@@ -39,11 +39,13 @@ args.add_argument("--date",help="the publication date as YYYY-MM-DD, default is 
 args.add_argument("--marker-attribute",default="data-pid",help="the attribute used in the HTML to indicate a segment number corresponding to a JSON time marker entry, default is data-pid")
 args.add_argument("--page-attribute",default="data-no",help="the attribute used in the HTML to indicate a page number, default is data-no")
 args.add_argument("--image-attribute",default="data-zoom",help="the attribute used in the HTML to indicate an absolute image URL to be included in the DAISY file, default is data-zoom")
+args.add_argument("--refresh",action="store_true",help="if images etc have already been fetched from URLs, ask the server if they should be fetched again (use If-Modified-Since)")
+args.add_argument("--reload",dest="refetch",action="store_true",help="if images etc have already been fetched from URLs, fetch them again without If-Modified-Since")
 args.add_argument("--daisy3",action="store_true",help="Use the Daisy 3 format (ANSI/NISO Z39.86) instead of the Daisy 2.02 format.  This may require more modern reader software, and Anemone does not yet support Daisy 3 only features like tables in the text.")
 args.add_argument("--mp3-recode",action="store_true",help="re-code the MP3 files to ensure they are constant bitrate and more likely to work with the more limited DAISY-reading programs like FSReader 3 (this option requires LAME)")
-args.add_argument("--allow-jumps",action="store_true",help="Allow jumps in things like heading levels, e.g. h1 to h3 if the input HTML does it.  This seems OK on modern readers but might cause older reading devices to give an error.  Without this option, headings are promoted where necessary to ensure only incremental depth increase, and extra page numbers are inserted if numbers are skipped.") # and is flagged up by the validator
+args.add_argument("--allow-jumps",action="store_true",help="Allow jumps in things like heading levels, e.g. h1 to h3 if the input HTML does it.  This seems OK on modern readers but might cause older reading devices to give an error.  Without this option, headings are promoted where necessary to ensure only incremental depth increase, and extra page numbers are inserted if numbers are skipped.") # might cause older reading devices to give an error: and is also flagged up by the validator
 
-import time, sys, os, re, json, math
+import time, sys, os, re, json, math, time
 from functools import reduce
 from subprocess import run, PIPE
 from zipfile import ZipFile, ZIP_DEFLATED
@@ -51,7 +53,8 @@ from html.parser import HTMLParser
 from mutagen.mp3 import MP3 # pip install mutagen
 from concurrent.futures import ThreadPoolExecutor
 from multiprocessing import cpu_count
-from urllib.request import urlopen
+from urllib.request import urlopen,Request
+from urllib.error import HTTPError
 from urllib.parse import unquote
 from pathlib import Path # Python 3.5+
 
@@ -63,7 +66,8 @@ def parse_args():
         if f.endswith(f"{os.extsep}zip"):
             if outputFile: errExit(f"Only one {os.extsep}zip output file may be specified")
             outputFile = f ; continue
-        elif not os.path.exists(f): errExit(f"File not found: {f}")
+        if re.match("https*://",f): f=fetch(f,1)
+        if not os.path.exists(f): errExit(f"File not found: {f}")
         if f.endswith(f"{os.extsep}mp3"):
             recordingFiles.append(f)
         elif f.endswith(f"{os.extsep}json"):
@@ -191,9 +195,9 @@ def write_all(recordingTexts):
         secsThisRecording = MP3(recordingFiles[recNo-1]).info.length
         rTxt = recordingTexts[recNo-1]
         durations.append(secsThisRecording)
-        if mp3_recode: sys.stderr.write(f"{recNo:04d}.mp3..."),sys.stderr.flush()
+        if mp3_recode: sys.stderr.write(f"Adding {recNo:04d}.mp3..."),sys.stderr.flush()
         z.writestr(f"{recNo:04d}.mp3",recordings[recNo-1].result() if mp3_recode else open(recordingFiles[recNo-1],'rb').read())
-        if mp3_recode: sys.stderr.write("\n")
+        if mp3_recode: sys.stderr.write(" done\n")
         z.writestr(f'{recNo:04d}.smil',D(section_smil(recNo,secsSoFar,secsThisRecording,pSoFar,rTxt[0] if type(rTxt)==tuple else rTxt)))
         z.writestr(f'{recNo:04d}.{"xml" if daisy3 else "htm"}',D(text_htm((rTxt[0][::2] if type(rTxt)==tuple else [('h1',rTxt)]),pSoFar)))
         secsSoFar += secsThisRecording
@@ -209,14 +213,32 @@ def write_all(recordingTexts):
     z.close()
     sys.stderr.write(f"Wrote {outputFile}\n")
 
-def fetch(url):
-    fn = unquote(re.sub('.*?://','',url))
-    if os.path.exists(fn): return open(fn,'rb').read() # TODO: check with If-Modified-Since?
+import locale
+locale.setlocale(locale.LC_TIME, "C") # for %a and %b in strftime (shouldn't need LC_TIME elsewhere)
+def fetch(url,returnFilename=False):
+    fn = 'cache/'+unquote(re.sub('.*?://','',url))
+    if fn.endswith('/'): fn += "index.html"
+    ifModSince = None
+    if os.path.exists(fn):
+        if refetch: pass # ignore already dl'd
+        elif refresh:
+            ifModSince=os.stat(fn).st_mtime
+        elif returnFilename: return fn
+        else: return open(fn,'rb').read()
     sys.stderr.write("Fetching "+url+"...")
-    dat = urlopen(url).read()
+    sys.stderr.flush()
+    try: dat = urlopen(Request(url,headers=({"If-Modified-Since":time.strftime("%a, %d %b %Y %H:%M:%S GMT",time.gmtime(ifModSince))} if ifModSince else {}))).read()
+    except HTTPError as e:
+        if e.getcode()==304:
+            sys.stderr.write(" no new data\n")
+            if returnFilename: return fn
+            else: return open(fn,'rb').read()
+        else: raise
     if '/' in fn: Path(fn[:fn.rindex('/')]).mkdir(parents=True,exist_ok=True)
-    sys.stderr.write("\n")
-    open(fn,'wb').write(dat) ; return dat
+    sys.stderr.write(" saved\n")
+    open(fn,'wb').write(dat)
+    if returnFilename: return fn
+    else: return dat
 
 def ncc_html(headings = [],
              hasFullText = False,
