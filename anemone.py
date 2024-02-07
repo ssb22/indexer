@@ -1,6 +1,6 @@
 #!/usr/bin/env python3
 """
-Anemone 0.95 (http://ssb22.user.srcf.net/anemone)
+Anemone 0.96 (http://ssb22.user.srcf.net/anemone)
 (c) 2023-24 Silas S. Brown.  License: Apache 2
 Run program with --help for usage instructions.
 """
@@ -24,10 +24,18 @@ Run program with --help for usage instructions.
 # and at https://gitlab.developers.cam.ac.uk/ssb22/indexer
 # and in China: https://gitee.com/ssb22/indexer
 
+def anemone(*files,**options):
+    """This function can be called by scripts that
+    import anemone: simply put the equivalent of
+    the command line into 'files' and 'options'.
+    Not thread-safe."""
+    parse_args(*files,**options)
+    write_all(get_texts())
+
 from argparse import ArgumentParser
 generator=__doc__.strip().split('\n')[0]
-args = ArgumentParser(prog="anemone",description=generator)
-args.add_argument("files",metavar="file",nargs="+",help="file name of: an MP3 recording, a text file containing its title (if no full text), a JSON file containing its time markers, an XHTML file containing its full text, or the output ZIP file.  Only one output file may be specified, but any number of the other files can be included; URLs may be given if they are to be fetched (HTML assumed if no extension).  If only MP3 files are given then titles are taken from their filenames.")
+args = ArgumentParser(prog="anemone",description=generator,fromfile_prefix_chars='@')
+args.add_argument("files",metavar="file",nargs="+",help="file name of: an MP3 recording, a text file containing its title (if no full text), a JSON file containing its time markers, an XHTML file containing its full text, or the output ZIP file.  Only one output file may be specified, but any number of the other files can be included; URLs may be given if they are to be fetched (HTML assumed if no extension).  If only MP3 files are given then titles are taken from their filenames.  You may also specify @filename where filename contains a list of files one per line.")
 args.add_argument("--lang",default="en",
                 help="the ISO 639 language code of the publication (defaults to en for English)")
 args.add_argument("--title",default="",help="the title of the publication")
@@ -58,10 +66,11 @@ from urllib.error import HTTPError
 from urllib.parse import unquote
 from pathlib import Path # Python 3.5+
 
-def parse_args():
-    global recordingFiles, jsonFiles, textFiles, htmlFiles, imageFiles, outputFile
+def parse_args(*inFiles,**kwargs):
+    global recordingFiles, jsonFiles, textFiles, htmlFiles, imageFiles, outputFile, files
     recordingFiles,jsonFiles,textFiles,htmlFiles,imageFiles,outputFile=[],[],[],[],[],None
-    globals().update(args.parse_args().__dict__)
+    if inFiles: globals().update(args.parse_args(list(inFiles)+[a for k,v in kwargs.items() for a in ['--'+k.replace('_','-'),str(v)]]).__dict__)
+    else: globals().update(args.parse_args().__dict__)
     for f in files:
         if f.endswith(f"{os.extsep}zip"):
             if outputFile: errExit(f"Only one {os.extsep}zip output file may be specified")
@@ -74,7 +83,7 @@ def parse_args():
             jsonFiles.append(f)
         elif f.endswith(f"{os.extsep}txt"):
             textFiles.append(f)
-        elif f.endswith(f"{os.extsep}html"):
+        elif f.endswith(f"{os.extsep}html") or not os.extsep in f.rsplit(os.sep,1)[-1]:
             htmlFiles.append(f)
         else: errExit(f"Can't handle '{f}'")
     if not recordingFiles: errExit("Creating DAISY files without audio is not yet implemented")
@@ -89,10 +98,6 @@ def parse_args():
     if not title: title=outputFile.replace(f"{os.extsep}zip","").replace("_daisy","")
 def errExit(m):
     sys.stderr.write(f"Error: {m}\n") ; sys.exit(1)
-
-def main():
-    parse_args()
-    write_all(get_texts())
 
 def get_texts():
     if textFiles: return [open(f).read().strip() for f in textFiles] # section titles only, from text files
@@ -215,6 +220,7 @@ def write_all(recordingTexts):
 
 import locale
 locale.setlocale(locale.LC_TIME, "C") # for %a and %b in strftime (shouldn't need LC_TIME elsewhere)
+refetch = refresh = False # so anyone importing the module can call fetch() before anemone(), e.g. to download a list of URLs from somewhere
 def fetch(url,returnFilename=False):
     fn = 'cache/'+unquote(re.sub('.*?://','',url))
     if fn.endswith('/'): fn += "index.html"
@@ -477,4 +483,4 @@ textres = """<?xml version="1.0" encoding="utf-8"?>
   PUBLIC "-//NISO//DTD resource 2005-1//EN" "http://www.daisy.org/z3986/2005/resource-2005-1.dtd">
 <resources xmlns="http://www.daisy.org/z3986/2005/resource/" version="2005-1"><!-- SKIPPABLE NCX --><scope nsuri="http://www.daisy.org/z3986/2005/ncx/"><nodeSet id="ns001" select="//smilCustomTest[@bookStruct='LINE_NUMBER']"><resource xml:lang="en" id="r001"><text>Row</text></resource></nodeSet><nodeSet id="ns002" select="//smilCustomTest[@bookStruct='NOTE']"><resource xml:lang="en" id="r002"><text>Note</text></resource></nodeSet><nodeSet id="ns003" select="//smilCustomTest[@bookStruct='NOTE_REFERENCE']"><resource xml:lang="en" id="r003"><text>Note reference</text></resource></nodeSet><nodeSet id="ns004" select="//smilCustomTest[@bookStruct='ANNOTATION']"><resource xml:lang="en" id="r004"><text>Annotation</text></resource></nodeSet><nodeSet id="ns005" select="//smilCustomTest[@id='annoref']"><resource xml:lang="en" id="r005"><text>Annotation reference</text></resource></nodeSet><nodeSet id="ns006" select="//smilCustomTest[@bookStruct='PAGE_NUMBER']"><resource xml:lang="en" id="r006"><text>Page</text></resource></nodeSet><nodeSet id="ns007" select="//smilCustomTest[@bookStruct='OPTIONAL_SIDEBAR']"><resource xml:lang="en" id="r007"><text>Optional sidebar</text></resource></nodeSet><nodeSet id="ns008" select="//smilCustomTest[@bookStruct='OPTIONAL_PRODUCER_NOTE']"><resource xml:lang="en" id="r008"><text>Optional producer note</text></resource></nodeSet></scope><!-- ESCAPABLE SMIL --><scope nsuri="http://www.w3.org/2001/SMIL20/"><nodeSet id="esns001" select="//seq[@bookStruct='line']"><resource xml:lang="en" id="esr001"><text>Row</text></resource></nodeSet><nodeSet id="esns002" select="//seq[@class='note']"><resource xml:lang="en" id="esr002"><text>Note</text></resource></nodeSet><nodeSet id="esns003" select="//seq[@class='noteref']"><resource xml:lang="en" id="esr003"><text>Note reference</text></resource></nodeSet><nodeSet id="esns004" select="//seq[@class='annotation']"><resource xml:lang="en" id="esr004"><text>Annotation</text></resource></nodeSet><nodeSet id="esns005" select="//seq[@class='annoref']"><resource xml:lang="en" id="esr005"><text>Annotation reference</text></resource></nodeSet><nodeSet id="esns006" select="//seq[@class='pagenum']"><resource xml:lang="en" id="esr006"><text>Page</text></resource></nodeSet><nodeSet id="esns007" select="//seq[@class='sidebar']"><resource xml:lang="en" id="esr007"><text>Optional sidebar</text></resource></nodeSet><nodeSet id="esns008" select="//seq[@class='prodnote']"><resource xml:lang="en" id="esr008"><text>Optional producer note</text></resource></nodeSet></scope><!-- ESCAPABLE DTBOOK --><scope nsuri="http://www.daisy.org/z3986/2005/dtbook/"><nodeSet id="ns009" select="//annotation"><resource xml:lang="en" id="r009"><text>Annotation</text></resource></nodeSet><nodeSet id="ns010" select="//blockquote"><resource xml:lang="en" id="r010"><text>Quote</text></resource></nodeSet><nodeSet id="ns011" select="//code"><resource xml:lang="en" id="r011"><text>Code</text></resource></nodeSet><nodeSet id="ns012" select="//list"><resource xml:lang="en" id="r012"><text>List</text></resource></nodeSet><nodeSet id="ns018" select="//note"><resource xml:lang="en" id="r018"><text>Note</text></resource></nodeSet><nodeSet id="ns013" select="//poem"><resource xml:lang="en" id="r013"><text>Poem</text></resource></nodeSet><nodeSet id="ns0014" select="//prodnote[@render='optional']"><resource xml:lang="en" id="r014"><text>Optional producer note</text></resource></nodeSet><nodeSet id="ns015" select="//sidebar[@render='optional']"><resource xml:lang="en" id="r015"><text>Optional sidebar</text></resource></nodeSet><nodeSet id="ns016" select="//table"><resource xml:lang="en" id="r016"><text>Table</text></resource></nodeSet><nodeSet id="ns017" select="//tr"><resource xml:lang="en" id="r017"><text>Table row</text></resource></nodeSet></scope></resources>"""
 
-if __name__ == "__main__": main()
+if __name__ == "__main__": anemone()
