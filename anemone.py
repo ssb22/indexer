@@ -1,6 +1,6 @@
 #!/usr/bin/env python3
 """
-Anemone 0.96 (http://ssb22.user.srcf.net/anemone)
+Anemone 0.97 (http://ssb22.user.srcf.net/anemone)
 (c) 2023-24 Silas S. Brown.  License: Apache 2
 Run program with --help for usage instructions.
 """
@@ -109,10 +109,12 @@ def get_texts():
         id_to_content = {}
         pageNos = []
         allowedInlineTags=[] # Dolphin EasyReader does not render <strong> and <em>, and constructs like "(<em>Publication name</em>" result in incorrect space after "(" so best leave it out.  TODO: does any reader allow inline links for footnotes and references?  will need to rewrite their destinations if so
+        assert not 'rt' in allowedInlineTags, "if allowing this, need to revise rt suppression logic" # and would have to rely on rp parens for most readers, so if a text has a LOT of ruby it could get quite unreadable
         class PidsExtractor(HTMLParser):
             def __init__(self):
                 HTMLParser.__init__(self)
                 self.addTo = None
+                self.suppress = 0
                 self.imgsMaybeAdd = None
                 self.pageNoGoesAfter = 0
             def handle_starttag(self,tag,attrs):
@@ -138,22 +140,28 @@ def get_texts():
                     if self.imgsMaybeAdd: self.imgsMaybeAddTo += self.imgsMaybeAdd
                     self.addTo = id_to_content[a][1]
                 elif not self.addTo==None and tag in allowedInlineTags: self.addTo.append(f'<{tag}>')
+                elif tag=='rt': self.suppress += 1
             def handle_endtag(self,tag):
-                if not self.addTo==None:
+                if self.suppress and tag=='rt': self.suppress -= 1
+                elif not self.addTo==None:
                     if tag==self.theStartTag:
                         self.imgsMaybeAddTo, self.addTo = self.addTo, None
                         self.imgsMaybeAdd = []
                     elif tag in allowedInlineTags: self.addTo.append(f'</{tag}>')
             def handle_data(self,data):
-                if not self.addTo==None:
+                if not self.addTo==None and not self.suppress:
                     self.addTo.append(data.replace('&','&amp;').replace('<','&lt;'))
         PidsExtractor().feed(open(h).read())
         rTxt = []
         for i in range(len(markers)):
             if i: rTxt.append(parseTime(jsonAttr(markers[i],"time")))
-            tag,content = id_to_content[want_pids[i]]
-            content = ''.join(content).strip()
-            rTxt.append((tag,content))
+            if want_pids[i] in id_to_content:
+                tag,content = id_to_content[want_pids[i]]
+                content = ''.join(content).strip()
+                rTxt.append((tag,content))
+            else:
+                sys.stderr.write(f"Warning: JSON file {j} marker {i+1} marks paragraph ID {want_pids[i]} which is not present in corresponding HTML file {h}.  Anemone will make this a blank paragraph.\n")
+                rTxt.append(('p',''))
         recordingTexts.append((rTxt,pageNos))
     return recordingTexts
 
