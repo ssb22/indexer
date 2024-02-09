@@ -1,6 +1,6 @@
 #!/usr/bin/env python3
 """
-Anemone 0.97 (http://ssb22.user.srcf.net/anemone)
+Anemone 0.98 (http://ssb22.user.srcf.net/anemone)
 (c) 2023-24 Silas S. Brown.  License: Apache 2
 Run program with --help for usage instructions.
 """
@@ -179,7 +179,7 @@ def parseTime(t):
 def write_all(recordingTexts):
     "each item is: 1 text for section title of whole recording, or ([(type,text),time,(type,text),time,(type,text)],[(goesBefore,pageNo),...])"
     assert len(recordingFiles) == len(recordingTexts)
-    headings = [([u+(v//2,) for v,u in enumerate(t[0]) if type(u)==tuple and u[0].startswith('h')] if type(t)==tuple else t) for t in recordingTexts]
+    headings = getHeadings(recordingTexts)
     hasFullText = any(type(t)==tuple for t in recordingTexts)
     if mp3_recode: # parallelise lame if possible
         executor = ThreadPoolExecutor(max_workers=cpu_count())
@@ -225,6 +225,26 @@ def write_all(recordingTexts):
     if not daisy3: z.writestr('er_book_info.xml',D(er_book_info(durations))) # not DAISY standard but EasyReader can use this
     z.close()
     sys.stderr.write(f"Wrote {outputFile}\n")
+
+def getHeadings(recordingTexts):
+    ret = []
+    for t in recordingTexts:
+        if not type(t)==tuple: # title only
+            ret.append(t) ; continue
+        textsAndTimes,pages = t ; first = None
+        chap = []
+        for v,u in enumerate(textsAndTimes):
+            if not type(u)==tuple: continue
+            tag,text = u
+            if first==None: first = v
+            if not tag.startswith('h'):
+                continue
+            if v//2 - 1 == first//2 and not textsAndTimes[first][0].startswith('h'): # chapter starts with non-heading followed by heading: check the non-heading for "Chapter N" etc, extract number
+                nums=re.findall("[1-9][0-9]*",textsAndTimes[first][1])
+                if len(nums)==1: text=f"{nums[0]}: {text}"
+            chap.append((tag,re.sub('<img src.*?/>','',text),v//2))
+        ret.append(chap)
+    return ret
 
 import locale
 locale.setlocale(locale.LC_TIME, "C") # for %a and %b in strftime (shouldn't need LC_TIME elsewhere)
