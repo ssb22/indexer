@@ -1,6 +1,6 @@
 #!/usr/bin/env python3
 """
-Anemone 0.98 (http://ssb22.user.srcf.net/anemone)
+Anemone 0.99 (http://ssb22.user.srcf.net/anemone)
 (c) 2023-24 Silas S. Brown.  License: Apache 2
 Run program with --help for usage instructions.
 """
@@ -69,7 +69,7 @@ from pathlib import Path # Python 3.5+
 def parse_args(*inFiles,**kwargs):
     global recordingFiles, jsonFiles, textFiles, htmlFiles, imageFiles, outputFile, files
     recordingFiles,jsonFiles,textFiles,htmlFiles,imageFiles,outputFile=[],[],[],[],[],None
-    if inFiles: globals().update(args.parse_args(list(inFiles)+[a for k,v in kwargs.items() for a in ['--'+k.replace('_','-'),str(v)]]).__dict__)
+    if inFiles: globals().update(args.parse_args(list(inFiles)+['--'+k.replace('_','-') for k,v in kwargs.items() if v==True]+[a for k,v in kwargs.items() for a in ['--'+k.replace('_','-'),str(v)] if not v==True]).__dict__)
     else: globals().update(args.parse_args().__dict__)
     for f in files:
         if f.endswith(f"{os.extsep}zip"):
@@ -121,7 +121,7 @@ def get_texts():
                 attrs = dict(attrs)
                 imgURL = attrs.get(image_attribute,None)
                 if imgURL and re.match("https*://.*[.][^/]*$",imgURL) and not (self.addTo==None and self.imgsMaybeAdd==None):
-                    img = f'<img src="{imageFiles.index(imgURL) if imgURL in imageFiles else len(imageFiles)}{imgURL[imgURL.rindex("."):]}" {f"""id="i{imageFiles.index(imgURL) if imgURL in imageFiles else len(imageFiles)}" """ if daisy3 else ""}/>' # will be moved after paragraph by text_htm
+                    img = f'<img src="{(imageFiles.index(imgURL) if imgURL in imageFiles else len(imageFiles))+1}{imgURL[imgURL.rindex("."):]}" {f"""id="i{imageFiles.index(imgURL) if imgURL in imageFiles else len(imageFiles)}" """ if daisy3 else ""}/>' # will be moved after paragraph by text_htm
                     if not imgURL in imageFiles:
                         imageFiles.append(imgURL)
                     if self.addTo==None: self.imgsMaybeAdd.append(img)
@@ -137,7 +137,7 @@ def get_texts():
                     a = attrs[marker_attribute]
                     self.pageNoGoesAfter = want_pids.index(a)
                     id_to_content[a] = ((tag if re.match('h[1-6]$',tag) or tag=='span' else 'p'),[])
-                    if self.imgsMaybeAdd: self.imgsMaybeAddTo += self.imgsMaybeAdd
+                    if self.imgsMaybeAdd: self.imgsMaybeAddTo += self.imgsMaybeAdd # and imgsMaybeAdd will be reset to [] when this element is closed
                     self.addTo = id_to_content[a][1]
                 elif not self.addTo==None and tag in allowedInlineTags: self.addTo.append(f'<{tag}>')
                 elif tag=='rt': self.suppress += 1
@@ -145,9 +145,10 @@ def get_texts():
                 if self.suppress and tag=='rt': self.suppress -= 1
                 elif not self.addTo==None:
                     if tag==self.theStartTag:
-                        self.imgsMaybeAddTo, self.addTo = self.addTo, None
-                        self.imgsMaybeAdd = []
+                        self.highestImage,self.imgsMaybeAddTo, self.imgsMaybeAdd = len(imageFiles),self.addTo,[] # if we find any images (not in an id'd element) after the end of the id'd element, we might want to add them in with any inside it, but only if there's another id'd element after them i.e. not if they're just random decoration at the bottom of the page
+                        self.addTo = None
                     elif tag in allowedInlineTags: self.addTo.append(f'</{tag}>')
+                if tag=='html' and self.imgsMaybeAdd and hasattr(self,'highestImage'): del imageFiles[self.highestImage:] # do not include ones that were only in imgsMaybeAdd at the end of the page (and not also elsewhere)
             def handle_data(self,data):
                 if not self.addTo==None and not self.suppress:
                     self.addTo.append(data.replace('&','&amp;').replace('<','&lt;'))
@@ -215,7 +216,7 @@ def write_all(recordingTexts):
         z.writestr(f'{recNo:04d}.{"xml" if daisy3 else "htm"}',D(text_htm((rTxt[0][::2] if type(rTxt)==tuple else [('h1',rTxt)]),pSoFar)))
         secsSoFar += secsThisRecording
         pSoFar += (1+len(rTxt[0])//2 if type(rTxt)==tuple else 1)
-    for n,u in enumerate(imageFiles): z.writestr(f'{n}{u[u.rindex("."):]}',fetch(u))
+    for n,u in enumerate(imageFiles): z.writestr(f'{n+1}{u[u.rindex("."):]}',fetch(u))
     if daisy3:
         z.writestr('dtbook.2005.basic.css',D(d3css))
         z.writestr('package.opf',D(package_opf(hasFullText,len(recordingTexts),secsSoFar)))
@@ -361,7 +362,7 @@ def master_smil(headings = [],
       <region id="textView" />
     </layout>
   </head>
-  <body>"""+'\n'.join(f"""
+  <body>"""+''.join(f"""
     <ref title="{deHTML(t[1])}" src="{t[2]+1:04d}.smil#t{t[2]+1}.{t[3]}" id="ms_{s+1:04d}" />""" for s,t in enumerate(headings))+"""
   </body>
 </smil>
@@ -434,7 +435,7 @@ def package_opf(hasFullText,numRecs,totalSecs):
    <manifest>
       <item href="package.opf" id="opf" media-type="text/xml"/>"""+''.join(f"""
       <item href="{i:04d}.mp3" id="opf-{i}" media-type="audio/mpeg"/>""" for i in range(1,numRecs+1))+''.join(f"""
-      <item href="{i}{u[u.rindex("."):]}" id="opf-{i+numRecs+1}" media-type="image/{u[u.rindex(".")+1:].lower().replace("jpg","jpeg")}"/>""" for i,u in enumerate(imageFiles))+f"""
+      <item href="{i+1}{u[u.rindex("."):]}" id="opf-{i+numRecs+1}" media-type="image/{u[u.rindex(".")+1:].lower().replace("jpg","jpeg")}"/>""" for i,u in enumerate(imageFiles))+f"""
       <item href="dtbook.2005.basic.css" id="opf-{len(imageFiles)+numRecs+1}" media-type="text/css"/>"""+''.join(f"""
       <item href="{i:04d}.xml" id="opf-{i+len(imageFiles)+numRecs+1}" media-type="application/x-dtbook+xml"/>""" for i in range(1,numRecs+1))+''.join(f"""
       <item href="{i:04d}.smil" id="{i:04d}" media-type="application/smil+xml"/>""" for i in range(1,numRecs+1))+f"""
