@@ -1,6 +1,6 @@
 #!/usr/bin/env python3
 """
-Anemone 0.99 (http://ssb22.user.srcf.net/anemone)
+Anemone 1.0 (http://ssb22.user.srcf.net/anemone)
 (c) 2023-24 Silas S. Brown.  License: Apache 2
 Run program with --help for usage instructions.
 """
@@ -51,7 +51,7 @@ args.add_argument("--refresh",action="store_true",help="if images etc have alrea
 args.add_argument("--reload",dest="refetch",action="store_true",help="if images etc have already been fetched from URLs, fetch them again without If-Modified-Since")
 args.add_argument("--daisy3",action="store_true",help="Use the Daisy 3 format (ANSI/NISO Z39.86) instead of the Daisy 2.02 format.  This may require more modern reader software, and Anemone does not yet support Daisy 3 only features like tables in the text.")
 args.add_argument("--mp3-recode",action="store_true",help="re-code the MP3 files to ensure they are constant bitrate and more likely to work with the more limited DAISY-reading programs like FSReader 3 (this option requires LAME)")
-args.add_argument("--allow-jumps",action="store_true",help="Allow jumps in things like heading levels, e.g. h1 to h3 if the input HTML does it.  This seems OK on modern readers but might cause older reading devices to give an error.  Without this option, headings are promoted where necessary to ensure only incremental depth increase, and extra page numbers are inserted if numbers are skipped.") # might cause older reading devices to give an error: and is also flagged up by the validator
+args.add_argument("--allow-jumps",action="store_true",help="Allow jumps in heading levels e.g. h1 to h3 if the input HTML does it.  This seems OK on modern readers but might cause older reading devices to give an error.  Without this option, headings are promoted where necessary to ensure only incremental depth increase.") # might cause older reading devices to give an error: and is also flagged up by the validator
 
 import time, sys, os, re, json, math, time
 from functools import reduce
@@ -69,7 +69,7 @@ from pathlib import Path # Python 3.5+
 def parse_args(*inFiles,**kwargs):
     global recordingFiles, jsonFiles, textFiles, htmlFiles, imageFiles, outputFile, files
     recordingFiles,jsonFiles,textFiles,htmlFiles,imageFiles,outputFile=[],[],[],[],[],None
-    if inFiles: globals().update(args.parse_args(list(inFiles)+['--'+k.replace('_','-') for k,v in kwargs.items() if v==True]+[a for k,v in kwargs.items() for a in ['--'+k.replace('_','-'),str(v)] if not v==True]).__dict__)
+    if inFiles: globals().update(args.parse_args(list(inFiles)+['--'+k.replace('_','-') for k,v in kwargs.items() if v==True]+[a for k,v in kwargs.items() for a in ['--'+k.replace('_','-'),str(v)] if not v==True and not v==False]).__dict__) # so flag=False is ignored (as we default to False)
     else: globals().update(args.parse_args().__dict__)
     for f in files:
         if f.endswith(f"{os.extsep}zip"):
@@ -102,7 +102,7 @@ def errExit(m):
 def get_texts():
     if textFiles: return [open(f).read().strip() for f in textFiles] # section titles only, from text files
     elif not htmlFiles: return [r[:r.rindex(f"{os.extsep}mp3")] for r in recordingFiles] # section titles only, from MP3 filenames
-    recordingTexts = [] ; highestPage = [0]
+    recordingTexts = []
     for h,j in zip(htmlFiles,jsonFiles):
         markers = json.load(open(j))['markers']
         want_pids = [jsonAttr(m,"id") for m in markers]
@@ -128,10 +128,7 @@ def get_texts():
                     else: self.addTo.append(img)
                 pageNo = attrs.get(page_attribute,None)
                 if pageNo:
-                    if not allow_jumps:
-                        for i in range(highestPage[0]+1, int(pageNo)): pageNos.append((self.pageNoGoesAfter,str(i))) # TODO: is this really the best place to put them if we don't know where they are?  Page 1 might be the title page, etc
                     pageNos.append((self.pageNoGoesAfter,pageNo))
-                    highestPage[0] = int(pageNo)
                 if attrs.get(marker_attribute,None) in want_pids:
                     self.theStartTag = tag
                     a = attrs[marker_attribute]
@@ -184,7 +181,7 @@ def write_all(recordingTexts):
     hasFullText = any(type(t)==tuple for t in recordingTexts)
     if mp3_recode: # parallelise lame if possible
         executor = ThreadPoolExecutor(max_workers=cpu_count())
-        recordings=[executor.submit(lambda *_:run(["lame","--quiet",f,"-m","m","--resample","44.1","-c","--cbr","-b","96","-q","0","-o","-"],check=True,stdout=PIPE).stdout) for f in recordingFiles]
+        recordings=[executor.submit(lambda f:run(["lame","--quiet",f,"-m","m","--resample","44.1","-c","-b","64","-q","0","-o","-"],check=True,stdout=PIPE).stdout,f) for f in recordingFiles]
     z = ZipFile(outputFile,"w",ZIP_DEFLATED,False)
     def D(s): return s.replace("\n","\r\n") # in case old readers require DOS line endings
     if hasFullText: z.writestr("0000.txt",D(f"""
@@ -195,12 +192,12 @@ def write_all(recordingTexts):
     this way, it is better to send the whole ZIP
     to a DAISY reader so that its recordings and
     text can be connected with each other.  If
-    you are using EasyReader, you might want to
+    you are using EasyReader on a mobile device,
     close this file and navigate up a level to
     find the original ZIP file so it can be sent
     to EasyReader as a whole.  Some other DAISY
     readers need to be pointed at the {'OPF' if daisy3 else 'NCC'} file
-    instead, or at the whole directory.
+    instead, or at the whole directory/folder.
 """)) # TODO: message in other languages?
     # (it's iOS users that need the above, apparently.  Can't DAISY have a non-ZIP extension so Apple systems don't automatically unpack it?  but we do need to manually unpack if writing to a CD-ROM for old devices.  Can't Apple look at some kind of embedded "don't auto-unpack this zip" request?)
     secsSoFar = 0
@@ -253,6 +250,7 @@ refetch = refresh = False # so anyone importing the module can call fetch() befo
 def fetch(url,returnFilename=False):
     fn = 'cache/'+unquote(re.sub('.*?://','',url))
     if fn.endswith('/'): fn += "index.html"
+    f = os.sep.join(f.replace('.',os.extsep) for f in fn.split('/'))
     ifModSince = None
     if os.path.exists(fn):
         if refetch: pass # ignore already dl'd
@@ -269,7 +267,7 @@ def fetch(url,returnFilename=False):
             if returnFilename: return fn
             else: return open(fn,'rb').read()
         else: raise
-    if '/' in fn: Path(fn[:fn.rindex('/')]).mkdir(parents=True,exist_ok=True)
+    if os.sep in fn: Path(fn[:fn.rindex(os.sep)]).mkdir(parents=True,exist_ok=True)
     sys.stderr.write(" saved\n")
     open(fn,'wb').write(dat)
     if returnFilename: return fn
@@ -280,10 +278,11 @@ def ncc_html(headings = [],
              totalSecs = 0, pageNos=[]):
     """Returns the Navigation Control Centre (NCC)
     pageNos is [[(goesAfter,pageNo),...],...]"""
-    pages = max([max([int(N) for after,N in PNs],default=0) for PNs in pageNos],default=0)
+    numPages = sum(len(l) for l in pageNos)
+    maxPageNo = max([max([int(N) for after,N in PNs],default=0) for PNs in pageNos],default=0)
     # TODO: we assume all pages are 'normal' pages
     # (not 'front' pages in Roman letters etc)
-    headingsR = normaliseDepth(HReduce(headings))
+    headingsR = normaliseDepth(HReduce(headings)) # (hType,hText,recNo,textNo)
     global date
     if not date: date = "%04d-%02d-%02d" % time.localtime()[:3]
     return deBlank(f"""<?xml version="1.0" encoding="utf-8"?>
@@ -291,8 +290,8 @@ def ncc_html(headings = [],
 <{'ncx xmlns="http://www.daisy.org/z3986/2005/ncx/" version="2005-1"' if daisy3 else f'html lang="{lang}" xmlns="http://www.w3.org/1999/xhtml"'} xml:lang="{lang}">
   <head>
     {'<meta name="dtb:uid" content=""/>' if daisy3 else '<meta content="text/html; charset=utf-8" http-equiv="Content-type" />'}
-    {f'<meta name="dtb:totalPageCount" content="{pages}" />' if daisy3 else ''}
-    {f'<meta name="dtb:maxPageNumber" content="{pages}" />' if daisy3 else ''}
+    {f'<meta name="dtb:totalPageCount" content="{numPages}" />' if daisy3 else ''}
+    {f'<meta name="dtb:maxPageNumber" content="{maxPageNo}" />' if daisy3 else ''}
     {'' if daisy3 else f'<title>{title}</title>'}
     <meta name="dc:creator" content="{creator}" />
     <meta name="dc:date" content="{date}" scheme="yyyy-mm-dd" />
@@ -307,8 +306,8 @@ def ncc_html(headings = [],
     <meta name="{'dtb' if daisy3 else 'ncc'}:generator" content="{generator}" />
     <meta name="ncc:charset" content="utf-8" />
     <meta name="ncc:pageFront" content="0" />
-    <meta name="ncc:maxPageNormal" content="{pages}" />
-    <meta name="ncc:pageNormal" content="{pages}" />
+    <meta name="ncc:maxPageNormal" content="{maxPageNo}" />
+    <meta name="ncc:pageNormal" content="{numPages}" />
     <meta name="ncc:pageSpecial" content="0" />
     <meta name="ncc:tocItems" content="{len(headingsR)+sum(len(PNs) for PNs in pageNos)}" />
     <meta name="ncc:totalTime" content="{int(totalSecs/3600)}:{int(totalSecs/60)%60:02d}:{math.ceil(totalSecs%60):02d}" />
@@ -322,20 +321,21 @@ def ncc_html(headings = [],
     <navPoint id="s{s+1}" class="{t[0]}" playOrder="{s+1}">
       <navLabel><text>{t[1]}</text></navLabel>
       <content src="{t[2]+1:04d}.smil#t{t[2]+1}.{t[3]}"/>
-    {'</navPoint>'*sum(1 for j in range((1 if s+1==len(headingsR) else int(headingsR[s+1][0][1])),int(t[0][1])+1) if str(j) in ''.join((i[0][1] if i[0][1]>=('1' if s+1==len(headingsR) else headingsR[s+1][0][1]) else '0') for i in reversed(headingsR[:s+1])).split('0',1)[0])}""" if daisy3 else f"""
+    {'</navPoint>'*sum(1 for j in range((1 if s+1==len(headingsR) else int(headingsR[s+1][0][1])),int(t[0][1])+1) if str(j) in ''.join((i[0][1] if i[0][1]>=('1' if s+1==len(headingsR) else headingsR[s+1][0][1]) else '0') for i in reversed(headingsR[:s+1])).split('0',1)[0])}""" if daisy3 else ''.join(f"""
+    <span class="page-normal" id="page{N}"><a href="{r+1:04d}.smil#t{r+1}.{after}">{N}</a></span>""" for r,PNs in enumerate(pageNos) for (PO,(after,N)) in enumerate(PNs) if (r,after)<=t[2:4] and (not s or (r,after)>headingsR[s-1][2:4]))+f"""
     <{t[0]} class="{'section' if s or allow_jumps else 'title'}" id="s{s+1}">
       <a href="{t[2]+1:04d}.smil#t{t[2]+1}.{t[3]}">{t[1]}</a>
-    </{t[0]}>""") for s,t in enumerate(headingsR))+('</navMap><pageList>' if daisy3 else '')+''.join(''.join((f"""
+    </{t[0]}>""") for s,t in enumerate(headingsR))+('</navMap><pageList>'+''.join(f"""
     <pageTarget class="pagenum" type="normal" value="{N}" id="page{N}" playOrder="{len(headingsR)+sum(len(P) for P in pageNos[:r])+PO+1}">
       <navLabel><text>{N}</text></navLabel>
       <content src="{r+1:04d}.smil#t{r+1}.{after}"/>
-    </pageTarget>""" if daisy3 else f"""
-    <span class="page-normal" id="page{N}"><a href="{r+1:04d}.smil#t{r+1}.{after}">{N}</a></span>""") for (PO,(after,N)) in enumerate(PNs)) for r,PNs in enumerate(pageNos))+f"""
-  </{'pageList' if daisy3 else 'body'}>
-</{'ncx' if daisy3 else 'html'}>
-""")
+    </pageTarget>""" for r,PNs in enumerate(pageNos) for (PO,(after,N)) in enumerate(PNs))+f"""
+  </pageList>
+</ncx>""" if daisy3 else """
+  </body>
+</html>"""))
 
-def HReduce(headings): return reduce(lambda a,b:a+b,[([(hType,hText,recNoOffset,hOffset) for (hType,hText,hOffset) in i] if type(i)==list else [('h1',i,recNoOffset,0)]) for recNoOffset,i in enumerate(headings)],[])
+def HReduce(headings): return reduce(lambda a,b:a+b,[([(hType,hText,recNo,textNo) for (hType,hText,textNo) in i] if type(i)==list else [('h1',i,recNo,0)]) for recNo,i in enumerate(headings)],[])
 
 def normaliseDepth(items):
     if allow_jumps: return items
