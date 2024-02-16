@@ -1,6 +1,6 @@
 #!/usr/bin/env python3
 """
-Anemone 1.0 (http://ssb22.user.srcf.net/anemone)
+Anemone 1.01 (http://ssb22.user.srcf.net/anemone)
 (c) 2023-24 Silas S. Brown.  License: Apache 2
 Run program with --help for usage instructions.
 """
@@ -232,14 +232,16 @@ def getHeadings(recordingTexts):
         textsAndTimes,pages = t ; first = None
         chap = []
         for v,u in enumerate(textsAndTimes):
-            if not type(u)==tuple: continue
+            if not type(u)==tuple: continue # time
             tag,text = u
             if first==None: first = v
             if not tag.startswith('h'):
                 continue
-            if v//2 - 1 == first//2 and not textsAndTimes[first][0].startswith('h'): # chapter starts with non-heading followed by heading: check the non-heading for "Chapter N" etc, extract number
+            if v//2 - 1 == first//2 and not textsAndTimes[first][0].startswith('h'): # chapter starts with non-heading followed by heading: check the non-heading for "Chapter N" etc
                 nums=re.findall("[1-9][0-9]*",textsAndTimes[first][1])
-                if len(nums)==1: text=f"{nums[0]}: {text}"
+                if len(nums)==1:
+                    text=f"{nums[0]}: {text}" # for TOC
+                    textsAndTimes[v-1] = (textsAndTimes[first-1] if first else 0) # for audio jump-navigation to include the "Chapter N" (TODO: option to merge the in-chapter text instead, so "Chapter N" appears as part of the heading, not scrolled past quickly?  (0-length paragraph may make 'previous paragraph' command from start of chapter more difficult: is this a bug or a feature?  Could just omit audio (and seq) if it's 0-length in section_smil ? - that might need re-testing all readers))
             chap.append((tag,re.sub('<img src.*?/>','',text),v//2))
         ret.append(chap)
     return ret
@@ -284,7 +286,7 @@ def ncc_html(headings = [],
     # (not 'front' pages in Roman letters etc)
     headingsR = normaliseDepth(HReduce(headings)) # (hType,hText,recNo,textNo)
     global date
-    if not date: date = "%04d-%02d-%02d" % time.localtime()[:3]
+    if not date: date = "%d-%02d-%02d" % time.localtime()[:3]
     return deBlank(f"""<?xml version="1.0" encoding="utf-8"?>
 {'<!DOCTYPE ncx PUBLIC "-//NISO//DTD ncx 2005-1//EN" "http://www.daisy.org/z3986/2005/ncx-2005-1.dtd">' if daisy3 else '<!DOCTYPE html PUBLIC "-//W3C//DTD XHTML 1.0 Transitional//EN" "http://www.w3.org/TR/xhtml1/DTD/xhtml1-transitional.dtd">'}
 <{'ncx xmlns="http://www.daisy.org/z3986/2005/ncx/" version="2005-1"' if daisy3 else f'html lang="{lang}" xmlns="http://www.w3.org/1999/xhtml"'} xml:lang="{lang}">

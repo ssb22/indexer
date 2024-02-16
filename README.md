@@ -42,7 +42,7 @@ The daisy anemone is a sea creature on the rocky Western shores of Britain and I
 
 * Dolphin EasyReader 10 (Windows): ditto but ZIP needs to be unpacked separately and NCC or OPF file opened
 
-* JAWS FSReader 3 (Windows): is able to play audio while highlighting paragraphs is both Daisy 2 and Daisy 3, but ZIP needs to be unpacked separately and NCC or OPF file opened; may work better without JAWS running; synchronisation with audio seems to require `--mp3-recode`; images are not scaled to fit
+* JAWS FSReader 3 (Windows): is able to play audio while highlighting paragraphs in both Daisy 2 and Daisy 3, but ZIP needs to be unpacked separately and NCC or OPF file opened; may work better without JAWS running; synchronisation with audio seems to require `--mp3-recode`; images are not scaled to fit
 
 * HumanWare Brailliant: does not show text if there is audio (hopefully it can still be used for navigation); tested only with Daisy 2
 
@@ -50,9 +50,13 @@ The daisy anemone is a sea creature on the rocky Western shores of Britain and I
 
 * US Library of Congress NLS Player: unpack the ZIP onto a blank USB stick of capacity 4 GB or less—plays; navigation works if you use --mp3-recode; tested only with Daisy 2
 
-* HumanWare Victor Reader Stream: ZIP needs to be unpacked into "Other Books"; audio plays, device can navigate by section; tested only with Daisy 2
+* HumanWare Victor Reader Stream: ZIP needs to be unpacked, either to the top level of a USB device, or into a subfolder of a `$VRDTB` folder on the SD card.  If it's unpacked at the top level of the SD card, the device can still play the MP3s and allow track or time based navigation but not section navigation, so you should use either the folder structure of the SD card or else a USB device.  If correctly set up then audio plays and device can navigate by section.  Tested only with Daisy 2 but manual says Daisy 3 is also permissible.
+
+* HumanWare Victor Reader Stratus4: An attempt to unpack the ZIP to a CD resulted in the device just playing the MP3 files without structured navigation, that is, it was not recognised as a DAISY CD, and we don't know why yet.
 
 * HIMS QBraille XL: can display the text (after opening with Space and Enter); does not play audio; tested only with Daisy 2
+
+* Daisy Consortium Simply Reading 3 (app available for Android 7 and below): is able to open the ZIP and play the audio while highlighting the paragraphs in a 'full audio plus full text' book, although fonts for some languages might be missing on earlier Android devices
 
 * DAISY Pipeline (2023): Please do not use this to convert an Anemone-produced Daisy 2 book to Daisy 3.  The resulting Daisy 3 is not likely to play on anything.  If Daisy 3 is required, use Anemone's `--daisy3` option to produce it directly.
 
