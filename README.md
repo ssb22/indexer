@@ -44,7 +44,7 @@ The daisy anemone is a sea creature on the rocky Western shores of Britain and I
 
 * JAWS FSReader 3 (Windows): is able to play audio while highlighting paragraphs in both Daisy 2 and Daisy 3, but ZIP needs to be unpacked separately and NCC or OPF file opened; may work better without JAWS running; synchronisation with audio seems to require `--mp3-recode`; images are not scaled to fit
 
-* HumanWare Brailliant: does not show text if there is audio (hopefully it can still be used for navigation); tested only with Daisy 2
+* HumanWare Brailliant: does not show text if there is audio (hopefully it can still be used for navigation) in both Daisy 2 and Daisy 3
 
 * Pronto Notetaker: ZIP needs to be unpacked to a “Daisy” folder on SD or USB, and the device just plays the audio; tested only with Daisy 2
 

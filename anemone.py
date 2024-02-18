@@ -1,6 +1,6 @@
 #!/usr/bin/env python3
 """
-Anemone 1.01 (http://ssb22.user.srcf.net/anemone)
+Anemone 1.02 (http://ssb22.user.srcf.net/anemone)
 (c) 2023-24 Silas S. Brown.  License: Apache 2
 Run program with --help for usage instructions.
 """
@@ -241,7 +241,7 @@ def getHeadings(recordingTexts):
                 nums=re.findall("[1-9][0-9]*",textsAndTimes[first][1])
                 if len(nums)==1:
                     text=f"{nums[0]}: {text}" # for TOC
-                    textsAndTimes[v-1] = (textsAndTimes[first-1] if first else 0) # for audio jump-navigation to include the "Chapter N" (TODO: option to merge the in-chapter text instead, so "Chapter N" appears as part of the heading, not scrolled past quickly?  (0-length paragraph may make 'previous paragraph' command from start of chapter more difficult: is this a bug or a feature?  Could just omit audio (and seq) if it's 0-length in section_smil ? - that might need re-testing all readers))
+                    textsAndTimes[v-1] = (textsAndTimes[first-1] if first else 0) # for audio jump-navigation to include the "Chapter N" (TODO: option to merge the in-chapter text instead, so "Chapter N" appears as part of the heading, not scrolled past quickly?)
             chap.append((tag,re.sub('<img src.*?/>','',text),v//2))
         ret.append(chap)
     return ret
@@ -395,14 +395,15 @@ def section_smil(recNo=1,
     <seq id="sq{recNo}" dur="{secsThisRecording:.3f}s">"""+"".join(f"""
       <par {'' if daisy3 else 'endsync="last" '}id="pr{recNo}.{i//2}">
         <text id="t{recNo}.{i//2}" src="{recNo:04d}.{'xml' if daisy3 else 'htm'}#p{startP+i//2}" />
-        {'' if daisy3 else f'<seq id="sq{recNo}.{i//2}a">'}
-          <audio src="{recNo:04d}.mp3" clip{'B' if daisy3 else '-b'}egin="{'' if daisy3 else 'npt='}{textsAndTimes[i-1]:.3f}s" clip{'E' if daisy3 else '-e'}nd="{'' if daisy3 else 'npt='}{textsAndTimes[i+1]:.3f}s" id="aud{recNo}.{i//2}" />
-        {'' if daisy3 else '</seq>'}
+        {'' if daisy3 or textsAndTimes[i-1]==textsAndTimes[i+1] else f'<seq id="sq{recNo}.{i//2}a">'}
+          {'' if textsAndTimes[i-1]==textsAndTimes[i+1] else f'''<audio src="{recNo:04d}.mp3" clip{'B' if daisy3 else '-b'}egin="{'' if daisy3 else 'npt='}{textsAndTimes[i-1]:.3f}s" clip{'E' if daisy3 else '-e'}nd="{'' if daisy3 else 'npt='}{textsAndTimes[i+1]:.3f}s" id="aud{recNo}.{i//2}" />'''}
+        {'' if daisy3 or textsAndTimes[i-1]==textsAndTimes[i+1] else '</seq>'}
       </par>{''.join(f'<par><text id="t{recNo}.{i//2}.{j}" src="{recNo:04d}.xml#{re.sub(".*"+chr(34)+" id=.","",imageID)}"/></par>' for j,imageID in enumerate(re.findall('<img src="[^"]*" id="[^"]*',textsAndTimes[i][1]))) if daisy3 else ''}""" for i in range(1,len(textsAndTimes),2))+"""
     </seq>
   </body>
 </smil>
 """)
+# (do not omit text with 0-length audio altogether, even in Daisy 2: unlike image tags after paragraphs, it might end up not being displayed by EasyReader etc.  Omitting audio does NOT save being stopped at the beginning of the chapter when rewinding by paragraph: is this a bug or a feature?)
 def deBlank(s): return re.sub("\n *\n","\n",s)
 
 def deHTML(t): return re.sub('<[^>]*>','',t).replace('"','&quot;') # for inclusion in attributes
