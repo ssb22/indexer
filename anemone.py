@@ -1,6 +1,6 @@
 #!/usr/bin/env python3
 """
-Anemone 1.02 (http://ssb22.user.srcf.net/anemone)
+Anemone 1.03 (http://ssb22.user.srcf.net/anemone)
 (c) 2023-24 Silas S. Brown.  License: Apache 2
 Run program with --help for usage instructions.
 """
@@ -100,11 +100,11 @@ def errExit(m):
     sys.stderr.write(f"Error: {m}\n") ; sys.exit(1)
 
 def get_texts():
-    if textFiles: return [open(f).read().strip() for f in textFiles] # section titles only, from text files
+    if textFiles: return [open(f,encoding="utf-8").read().strip() for f in textFiles] # section titles only, from text files
     elif not htmlFiles: return [r[:r.rindex(f"{os.extsep}mp3")] for r in recordingFiles] # section titles only, from MP3 filenames
     recordingTexts = []
     for h,j in zip(htmlFiles,jsonFiles):
-        markers = json.load(open(j))['markers']
+        markers = json.load(open(j,encoding="utf-8"))['markers']
         want_pids = [jsonAttr(m,"id") for m in markers]
         id_to_content = {}
         pageNos = []
@@ -149,7 +149,7 @@ def get_texts():
             def handle_data(self,data):
                 if not self.addTo==None and not self.suppress:
                     self.addTo.append(data.replace('&','&amp;').replace('<','&lt;'))
-        PidsExtractor().feed(open(h).read())
+        PidsExtractor().feed(open(h,encoding='utf-8').read())
         rTxt = []
         for i in range(len(markers)):
             if i: rTxt.append(parseTime(jsonAttr(markers[i],"time")))
@@ -250,9 +250,9 @@ import locale
 locale.setlocale(locale.LC_TIME, "C") # for %a and %b in strftime (shouldn't need LC_TIME elsewhere)
 refetch = refresh = False # so anyone importing the module can call fetch() before anemone(), e.g. to download a list of URLs from somewhere
 def fetch(url,returnFilename=False):
-    fn = 'cache/'+unquote(re.sub('.*?://','',url))
-    if fn.endswith('/'): fn += "index.html"
-    f = os.sep.join(f.replace('.',os.extsep) for f in fn.split('/'))
+    fn = re.sub('[%&?@*#{}<>!:+`=|$]','','cache'+os.sep+unquote(re.sub('.*?://','',url)).replace('/',os.sep))
+    if fn.endswith(os.sep): fn += "index.html"
+    f = os.sep.join(f.replace('.',os.extsep) for f in fn.split(os.sep))
     ifModSince = None
     if os.path.exists(fn):
         if refetch: pass # ignore already dl'd
