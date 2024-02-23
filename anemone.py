@@ -1,6 +1,6 @@
 #!/usr/bin/env python3
 """
-Anemone 1.03 (http://ssb22.user.srcf.net/anemone)
+Anemone 1.04 (http://ssb22.user.srcf.net/anemone)
 (c) 2023-24 Silas S. Brown.  License: Apache 2
 Run program with --help for usage instructions.
 """
@@ -28,8 +28,10 @@ def anemone(*files,**options):
     """This function can be called by scripts that
     import anemone: simply put the equivalent of
     the command line into 'files' and 'options'.
-    Not thread-safe."""
-    parse_args(*files,**options)
+    You can also specify a JSON dictionary instead
+    of the name of a JSON file.
+    This function is not thread-safe."""
+    parse_args(*[(json.dumps(f) if type(f)==dict else f) for f in files],**options)
     write_all(get_texts())
 
 from argparse import ArgumentParser
@@ -67,8 +69,8 @@ from urllib.parse import unquote
 from pathlib import Path # Python 3.5+
 
 def parse_args(*inFiles,**kwargs):
-    global recordingFiles, jsonFiles, textFiles, htmlFiles, imageFiles, outputFile, files
-    recordingFiles,jsonFiles,textFiles,htmlFiles,imageFiles,outputFile=[],[],[],[],[],None
+    global recordingFiles, jsonData, textFiles, htmlFiles, imageFiles, outputFile, files
+    recordingFiles,jsonData,textFiles,htmlFiles,imageFiles,outputFile=[],[],[],[],[],None
     if inFiles: globals().update(args.parse_args(list(inFiles)+['--'+k.replace('_','-') for k,v in kwargs.items() if v==True]+[a for k,v in kwargs.items() for a in ['--'+k.replace('_','-'),str(v)] if not v==True and not v==False]).__dict__) # so flag=False is ignored (as we default to False)
     else: globals().update(args.parse_args().__dict__)
     for f in files:
@@ -76,21 +78,23 @@ def parse_args(*inFiles,**kwargs):
             if outputFile: errExit(f"Only one {os.extsep}zip output file may be specified")
             outputFile = f ; continue
         if re.match("https*://",f): f=fetch(f,1)
-        if not os.path.exists(f): errExit(f"File not found: {f}")
+        if f.startswith('{') and f.endswith('}'):
+            jsonData.append(json.loads(f))
+            continue # don't treat as a file
+        elif not os.path.exists(f): errExit(f"File not found: {f}")
         if f.endswith(f"{os.extsep}mp3"):
             recordingFiles.append(f)
-        elif f.endswith(f"{os.extsep}json"):
-            jsonFiles.append(f)
+        elif f.endswith(f"{os.extsep}json"): jsonData.append(json.load(open(f,encoding="utf-8")))
         elif f.endswith(f"{os.extsep}txt"):
             textFiles.append(f)
         elif f.endswith(f"{os.extsep}html") or not os.extsep in f.rsplit(os.sep,1)[-1]:
             htmlFiles.append(f)
         else: errExit(f"Can't handle '{f}'")
     if not recordingFiles: errExit("Creating DAISY files without audio is not yet implemented")
-    if htmlFiles and not jsonFiles: errExit("Full text without time markers is not yet implemented")
-    if jsonFiles and not htmlFiles: errExit("Time markers without full text is not implemented")
+    if htmlFiles and not jsonData: errExit("Full text without time markers is not yet implemented")
+    if jsonData and not htmlFiles: errExit("Time markers without full text is not implemented")
     if htmlFiles and textFiles: errExit("Combining full text with title-only text files is not yet implemented.  Please specify full text for everything or just titles for everything, not both.")
-    if jsonFiles and not len(recordingFiles)==len(jsonFiles): errExit(f"If JSON marker files are specified, there must be exactly one JSON file for each recording file.  We got f{len(jsonFiles)} JSON files and f{len(recordingFiles)} recording files.")
+    if jsonData and not len(recordingFiles)==len(jsonData): errExit(f"If JSON marker files are specified, there must be exactly one JSON file for each recording file.  We got f{len(jsonData)} JSON files and f{len(recordingFiles)} recording files.")
     if textFiles and not len(recordingFiles)==len(textFiles): errExit(f"If text files are specified, there must be exactly one text file for each recording file.  We got f{len(textFiles)} txt files and f{len(recordingFiles)} recording files.")
     if htmlFiles and not len(recordingFiles)==len(htmlFiles): errExit(f"If HTML files are specified, there must be exactly one HTML file for each recording file.  We got f{len(htmlFiles)} HTML files and f{len(recordingFiles)} recording files.")
     if not outputFile: outputFile=f"output_daisy{os.extsep}zip"
@@ -103,8 +107,8 @@ def get_texts():
     if textFiles: return [open(f,encoding="utf-8").read().strip() for f in textFiles] # section titles only, from text files
     elif not htmlFiles: return [r[:r.rindex(f"{os.extsep}mp3")] for r in recordingFiles] # section titles only, from MP3 filenames
     recordingTexts = []
-    for h,j in zip(htmlFiles,jsonFiles):
-        markers = json.load(open(j,encoding="utf-8"))['markers']
+    for h,j in zip(htmlFiles,jsonData):
+        markers = j['markers']
         want_pids = [jsonAttr(m,"id") for m in markers]
         id_to_content = {}
         pageNos = []
@@ -250,7 +254,7 @@ import locale
 locale.setlocale(locale.LC_TIME, "C") # for %a and %b in strftime (shouldn't need LC_TIME elsewhere)
 refetch = refresh = False # so anyone importing the module can call fetch() before anemone(), e.g. to download a list of URLs from somewhere
 def fetch(url,returnFilename=False):
-    fn = re.sub('[%&?@*#{}<>!:+`=|$]','','cache'+os.sep+unquote(re.sub('.*?://','',url)).replace('/',os.sep))
+    fn = re.sub('[%&?@*#{}<>!:+`=|$]','','cache'+os.sep+unquote(re.sub('.*?://','',url)).replace('/',os.sep)) # these characters need to be removed on Windows's filesystem; TODO: store original URL somewhere just in case some misguided webmaster puts two identical URLs modulo those characters??
     if fn.endswith(os.sep): fn += "index.html"
     f = os.sep.join(f.replace('.',os.extsep) for f in fn.split(os.sep))
     ifModSince = None
