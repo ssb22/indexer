@@ -1,6 +1,6 @@
 #!/usr/bin/env python3
 """
-Anemone 1.04 (http://ssb22.user.srcf.net/anemone)
+Anemone 1.1 (http://ssb22.user.srcf.net/anemone)
 (c) 2023-24 Silas S. Brown.  License: Apache 2
 Run program with --help for usage instructions.
 """
@@ -29,7 +29,10 @@ def anemone(*files,**options):
     import anemone: simply put the equivalent of
     the command line into 'files' and 'options'.
     You can also specify a JSON dictionary instead
-    of the name of a JSON file.
+    of the name of a JSON file, and/or an HTML
+    string instead of the name of an HTML file
+    (this can also be done on the command line
+    with careful quoting).
     This function is not thread-safe."""
     parse_args(*[(json.dumps(f) if type(f)==dict else f) for f in files],**options)
     write_all(get_texts())
@@ -38,8 +41,7 @@ from argparse import ArgumentParser
 generator=__doc__.strip().split('\n')[0]
 args = ArgumentParser(prog="anemone",description=generator,fromfile_prefix_chars='@')
 args.add_argument("files",metavar="file",nargs="+",help="file name of: an MP3 recording, a text file containing its title (if no full text), a JSON file containing its time markers, an XHTML file containing its full text, or the output ZIP file.  Only one output file may be specified, but any number of the other files can be included; URLs may be given if they are to be fetched (HTML assumed if no extension).  If only MP3 files are given then titles are taken from their filenames.  You may also specify @filename where filename contains a list of files one per line.")
-args.add_argument("--lang",default="en",
-                help="the ISO 639 language code of the publication (defaults to en for English)")
+args.add_argument("--lang",default="en",help="the ISO 639 language code of the publication (defaults to en for English)")
 args.add_argument("--title",default="",help="the title of the publication")
 args.add_argument("--url",default="",help="the URL or ISBN of the publication")
 args.add_argument("--creator",default="",help="the creator name, if known")
@@ -69,11 +71,12 @@ from urllib.parse import unquote
 from pathlib import Path # Python 3.5+
 
 def parse_args(*inFiles,**kwargs):
-    global recordingFiles, jsonData, textFiles, htmlFiles, imageFiles, outputFile, files
-    recordingFiles,jsonData,textFiles,htmlFiles,imageFiles,outputFile=[],[],[],[],[],None
-    if inFiles: globals().update(args.parse_args(list(inFiles)+['--'+k.replace('_','-') for k,v in kwargs.items() if v==True]+[a for k,v in kwargs.items() for a in ['--'+k.replace('_','-'),str(v)] if not v==True and not v==False]).__dict__) # so flag=False is ignored (as we default to False)
+    global recordingFiles, jsonData, textFiles, htmlData, imageFiles, outputFile, files
+    recordingFiles,jsonData,textFiles,htmlData,imageFiles,outputFile=[],[],[],[],[],None
+    if inFiles: globals().update(args.parse_args(list(inFiles)+['--'+k.replace('_','-') for k,v in kwargs.items() if v==True]+[a for k,v in kwargs.items() for a in ['--'+k.replace('_','-'),str(v)] if not v==True and not v==False and not v==None]).__dict__) # so flag=False is ignored (as we default to False), and option=None means use the default
     else: globals().update(args.parse_args().__dict__)
     for f in files:
+        f = f.strip()
         if f.endswith(f"{os.extsep}zip"):
             if outputFile: errExit(f"Only one {os.extsep}zip output file may be specified")
             outputFile = f ; continue
@@ -81,6 +84,8 @@ def parse_args(*inFiles,**kwargs):
         if f.startswith('{') and f.endswith('}'):
             jsonData.append(json.loads(f))
             continue # don't treat as a file
+        elif f.startswith('<') and f.endswith('>'):
+            htmlData.append(f) ; continue
         elif not os.path.exists(f): errExit(f"File not found: {f}")
         if f.endswith(f"{os.extsep}mp3"):
             recordingFiles.append(f)
@@ -88,15 +93,15 @@ def parse_args(*inFiles,**kwargs):
         elif f.endswith(f"{os.extsep}txt"):
             textFiles.append(f)
         elif f.endswith(f"{os.extsep}html") or not os.extsep in f.rsplit(os.sep,1)[-1]:
-            htmlFiles.append(f)
+            htmlData.append(open(f,encoding="utf-8").read())
         else: errExit(f"Can't handle '{f}'")
     if not recordingFiles: errExit("Creating DAISY files without audio is not yet implemented")
-    if htmlFiles and not jsonData: errExit("Full text without time markers is not yet implemented")
-    if jsonData and not htmlFiles: errExit("Time markers without full text is not implemented")
-    if htmlFiles and textFiles: errExit("Combining full text with title-only text files is not yet implemented.  Please specify full text for everything or just titles for everything, not both.")
+    if htmlData and not jsonData: errExit("Full text without time markers is not yet implemented")
+    if jsonData and not htmlData: errExit("Time markers without full text is not implemented")
+    if htmlData and textFiles: errExit("Combining full text with title-only text files is not yet implemented.  Please specify full text for everything or just titles for everything, not both.")
     if jsonData and not len(recordingFiles)==len(jsonData): errExit(f"If JSON marker files are specified, there must be exactly one JSON file for each recording file.  We got f{len(jsonData)} JSON files and f{len(recordingFiles)} recording files.")
     if textFiles and not len(recordingFiles)==len(textFiles): errExit(f"If text files are specified, there must be exactly one text file for each recording file.  We got f{len(textFiles)} txt files and f{len(recordingFiles)} recording files.")
-    if htmlFiles and not len(recordingFiles)==len(htmlFiles): errExit(f"If HTML files are specified, there must be exactly one HTML file for each recording file.  We got f{len(htmlFiles)} HTML files and f{len(recordingFiles)} recording files.")
+    if htmlData and not len(recordingFiles)==len(htmlData): errExit(f"If HTML documents are specified, there must be exactly one HTML document for each recording.  We got f{len(htmlData)} HTML documents and f{len(recordingFiles)} recordings.")
     if not outputFile: outputFile=f"output_daisy{os.extsep}zip"
     global title
     if not title: title=outputFile.replace(f"{os.extsep}zip","").replace("_daisy","")
@@ -105,14 +110,14 @@ def errExit(m):
 
 def get_texts():
     if textFiles: return [open(f,encoding="utf-8").read().strip() for f in textFiles] # section titles only, from text files
-    elif not htmlFiles: return [r[:r.rindex(f"{os.extsep}mp3")] for r in recordingFiles] # section titles only, from MP3 filenames
+    elif not htmlData: return [r[:r.rindex(f"{os.extsep}mp3")] for r in recordingFiles] # section titles only, from MP3 filenames
     recordingTexts = []
-    for h,j in zip(htmlFiles,jsonData):
+    for h,j in zip(htmlData,jsonData):
         markers = j['markers']
         want_pids = [jsonAttr(m,"id") for m in markers]
         id_to_content = {}
         pageNos = []
-        allowedInlineTags=[] # Dolphin EasyReader does not render <strong> and <em>, and constructs like "(<em>Publication name</em>" result in incorrect space after "(" so best leave it out.  TODO: does any reader allow inline links for footnotes and references?  will need to rewrite their destinations if so
+        allowedInlineTags=['br'] # Dolphin EasyReader does not render <strong> and <em>, and constructs like "(<em>Publication name</em>" result in incorrect space after "(" so best leave it out
         assert not 'rt' in allowedInlineTags, "if allowing this, need to revise rt suppression logic" # and would have to rely on rp parens for most readers, so if a text has a LOT of ruby it could get quite unreadable
         class PidsExtractor(HTMLParser):
             def __init__(self):
@@ -121,6 +126,7 @@ def get_texts():
                 self.suppress = 0
                 self.imgsMaybeAdd = None
                 self.pageNoGoesAfter = 0
+                self.theStartTag = None
             def handle_starttag(self,tag,attrs):
                 attrs = dict(attrs)
                 imgURL = attrs.get(image_attribute,None)
@@ -135,34 +141,41 @@ def get_texts():
                     pageNos.append((self.pageNoGoesAfter,pageNo))
                 if attrs.get(marker_attribute,None) in want_pids:
                     self.theStartTag = tag
+                    self.tagDepth = 0
                     a = attrs[marker_attribute]
                     self.pageNoGoesAfter = want_pids.index(a)
                     id_to_content[a] = ((tag if re.match('h[1-6]$',tag) or tag=='span' else 'p'),[])
                     if self.imgsMaybeAdd: self.imgsMaybeAddTo += self.imgsMaybeAdd # and imgsMaybeAdd will be reset to [] when this element is closed
                     self.addTo = id_to_content[a][1]
-                elif not self.addTo==None and tag in allowedInlineTags: self.addTo.append(f'<{tag}>')
+                    return
+                if tag==self.theStartTag and not tag=="p": # can nest
+                    self.tagDepth += 1
+                if not self.addTo==None and tag in allowedInlineTags: self.addTo.append(f'<{tag}>')
+                elif not self.addTo==None and tag=='a': self.lastAStart = len(self.addTo)
                 elif tag=='rt': self.suppress += 1
             def handle_endtag(self,tag):
                 if self.suppress and tag=='rt': self.suppress -= 1
                 elif not self.addTo==None:
-                    if tag==self.theStartTag:
+                    if tag==self.theStartTag and self.tagDepth == 0:
                         self.highestImage,self.imgsMaybeAddTo, self.imgsMaybeAdd = len(imageFiles),self.addTo,[] # if we find any images (not in an id'd element) after the end of the id'd element, we might want to add them in with any inside it, but only if there's another id'd element after them i.e. not if they're just random decoration at the bottom of the page
                         self.addTo = None
                     elif tag in allowedInlineTags: self.addTo.append(f'</{tag}>')
+                    elif tag=="a" and len("".join(self.addTo[self.lastAStart:]).strip())==1 and not re.match('[0-9]',"".join(self.addTo[self.lastAStart:]).strip()): del self.addTo[self.lastAStart:] # remove single-character link, probably to footnote (we won't know if it's in the audio or not, we're not supporting jumps and the symbols might need normalising) but do allow numbers (might be paragraph numbers etc)
+                    if tag==self.theStartTag and self.tagDepth: self.tagDepth -= 1
                 if tag=='html' and self.imgsMaybeAdd and hasattr(self,'highestImage'): del imageFiles[self.highestImage:] # do not include ones that were only in imgsMaybeAdd at the end of the page (and not also elsewhere)
             def handle_data(self,data):
                 if not self.addTo==None and not self.suppress:
                     self.addTo.append(data.replace('&','&amp;').replace('<','&lt;'))
-        PidsExtractor().feed(open(h,encoding='utf-8').read())
+        PidsExtractor().feed(h)
         rTxt = []
         for i in range(len(markers)):
             if i: rTxt.append(parseTime(jsonAttr(markers[i],"time")))
             if want_pids[i] in id_to_content:
                 tag,content = id_to_content[want_pids[i]]
                 content = ''.join(content).strip()
-                rTxt.append((tag,content))
+                rTxt.append((tag,re.sub('(</?br>)+','<br />',content))) # (allow line breaks inside paragraphs, in case any in mid-"sentence", but collapse them because readers typically add extra space to each)
             else:
-                sys.stderr.write(f"Warning: JSON file {j} marker {i+1} marks paragraph ID {want_pids[i]} which is not present in corresponding HTML file {h}.  Anemone will make this a blank paragraph.\n")
+                sys.stderr.write(f"Warning: JSON {len(recordingTexts)+1} marker {i+1} marks paragraph ID {want_pids[i]} which is not present in corresponding HTML file {h}.  Anemone will make this a blank paragraph.\n")
                 rTxt.append(('p',''))
         recordingTexts.append((rTxt,pageNos))
     return recordingTexts
@@ -230,7 +243,7 @@ def write_all(recordingTexts):
 
 def getHeadings(recordingTexts):
     ret = []
-    for t in recordingTexts:
+    for txtNo,t in enumerate(recordingTexts):
         if not type(t)==tuple: # title only
             ret.append(t) ; continue
         textsAndTimes,pages = t ; first = None
@@ -247,6 +260,15 @@ def getHeadings(recordingTexts):
                     text=f"{nums[0]}: {text}" # for TOC
                     textsAndTimes[v-1] = (textsAndTimes[first-1] if first else 0) # for audio jump-navigation to include the "Chapter N" (TODO: option to merge the in-chapter text instead, so "Chapter N" appears as part of the heading, not scrolled past quickly?)
             chap.append((tag,re.sub('<img src.*?/>','',text),v//2))
+        if not chap:
+            # Chapter with no heading.
+            # This'll be a problem, as master_smil and ncc_html need headings to refer to the chapter at all.  (Well, ncc_html can also do it by page number if we have them, but we haven't tested all DAISY readers with page number only navigation, and what if we don't even have page numbers?)
+            # So let's see if we can at least get a chapter number.
+            if not first==None: nums=re.findall("[1-9][0-9]*",textsAndTimes[first][1])
+            else:
+                sys.stderr.write(f"WARNING: Chapter {txtNo+1} is completely blank!  (Is {'--marker-attribute' if __name__=='__main__' else 'marker_attribute'} set correctly?)\n")
+                nums = []
+            chap.append(('h1',nums[0] if len(nums)==1 and not nums[0]=="1" else str(txtNo+1),first//2))
         ret.append(chap)
     return ret
 
@@ -285,7 +307,7 @@ def ncc_html(headings = [],
     """Returns the Navigation Control Centre (NCC)
     pageNos is [[(goesAfter,pageNo),...],...]"""
     numPages = sum(len(l) for l in pageNos)
-    maxPageNo = max([max([int(N) for after,N in PNs],default=0) for PNs in pageNos],default=0)
+    maxPageNo = max((max((int(N) for after,N in PNs),default=0) for PNs in pageNos),default=0)
     # TODO: we assume all pages are 'normal' pages
     # (not 'front' pages in Roman letters etc)
     headingsR = normaliseDepth(HReduce(headings)) # (hType,hText,recNo,textNo)
@@ -471,7 +493,7 @@ def text_htm(paras,offset=0):
     </head>
     <{'book' if daisy3 else 'body'}>
         {f'<frontmatter><doctitle>{title}</doctitle></frontmatter><bodymatter>' if daisy3 else ''}
-"""+"\n".join(f"""{''.join(f'<level{n}>' for n in range(min(int(tag[1:]),next(int(paras[p][0][1:]) for p in range(num-1,-1,-1) if paras[p][0].startswith('h'))+1) if any(paras[P][0].startswith('h') for P in range(num-1,-1,-1)) else 1,int(tag[1:])+1)) if daisy3 and tag.startswith('h') else ''}{'<level1>' if daisy3 and not num and not tag.startswith('h') else ''}<{tag} id=\"p{num+offset}\"{' class="sentence"' if tag=='span' else ''}>{re.sub('<img src="[^"]*" [^/]*/>','',text)}{'' if tag=='p' else ('</'+tag+'>')}{'' if tag.startswith('h') or (num+1<len(paras) and paras[num+1][0]=='span') else '</p>'}{'<p><imggroup>' if daisy3 and re.search('<img src="',text) else ''}{''.join(re.findall('<img src="[^"]*" [^/]*/>',text))}{'</imggroup></p>' if daisy3 and re.search('<img src="',text) else ''}{''.join(f'</level{n}>' for n in range(next(int(paras[p][0][1:]) for p in range(num,-1,-1) if paras[p][0].startswith('h')) if any(paras[P][0].startswith('h') for P in range(num,-1,-1)) else 1,0 if num+1==len(paras) else int(paras[num+1][0][1:])-1,-1)) if daisy3 and (num+1==len(paras) or paras[num+1][0].startswith('h')) else ''}""" for num,(tag,text) in enumerate(normaliseDepth(paras)))+f"""
+"""+"\n".join(f"""{''.join(f'<level{n}>' for n in range(min(int(tag[1:]),next(int(paras[p][0][1:]) for p in range(num-1,-1,-1) if paras[p][0].startswith('h'))+1) if any(paras[P][0].startswith('h') for P in range(num-1,-1,-1)) else 1,int(tag[1:])+1)) if daisy3 and tag.startswith('h') else ''}{'<level1>' if daisy3 and not num and not tag.startswith('h') else ''}{'<p>' if tag=='span' and (num==0 or paras[num-1][0].startswith('h')) else ''}<{tag} id=\"p{num+offset}\"{' class="sentence"' if tag=='span' else ''}>{re.sub('<img src="[^"]*" [^/]*/>','',text)}{'' if tag=='p' else ('</'+tag+'>')}{'' if tag.startswith('h') or (num+1<len(paras) and paras[num+1][0]=='span') else '</p>'}{'<p><imggroup>' if daisy3 and re.search('<img src="',text) else ''}{''.join(re.findall('<img src="[^"]*" [^/]*/>',text))}{'</imggroup></p>' if daisy3 and re.search('<img src="',text) else ''}{''.join(f'</level{n}>' for n in range(next(int(paras[p][0][1:]) for p in range(num,-1,-1) if paras[p][0].startswith('h')) if any(paras[P][0].startswith('h') for P in range(num,-1,-1)) else 1,0 if num+1==len(paras) else int(paras[num+1][0][1:])-1,-1)) if daisy3 and (num+1==len(paras) or paras[num+1][0].startswith('h')) else ''}""" for num,(tag,text) in enumerate(normaliseDepth(paras)))+f"""
         </{'bodymatter></book' if daisy3 else 'body'}>
 </{'dtbook' if daisy3 else 'html'}>
 """)
