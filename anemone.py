@@ -1,6 +1,6 @@
 #!/usr/bin/env python3
 """
-Anemone 1.1 (http://ssb22.user.srcf.net/anemone)
+Anemone 1.11 (http://ssb22.user.srcf.net/anemone)
 (c) 2023-24 Silas S. Brown.  License: Apache 2
 Run program with --help for usage instructions.
 """
@@ -35,6 +35,7 @@ def anemone(*files,**options):
     with careful quoting).
     This function is not thread-safe."""
     parse_args(*[(json.dumps(f) if type(f)==dict else f) for f in files],**options)
+    if mp3_recode and not which('lame'): sys.stderr.write(f"Anemone requires the LAME program to recode MP3s.\nPlease {'download lame.exe' if sys.platform=='win32' else 'install lame'} and try again.\n"),sys.exit(1)
     write_all(get_texts())
 
 from argparse import ArgumentParser
@@ -62,13 +63,15 @@ from functools import reduce
 from subprocess import run, PIPE
 from zipfile import ZipFile, ZIP_DEFLATED
 from html.parser import HTMLParser
-from mutagen.mp3 import MP3 # pip install mutagen
 from concurrent.futures import ThreadPoolExecutor
 from multiprocessing import cpu_count
 from urllib.request import urlopen,Request
 from urllib.error import HTTPError
 from urllib.parse import unquote
 from pathlib import Path # Python 3.5+
+from shutil import which
+try: from mutagen.mp3 import MP3
+except ImportError: sys.stderr.write("Anemone needs the Mutagen library to determine MP3 play lengths.\nPlease do: pip install mutagen\n"),sys.exit(1)
 
 def parse_args(*inFiles,**kwargs):
     global recordingFiles, jsonData, textFiles, htmlData, imageFiles, outputFile, files

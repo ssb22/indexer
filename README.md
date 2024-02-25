@@ -52,7 +52,7 @@ The daisy anemone is a sea creature on the rocky Western shores of Britain and I
 
 * HumanWare Victor Reader Stream: ZIP needs to be unpacked, either to the top level of a USB device, or into a subfolder of a `$VRDTB` folder on the SD card.  If it's unpacked at the top level of the SD card, the device can still play the MP3s and allow track or time based navigation but not section navigation, so you should use either the folder structure of the SD card or else a USB device.  If correctly set up then audio plays and device can navigate by section.  Tested only with Daisy 2 but manual says Daisy 3 is also permissible.
 
-* HumanWare Victor Reader Stratus4: An attempt to unpack the ZIP to a CD resulted in the device just playing the MP3 files without structured navigation, that is, it was not recognised as a DAISY CD, and we don't know why yet.
+* HumanWare Victor Reader Stratus4: When unpacking the ZIP to CD, please ensure that your CD writer does *not* create a *folder* with the same name as the ZIP: this default behaviour of Microsoft Windows does *not* result in a valid Daisy CD.  The individual *files* of the ZIP need to be written to the *top level* of the CD, *not* to a folder on it.  Otherwise, the Stratus4 will not recognise the CD as a Daisy CD and will just play the MP3s, resulting in only time and track based navigation being available.
 
 * HIMS QBraille XL: can display the text (after opening with Space and Enter); does not play audio; tested only with Daisy 2
 
