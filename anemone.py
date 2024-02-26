@@ -1,6 +1,6 @@
 #!/usr/bin/env python3
 """
-Anemone 1.11 (http://ssb22.user.srcf.net/anemone)
+Anemone 1.12 (http://ssb22.user.srcf.net/anemone)
 (c) 2023-24 Silas S. Brown.  License: Apache 2
 Run program with --help for usage instructions.
 """
@@ -163,7 +163,7 @@ def get_texts():
                         self.highestImage,self.imgsMaybeAddTo, self.imgsMaybeAdd = len(imageFiles),self.addTo,[] # if we find any images (not in an id'd element) after the end of the id'd element, we might want to add them in with any inside it, but only if there's another id'd element after them i.e. not if they're just random decoration at the bottom of the page
                         self.addTo = None
                     elif tag in allowedInlineTags: self.addTo.append(f'</{tag}>')
-                    elif tag=="a" and len("".join(self.addTo[self.lastAStart:]).strip())==1 and not re.match('[0-9]',"".join(self.addTo[self.lastAStart:]).strip()): del self.addTo[self.lastAStart:] # remove single-character link, probably to footnote (we won't know if it's in the audio or not, we're not supporting jumps and the symbols might need normalising) but do allow numbers (might be paragraph numbers etc)
+                    elif tag=="a" and re.match('[!-.:-~]$',"".join(self.addTo[self.lastAStart:]).strip()): del self.addTo[self.lastAStart:] # remove single-character link, probably to footnote (we won't know if it's in the audio or not, we're not supporting jumps and the symbols might need normalising) but do allow numbers (might be paragraph numbers etc) and non-ASCII (might be single-character CJK word)
                     if tag==self.theStartTag and self.tagDepth: self.tagDepth -= 1
                 if tag=='html' and self.imgsMaybeAdd and hasattr(self,'highestImage'): del imageFiles[self.highestImage:] # do not include ones that were only in imgsMaybeAdd at the end of the page (and not also elsewhere)
             def handle_data(self,data):
