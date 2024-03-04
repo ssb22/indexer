@@ -1,7 +1,7 @@
 #!/usr/bin/env python
 # (works in both Python 2 and Python 3)
 
-# Online HTML Indexer v1.37 (c) 2013-18,2020,2022-23 Silas S. Brown.
+# Online HTML Indexer v1.38 (c) 2013-18,2020,2022-24 Silas S. Brown.
 
 # Licensed under the Apache License, Version 2.0 (the "License");
 # you may not use this file except in compliance with the License.
@@ -237,7 +237,8 @@ def out(html="",req=None):
       if gemini_mode:
           print ("10 "+html2gmi(shorter_lookup_prompt).strip().split("\n")[-1]+"\r") ; return
       html='<script><!--\ndocument.forms[0].q.focus();\n//-->\n</script>' # TODO: else which browsers need <br> after the </form> in the line below?
-  if not gemini_mode: html = queryForm(lookup_prompt)+html
+  if gemini_mode: html += "\n=> "+os.environ.get("SCRIPT_URI",cginame)+" Look up another word\n"
+  else: html = queryForm(lookup_prompt)+html
   if req:
       req.set_header('Content-type','text/html; charset=utf-8')
       req.write(B(header+html+footer))
@@ -290,6 +291,7 @@ def main(req=None):
   def qGet(k,default=""):
       v = query.get(k,default)
       if type(v)==list: v=v[0]
+      if type(v)==bytes: v=v.decode('utf-8')
       if type(v)==str: v=v.strip() # TODO: or just .lstrip() ?  (accidental spaces entered on mobile devices)
       return v
   q = qGet("q")
