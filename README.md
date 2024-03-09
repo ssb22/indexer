@@ -40,6 +40,8 @@ The daisy anemone is a sea creature on the rocky Western shores of Britain and I
 
 * Dolphin EasyReader 10 (iOS, Android and Chromebook): is able to open the ZIP and play the audio while highlighting the paragraphs in a ‘full audio plus full text’ book, both Daisy 2 and Daisy 3
 
+* EDRLab Thorium Reader (Windows, Mac and GNU/Linux): ditto
+
 * Dolphin EasyReader 10 (Windows): ditto but ZIP needs to be unpacked separately and NCC or OPF file opened
 
 * JAWS FSReader 3 (Windows): is able to play audio while highlighting paragraphs in both Daisy 2 and Daisy 3, but ZIP needs to be unpacked separately and NCC or OPF file opened; may work better without JAWS running; synchronisation with audio seems to require `--mp3-recode`; images are not scaled to fit
