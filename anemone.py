@@ -1,6 +1,6 @@
 #!/usr/bin/env python3
 """
-Anemone 1.12 (http://ssb22.user.srcf.net/anemone)
+Anemone 1.13 (http://ssb22.user.srcf.net/anemone)
 (c) 2023-24 Silas S. Brown.  License: Apache 2
 Run program with --help for usage instructions.
 """
@@ -176,7 +176,7 @@ def get_texts():
             if want_pids[i] in id_to_content:
                 tag,content = id_to_content[want_pids[i]]
                 content = ''.join(content).strip()
-                rTxt.append((tag,re.sub('(</?br>)+','<br />',content))) # (allow line breaks inside paragraphs, in case any in mid-"sentence", but collapse them because readers typically add extra space to each)
+                rTxt.append((tag,re.sub('( *</?br> *)+','<br />',content))) # (allow line breaks inside paragraphs, in case any in mid-"sentence", but collapse them because readers typically add extra space to each)
             else:
                 sys.stderr.write(f"Warning: JSON {len(recordingTexts)+1} marker {i+1} marks paragraph ID {want_pids[i]} which is not present in corresponding HTML file {h}.  Anemone will make this a blank paragraph.\n")
                 rTxt.append(('p',''))
@@ -435,7 +435,7 @@ def section_smil(recNo=1,
 # (do not omit text with 0-length audio altogether, even in Daisy 2: unlike image tags after paragraphs, it might end up not being displayed by EasyReader etc.  Omitting audio does NOT save being stopped at the beginning of the chapter when rewinding by paragraph: is this a bug or a feature?)
 def deBlank(s): return re.sub("\n *\n","\n",s)
 
-def deHTML(t): return re.sub('<[^>]*>','',t).replace('"','&quot;') # for inclusion in attributes
+def deHTML(t): return re.sub('<[^>]*>','',t).replace('"','&quot;').strip() # for inclusion in attributes
 
 def package_opf(hasFullText,numRecs,totalSecs):
     return f"""<?xml version="1.0" encoding="utf-8"?>
@@ -496,7 +496,7 @@ def text_htm(paras,offset=0):
     </head>
     <{'book' if daisy3 else 'body'}>
         {f'<frontmatter><doctitle>{title}</doctitle></frontmatter><bodymatter>' if daisy3 else ''}
-"""+"\n".join(f"""{''.join(f'<level{n}>' for n in range(min(int(tag[1:]),next(int(paras[p][0][1:]) for p in range(num-1,-1,-1) if paras[p][0].startswith('h'))+1) if any(paras[P][0].startswith('h') for P in range(num-1,-1,-1)) else 1,int(tag[1:])+1)) if daisy3 and tag.startswith('h') else ''}{'<level1>' if daisy3 and not num and not tag.startswith('h') else ''}{'<p>' if tag=='span' and (num==0 or paras[num-1][0].startswith('h')) else ''}<{tag} id=\"p{num+offset}\"{' class="sentence"' if tag=='span' else ''}>{re.sub('<img src="[^"]*" [^/]*/>','',text)}{'' if tag=='p' else ('</'+tag+'>')}{'' if tag.startswith('h') or (num+1<len(paras) and paras[num+1][0]=='span') else '</p>'}{'<p><imggroup>' if daisy3 and re.search('<img src="',text) else ''}{''.join(re.findall('<img src="[^"]*" [^/]*/>',text))}{'</imggroup></p>' if daisy3 and re.search('<img src="',text) else ''}{''.join(f'</level{n}>' for n in range(next(int(paras[p][0][1:]) for p in range(num,-1,-1) if paras[p][0].startswith('h')) if any(paras[P][0].startswith('h') for P in range(num,-1,-1)) else 1,0 if num+1==len(paras) else int(paras[num+1][0][1:])-1,-1)) if daisy3 and (num+1==len(paras) or paras[num+1][0].startswith('h')) else ''}""" for num,(tag,text) in enumerate(normaliseDepth(paras)))+f"""
+"""+"\n".join(f"""{''.join(f'<level{n}>' for n in range(min(int(tag[1:]),next(int(paras[p][0][1:]) for p in range(num-1,-1,-1) if paras[p][0].startswith('h'))+1) if any(paras[P][0].startswith('h') for P in range(num-1,-1,-1)) else 1,int(tag[1:])+1)) if daisy3 and tag.startswith('h') else ''}{'<level1>' if daisy3 and not num and not tag.startswith('h') else ''}{'<p>' if tag=='span' and (num==0 or not paras[num-1][0]=="span" or paras[num-1][1].endswith("<br />")) else ''}<{tag} id=\"p{num+offset}\"{(' class="word"' if len(text.split())==1 else ' class="sentence"') if tag=='span' else ''}>{re.sub("<br />$","",re.sub('<img src="[^"]*" [^/]*/>','',text))}</{tag}>{'</p>' if tag=='span' and (text.endswith("<br />") or num+1==len(paras) or not paras[num+1][0]=='span') else ''}{'<p><imggroup>' if daisy3 and re.search('<img src="',text) else ''}{''.join(re.findall('<img src="[^"]*" [^/]*/>',text))}{'</imggroup></p>' if daisy3 and re.search('<img src="',text) else ''}{''.join(f'</level{n}>' for n in range(next(int(paras[p][0][1:]) for p in range(num,-1,-1) if paras[p][0].startswith('h')) if any(paras[P][0].startswith('h') for P in range(num,-1,-1)) else 1,0 if num+1==len(paras) else int(paras[num+1][0][1:])-1,-1)) if daisy3 and (num+1==len(paras) or paras[num+1][0].startswith('h')) else ''}""" for num,(tag,text) in enumerate(normaliseDepth(paras)))+f"""
         </{'bodymatter></book' if daisy3 else 'body'}>
 </{'dtbook' if daisy3 else 'html'}>
 """)
