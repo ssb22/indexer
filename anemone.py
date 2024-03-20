@@ -1,6 +1,6 @@
 #!/usr/bin/env python3
 """
-Anemone 1.13 (http://ssb22.user.srcf.net/anemone)
+Anemone 1.14 (http://ssb22.user.srcf.net/anemone)
 (c) 2023-24 Silas S. Brown.  License: Apache 2
 Run program with --help for usage instructions.
 """
@@ -178,7 +178,7 @@ def get_texts():
                 content = ''.join(content).strip()
                 rTxt.append((tag,re.sub('( *</?br> *)+','<br />',content))) # (allow line breaks inside paragraphs, in case any in mid-"sentence", but collapse them because readers typically add extra space to each)
             else:
-                sys.stderr.write(f"Warning: JSON {len(recordingTexts)+1} marker {i+1} marks paragraph ID {want_pids[i]} which is not present in corresponding HTML file {h}.  Anemone will make this a blank paragraph.\n")
+                sys.stderr.write(f"Warning: JSON {len(recordingTexts)+1} marker {i+1} marks paragraph ID {want_pids[i]} which is not present in HTML {len(recordingTexts)+1}.  Anemone will make this a blank paragraph.\n")
                 rTxt.append(('p',''))
         recordingTexts.append((rTxt,pageNos))
     return recordingTexts
