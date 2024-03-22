@@ -1,6 +1,6 @@
 #!/usr/bin/env python3
 """
-Anemone 1.14 (http://ssb22.user.srcf.net/anemone)
+Anemone 1.15 (http://ssb22.user.srcf.net/anemone)
 (c) 2023-24 Silas S. Brown.  License: Apache 2
 Run program with --help for usage instructions.
 """
@@ -281,7 +281,8 @@ refetch = refresh = False # so anyone importing the module can call fetch() befo
 def fetch(url,returnFilename=False):
     fn = re.sub('[%&?@*#{}<>!:+`=|$]','','cache'+os.sep+unquote(re.sub('.*?://','',url)).replace('/',os.sep)) # these characters need to be removed on Windows's filesystem; TODO: store original URL somewhere just in case some misguided webmaster puts two identical URLs modulo those characters??
     if fn.endswith(os.sep): fn += "index.html"
-    f = os.sep.join(f.replace('.',os.extsep) for f in fn.split(os.sep))
+    fn = os.sep.join(f.replace('.',os.extsep) for f in fn.split(os.sep)) # just in case we're on RISC OS (not tested)
+    fnExc = fn+os.extsep+"exception"
     ifModSince = None
     if os.path.exists(fn):
         if refetch: pass # ignore already dl'd
@@ -289,16 +290,18 @@ def fetch(url,returnFilename=False):
             ifModSince=os.stat(fn).st_mtime
         elif returnFilename: return fn
         else: return open(fn,'rb').read()
+    elif os.path.exists(fnExc) and not refetch and not refresh: raise HTTPError("",int(open(fnExc).read()),"HTTP error on last fetch",{},None) # useful especially if a wrapper script is using our fetch() for multiple chapters and stopping on a 404
     sys.stderr.write("Fetching "+url+"...")
     sys.stderr.flush()
+    if os.sep in fn: Path(fn[:fn.rindex(os.sep)]).mkdir(parents=True,exist_ok=True)
     try: dat = urlopen(Request(url,headers=({"If-Modified-Since":time.strftime("%a, %d %b %Y %H:%M:%S GMT",time.gmtime(ifModSince))} if ifModSince else {}))).read()
     except HTTPError as e:
         if e.getcode()==304:
             sys.stderr.write(" no new data\n")
             if returnFilename: return fn
             else: return open(fn,'rb').read()
-        else: raise
-    if os.sep in fn: Path(fn[:fn.rindex(os.sep)]).mkdir(parents=True,exist_ok=True)
+        else:
+            open(fnExc,"w").write(str(e.getcode())) ; raise
     sys.stderr.write(" saved\n")
     open(fn,'wb').write(dat)
     if returnFilename: return fn
