@@ -1,6 +1,6 @@
 #!/usr/bin/env python3
 """
-Anemone 1.3 (http://ssb22.user.srcf.net/anemone)
+Anemone 1.31 (http://ssb22.user.srcf.net/anemone)
 (c) 2023-24 Silas S. Brown.  License: Apache 2
 Run program with --help for usage instructions.
 """
@@ -353,7 +353,7 @@ def recodeMP3(f):
     pcm = f[:-3]+"pcm" # instead of .mp3
     m = re.search(b'(?s)([0-9]+) kHz, ([0-9]+).*?([0-9]+) bit',run(["lame","-t","--decode",f,"-o",pcm],check=True,stdout=PIPE,stderr=PIPE).stderr) # hope nobody disabled --decode when building LAME (is OK on lame.buanzo.org EXEs)
     if not m: error("lame did not give expected format for frequency, channels and bits output")
-    mp3bytes = run(["lame","--quiet","-r","-s",m.group(1).decode('latin1'),'-m',('m' if m.group(2)==b'1' else 's'),'--bitwidth',m.group(3).decode('latin1'),pcm,"-m","m","--resample","44.1","-b","64","-q","0","-o","-"],check=True,stdout=PIPE).stdout
+    mp3bytes = run(["lame","--quiet","-r","-s",m.group(1).decode('latin1')]+(['-a'] if m.group(2)==b'2' else [])+['-m','m','--bitwidth',m.group(3).decode('latin1'),pcm,"--resample","44.1","-b","64","-q","0","-o","-"],check=True,stdout=PIPE).stdout
     os.remove(pcm) ; return mp3bytes
 
 def fetch(url,
