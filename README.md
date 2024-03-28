@@ -1,6 +1,14 @@
- indexer
-Offline HTML Indexer etc from http://ssb22.user.srcf.net/indexer/
+# indexer
+This repository contains various indexing utilities from http://ssb22.user.srcf.net/indexer/
 (also mirrored at http://ssb22.gitlab.io/indexer/ just in case)
+the main ones being:
+1. Offline HTML Indexer
+2. Online version of OHI
+3. LaTeX book and dictionary builder (print OHI)
+4. Anemone DAISY maker
+
+Offline HTML Indexer
+--------------------
 
 This is a Python program (compatible with both Python 2 and Python 3), for creating large indices of HTML text which can be queried using simple Javascript that works on many mobile phone browsers without needing an Internet connection or a Web server. This is useful if you want to load a dictionary or other reference onto your phone (or computer) for use when connectivity is not available.
 
