@@ -1,6 +1,6 @@
 #!/usr/bin/env python3
 """
-Anemone 1.15 (http://ssb22.user.srcf.net/anemone)
+Anemone 1.2 (http://ssb22.user.srcf.net/anemone)
 (c) 2023-24 Silas S. Brown.  License: Apache 2
 Run program with --help for usage instructions.
 """
@@ -35,7 +35,7 @@ def anemone(*files,**options):
     with careful quoting).
     This function is not thread-safe."""
     parse_args(*[(json.dumps(f) if type(f)==dict else f) for f in files],**options)
-    if mp3_recode and not which('lame'): sys.stderr.write(f"Anemone requires the LAME program to recode MP3s.\nPlease {'download lame.exe' if sys.platform=='win32' else 'install lame'} and try again.\n"),sys.exit(1)
+    check_we_got_LAME()
     write_all(get_texts())
 
 from argparse import ArgumentParser
@@ -53,7 +53,10 @@ args.add_argument("--marker-attribute",default="data-pid",help="the attribute us
 args.add_argument("--page-attribute",default="data-no",help="the attribute used in the HTML to indicate a page number, default is data-no")
 args.add_argument("--image-attribute",default="data-zoom",help="the attribute used in the HTML to indicate an absolute image URL to be included in the DAISY file, default is data-zoom")
 args.add_argument("--refresh",action="store_true",help="if images etc have already been fetched from URLs, ask the server if they should be fetched again (use If-Modified-Since)")
+args.add_argument("--cache",default="cache",help="path name for the URL-fetching cache (default 'cache' in the current directory)")
 args.add_argument("--reload",dest="refetch",action="store_true",help="if images etc have already been fetched from URLs, fetch them again without If-Modified-Since")
+args.add_argument("--delay",default=0,help="minimum number of seconds between URL fetches (default none)")
+args.add_argument("--user-agent",default=f"Mozilla/5.0 (compatible, {' '.join(generator.split()[:2])})",help="User-Agent string to send for URL fetches")
 args.add_argument("--daisy3",action="store_true",help="Use the Daisy 3 format (ANSI/NISO Z39.86) instead of the Daisy 2.02 format.  This may require more modern reader software, and Anemone does not yet support Daisy 3 only features like tables in the text.")
 args.add_argument("--mp3-recode",action="store_true",help="re-code the MP3 files to ensure they are constant bitrate and more likely to work with the more limited DAISY-reading programs like FSReader 3 (this option requires LAME)")
 args.add_argument("--allow-jumps",action="store_true",help="Allow jumps in heading levels e.g. h1 to h3 if the input HTML does it.  This seems OK on modern readers but might cause older reading devices to give an error.  Without this option, headings are promoted where necessary to ensure only incremental depth increase.") # might cause older reading devices to give an error: and is also flagged up by the validator
@@ -70,8 +73,14 @@ from urllib.error import HTTPError
 from urllib.parse import unquote
 from pathlib import Path # Python 3.5+
 from shutil import which
+
+def error(m):
+    if __name__=="__main__": sys.stderr.write(f"Error: {m}\n"),sys.exit(1)
+    else: raise AnemoneError(str(m))
+class AnemoneError(Exception): pass
+
 try: from mutagen.mp3 import MP3
-except ImportError: sys.stderr.write("Anemone needs the Mutagen library to determine MP3 play lengths.\nPlease do: pip install mutagen\n"),sys.exit(1)
+except ImportError: error("Anemone needs the Mutagen library to determine MP3 play lengths.\nPlease do: pip install mutagen")
 
 def parse_args(*inFiles,**kwargs):
     global recordingFiles, jsonData, textFiles, htmlData, imageFiles, outputFile, files
@@ -81,7 +90,7 @@ def parse_args(*inFiles,**kwargs):
     for f in files:
         f = f.strip()
         if f.endswith(f"{os.extsep}zip"):
-            if outputFile: errExit(f"Only one {os.extsep}zip output file may be specified")
+            if outputFile: error(f"Only one {os.extsep}zip output file may be specified")
             outputFile = f ; continue
         if re.match("https*://",f): f=fetch(f,1)
         if f.startswith('{') and f.endswith('}'):
@@ -89,7 +98,7 @@ def parse_args(*inFiles,**kwargs):
             continue # don't treat as a file
         elif f.startswith('<') and f.endswith('>'):
             htmlData.append(f) ; continue
-        elif not os.path.exists(f): errExit(f"File not found: {f}")
+        elif not os.path.exists(f): error(f"File not found: {f}")
         if f.endswith(f"{os.extsep}mp3"):
             recordingFiles.append(f)
         elif f.endswith(f"{os.extsep}json"): jsonData.append(json.load(open(f,encoding="utf-8")))
@@ -97,19 +106,25 @@ def parse_args(*inFiles,**kwargs):
             textFiles.append(f)
         elif f.endswith(f"{os.extsep}html") or not os.extsep in f.rsplit(os.sep,1)[-1]:
             htmlData.append(open(f,encoding="utf-8").read())
-        else: errExit(f"Can't handle '{f}'")
-    if not recordingFiles: errExit("Creating DAISY files without audio is not yet implemented")
-    if htmlData and not jsonData: errExit("Full text without time markers is not yet implemented")
-    if jsonData and not htmlData: errExit("Time markers without full text is not implemented")
-    if htmlData and textFiles: errExit("Combining full text with title-only text files is not yet implemented.  Please specify full text for everything or just titles for everything, not both.")
-    if jsonData and not len(recordingFiles)==len(jsonData): errExit(f"If JSON marker files are specified, there must be exactly one JSON file for each recording file.  We got f{len(jsonData)} JSON files and f{len(recordingFiles)} recording files.")
-    if textFiles and not len(recordingFiles)==len(textFiles): errExit(f"If text files are specified, there must be exactly one text file for each recording file.  We got f{len(textFiles)} txt files and f{len(recordingFiles)} recording files.")
-    if htmlData and not len(recordingFiles)==len(htmlData): errExit(f"If HTML documents are specified, there must be exactly one HTML document for each recording.  We got f{len(htmlData)} HTML documents and f{len(recordingFiles)} recordings.")
+        else: error(f"Can't handle '{f}'")
+    if not recordingFiles: error("Creating DAISY files without audio is not yet implemented")
+    if htmlData and not jsonData: error("Full text without time markers is not yet implemented")
+    if jsonData and not htmlData: error("Time markers without full text is not implemented")
+    if htmlData and textFiles: error("Combining full text with title-only text files is not yet implemented.  Please specify full text for everything or just titles for everything, not both.")
+    if jsonData and not len(recordingFiles)==len(jsonData): error(f"If JSON marker files are specified, there must be exactly one JSON file for each recording file.  We got f{len(jsonData)} JSON files and f{len(recordingFiles)} recording files.")
+    if textFiles and not len(recordingFiles)==len(textFiles): error(f"If text files are specified, there must be exactly one text file for each recording file.  We got f{len(textFiles)} txt files and f{len(recordingFiles)} recording files.")
+    if htmlData and not len(recordingFiles)==len(htmlData): error(f"If HTML documents are specified, there must be exactly one HTML document for each recording.  We got f{len(htmlData)} HTML documents and f{len(recordingFiles)} recordings.")
     if not outputFile: outputFile=f"output_daisy{os.extsep}zip"
     global title
     if not title: title=outputFile.replace(f"{os.extsep}zip","").replace("_daisy","")
-def errExit(m):
-    sys.stderr.write(f"Error: {m}\n") ; sys.exit(1)
+
+def check_we_got_LAME():
+    if not mp3_recode: return
+    if which('lame'): return
+    if sys.platform=='win32':
+        os.environ["PATH"] += r";C:\Program Files (x86)\Lame for Audacity;C:\Program Files\Lame for Audacity"
+        if which('lame'): return
+    error(f"Anemone requires the LAME program to recode MP3s.\nPlease {'run the exe installer from lame.buanzo.org' if sys.platform=='win32' else 'install lame'} and try again.")
 
 def get_texts():
     if textFiles: return [open(f,encoding="utf-8").read().strip() for f in textFiles] # section titles only, from text files
@@ -131,9 +146,11 @@ def get_texts():
                 self.pageNoGoesAfter = 0
                 self.theStartTag = None
             def handle_starttag(self,tag,attrs):
+                tag = tagRewrite.get(tag,tag)
                 attrs = dict(attrs)
                 imgURL = attrs.get(image_attribute,None)
                 if imgURL and re.match("https*://.*[.][^/]*$",imgURL) and not (self.addTo==None and self.imgsMaybeAdd==None):
+                    # TODO: might want to check attrs.get("alt",""), but DAISY3 standard does not list alt as a valid attribute for img, so we'd have to put it after with br etc (changing text_htm) and we don't know if it's in the audio or not: probably best just to leave it and rely on there being a separate caption with ID if it's in the audio
                     img = f'<img src="{(imageFiles.index(imgURL) if imgURL in imageFiles else len(imageFiles))+1}{imgURL[imgURL.rindex("."):]}" {f"""id="i{imageFiles.index(imgURL) if imgURL in imageFiles else len(imageFiles)}" """ if daisy3 else ""}/>' # will be moved after paragraph by text_htm
                     if not imgURL in imageFiles:
                         imageFiles.append(imgURL)
@@ -157,6 +174,7 @@ def get_texts():
                 elif not self.addTo==None and tag=='a': self.lastAStart = len(self.addTo)
                 elif tag=='rt': self.suppress += 1
             def handle_endtag(self,tag):
+                tag = tagRewrite.get(tag,tag)
                 if self.suppress and tag=='rt': self.suppress -= 1
                 elif not self.addTo==None:
                     if tag==self.theStartTag and self.tagDepth == 0:
@@ -183,10 +201,14 @@ def get_texts():
         recordingTexts.append((rTxt,pageNos))
     return recordingTexts
 
+tagRewrite = {
+    'legend':'h3', # used in fieldset
+}
+
 def jsonAttr(d,suffix):
     keys = [k for k in d.keys() if k.lower().endswith(suffix)]
-    if not keys: errExit(f"No *{suffix} in {repr(keys)}")
-    if len(keys)>1: errExit(f"More than one *{suffix} in {repr(keys)}")
+    if not keys: error(f"No *{suffix} in {repr(keys)}")
+    if len(keys)>1: error(f"More than one *{suffix} in {repr(keys)}")
     return str(d[keys[0]])
 def parseTime(t):
     tot = 0.0 ; mul = 1
@@ -201,7 +223,7 @@ def write_all(recordingTexts):
     hasFullText = any(type(t)==tuple for t in recordingTexts)
     if mp3_recode: # parallelise lame if possible
         executor = ThreadPoolExecutor(max_workers=cpu_count())
-        recordings=[executor.submit(lambda f:run(["lame","--quiet",f,"-m","m","--resample","44.1","-c","-b","64","-q","0","-o","-"],check=True,stdout=PIPE).stdout,f) for f in recordingFiles]
+        recordings=[executor.submit(recodeMP3,f) for f in recordingFiles]
     z = ZipFile(outputFile,"w",ZIP_DEFLATED,False)
     def D(s): return s.replace("\n","\r\n") # in case old readers require DOS line endings
     if hasFullText: z.writestr("0000.txt",D(f"""
@@ -275,11 +297,21 @@ def getHeadings(recordingTexts):
         ret.append(chap)
     return ret
 
-import locale
-locale.setlocale(locale.LC_TIME, "C") # for %a and %b in strftime (shouldn't need LC_TIME elsewhere)
-refetch = refresh = False # so anyone importing the module can call fetch() before anemone(), e.g. to download a list of URLs from somewhere
+def recodeMP3(f):
+    # It seems broken players like FSReader can get timing wrong if mp3 contains
+    # too many tags at the start (e.g. images).
+    # eyed3 clear() won't help: it zeros out bytes without changing indices.
+    # To ensure everything is removed, better decode to raw PCM and re-encode :-(
+    pcm = f[:-3]+"pcm" # instead of .mp3
+    m = re.search(b'(?s)([0-9]+) kHz, ([0-9]+).*?([0-9]+) bit',run(["lame","-t","--decode",f,"-o",pcm],check=True,stdout=PIPE,stderr=PIPE).stderr) # hope nobody disabled --decode when building LAME
+    if not m: error("lame did not give expected format for frequency, channels and bits output")
+    mp3bytes = run(["lame","--quiet","-r","-s",m.group(1).decode('latin1'),'-m',('m' if m.group(2)==b'1' else 's'),'--bitwidth',m.group(3).decode('latin1'),pcm,"-m","m","--resample","44.1","-b","64","-q","0","-o","-"],check=True,stdout=PIPE).stdout
+    os.remove(pcm) ; return mp3bytes
+
+delay = 0 ; cache = "cache" ; refetch = refresh = False # so anyone importing the module can call fetch() before anemone(), e.g. to download a list of URLs
+last_urlopen_time = 0
 def fetch(url,returnFilename=False):
-    fn = re.sub('[%&?@*#{}<>!:+`=|$]','','cache'+os.sep+unquote(re.sub('.*?://','',url)).replace('/',os.sep)) # these characters need to be removed on Windows's filesystem; TODO: store original URL somewhere just in case some misguided webmaster puts two identical URLs modulo those characters??
+    fn = re.sub('[%&?@*#{}<>!:+`=|$]','',cache+os.sep+unquote(re.sub('.*?://','',url)).replace('/',os.sep)) # these characters need to be removed on Windows's filesystem; TODO: store original URL somewhere just in case some misguided webmaster puts two identical URLs modulo those characters??
     if fn.endswith(os.sep): fn += "index.html"
     fn = os.sep.join(f.replace('.',os.extsep) for f in fn.split(os.sep)) # just in case we're on RISC OS (not tested)
     fnExc = fn+os.extsep+"exception"
@@ -294,14 +326,22 @@ def fetch(url,returnFilename=False):
     sys.stderr.write("Fetching "+url+"...")
     sys.stderr.flush()
     if os.sep in fn: Path(fn[:fn.rindex(os.sep)]).mkdir(parents=True,exist_ok=True)
-    try: dat = urlopen(Request(url,headers=({"If-Modified-Since":time.strftime("%a, %d %b %Y %H:%M:%S GMT",time.gmtime(ifModSince))} if ifModSince else {}))).read()
+    global last_urlopen_time
+    if delay: time.sleep(min(0,last_urlopen_time+delay-time.time()))
+    headers = {"User-Agent":user_agent}
+    if ifModSince:
+        t = time.gmtime(ifModSince)
+        headers["If-Modified-Since"]=f"{'Mon Tue Wed Thu Fri Sat Sun'.split()[t.tm_wday]}, {t.tm_mday} {'Jan Feb Mar Apr May Jun Jul Aug Sep Oct Nov Dec'.split()[t.tm_mon-1]} {t.tm_year} {t.tm_hour:02d}:{t.tm_min:02d}:{t.tm_sec:02d} GMT"
+    try: dat = urlopen(Request(url,headers=headers)).read()
     except HTTPError as e:
+        last_urlopen_time = time.time()
         if e.getcode()==304:
             sys.stderr.write(" no new data\n")
             if returnFilename: return fn
             else: return open(fn,'rb').read()
         else:
             open(fnExc,"w").write(str(e.getcode())) ; raise
+    last_urlopen_time = time.time()
     sys.stderr.write(" saved\n")
     open(fn,'wb').write(dat)
     if returnFilename: return fn
@@ -438,7 +478,7 @@ def section_smil(recNo=1,
 # (do not omit text with 0-length audio altogether, even in Daisy 2: unlike image tags after paragraphs, it might end up not being displayed by EasyReader etc.  Omitting audio does NOT save being stopped at the beginning of the chapter when rewinding by paragraph: is this a bug or a feature?)
 def deBlank(s): return re.sub("\n *\n","\n",s)
 
-def deHTML(t): return re.sub('<[^>]*>','',t).replace('"','&quot;').strip() # for inclusion in attributes
+def deHTML(t): return re.sub(r'\s+',' ',re.sub('<[^>]*>','',t)).replace('"','&quot;').strip() # for inclusion in attributes
 
 def package_opf(hasFullText,numRecs,totalSecs):
     return f"""<?xml version="1.0" encoding="utf-8"?>
