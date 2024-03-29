@@ -1,6 +1,6 @@
 #!/usr/bin/env python3
 """
-Anemone 1.31 (http://ssb22.user.srcf.net/anemone)
+Anemone 1.32 (http://ssb22.user.srcf.net/anemone)
 (c) 2023-24 Silas S. Brown.  License: Apache 2
 Run program with --help for usage instructions.
 """
@@ -39,6 +39,7 @@ def anemone(*files,**options):
     R=Run(*[(json.dumps(f) if type(f)==dict else f) for f in files],**options)
     if R.mp3_recode: check_we_got_LAME()
     write_all(R,get_texts(R))
+    R.cleanup()
 
 def populate_argument_parser(args): # INTERNAL
     """Calls add_argument on args, with the names
@@ -58,7 +59,7 @@ def populate_argument_parser(args): # INTERNAL
     args.add_argument("--page-attribute",default="data-no",help="the attribute used in the HTML to indicate a page number, default is data-no")
     args.add_argument("--image-attribute",default="data-zoom",help="the attribute used in the HTML to indicate an absolute image URL to be included in the DAISY file, default is data-zoom")
     args.add_argument("--refresh",action="store_true",help="if images etc have already been fetched from URLs, ask the server if they should be fetched again (use If-Modified-Since)")
-    args.add_argument("--cache",default="cache",help="path name for the URL-fetching cache (default 'cache' in the current directory)")
+    args.add_argument("--cache",default="cache",help="path name for the URL-fetching cache (default 'cache' in the current directory; set to empty string if you don't want to save anything)")
     args.add_argument("--reload",dest="refetch",action="store_true",help="if images etc have already been fetched from URLs, fetch them again without If-Modified-Since")
     args.add_argument("--delay",default=0,help="minimum number of seconds between URL fetches (default none)")
     args.add_argument("--user-agent",default=f"Mozilla/5.0 (compatible, {' '.join(generator.split()[:2])})",help="User-Agent string to send for URL fetches")
@@ -75,7 +76,7 @@ def get_argument_parser(): # INTERNAL
     populate_argument_parser(args)
     return args
 
-import time, sys, os, re, json, math, time
+import time, sys, os, re, json, math, tempfile
 from functools import reduce
 from subprocess import run, PIPE
 from zipfile import ZipFile, ZIP_DEFLATED
@@ -112,6 +113,7 @@ class Run(): # INTERNAL
     R.recordingFiles,R.jsonData = [],[]
     R.textFiles,R.htmlData = [],[]
     R.imageFiles,R.outputFile = [],None
+    R.filesToDelete = []
     if inFiles: R.__dict__.update(get_argument_parser().parse_args(list(inFiles)+['--'+k.replace('_','-') for k,v in kwargs.items() if v==True]+[a for k,v in kwargs.items() for a in ['--'+k.replace('_','-'),str(v)] if not v==True and not v==False and not v==None]).__dict__) # so flag=False is ignored (as we default to False), and option=None means use the default
     else: R.__dict__.update(get_argument_parser().parse_args().__dict__)
     for f in R.files:
@@ -119,7 +121,10 @@ class Run(): # INTERNAL
         if f.endswith(f"{os.extsep}zip"):
             if R.outputFile: error(f"Only one {os.extsep}zip output file may be specified")
             R.outputFile = f ; continue
-        if re.match("https?://",f): f=fetch(f,True,R.cache,R.refresh,R.refetch,R.delay,R.user_agent)
+        if re.match("https?://",f):
+            f=fetch(f,True,R.cache,R.refresh,R.refetch,R.delay,R.user_agent)
+            if not R.cache:
+                R.filesToDelete.append(f)
         if f.startswith('{') and f.endswith('}'):
             R.jsonData.append(json.loads(f))
             continue # don't treat as a file
@@ -144,6 +149,10 @@ class Run(): # INTERNAL
     if R.htmlData and not len(R.recordingFiles)==len(R.htmlData): error(f"If HTML documents are specified, there must be exactly one HTML document for each recording.  We got f{len(R.htmlData)} HTML documents and f{len(R.recordingFiles)} recordings.")
     if not R.outputFile: R.outputFile=f"output_daisy{os.extsep}zip"
     if not R.title: R.title=R.outputFile.replace(f"{os.extsep}zip","").replace("_daisy","")
+  def cleanup(R):
+    for f in R.filesToDelete:
+        try: Path(f).unlink()
+        except: sys.stderr.write(f"Warning: couldn't delete {f}\n")
 
 def check_we_got_LAME(): # INTERNAL
     if which('lame'): return
@@ -358,28 +367,29 @@ def recodeMP3(f):
 
 def fetch(url,
           returnFilename=False, # if True, returns the cached filename we saved it in, if False, return the actual data
-          cache = "cache", # the cache directory
+          cache = "cache", # the cache directory (None = don't save, unless returnFilename=True in which case we write a temporary file which the caller should remove)
           refresh = False, # if True, send If-Modified-Since request if we have a cached item
           refetch = False, # if True, reloads
           delay = 0, # between fetches (tracked globally)
           user_agent = None):
     """Fetches a URL, with delay and cache options
     (see comments on parameters)"""
-    fn = re.sub('[%&?@*#{}<>!:+`=|$]','',cache+os.sep+unquote(re.sub('.*?://','',url)).replace('/',os.sep)) # these characters need to be removed on Windows's filesystem; TODO: store original URL somewhere just in case some misguided webmaster puts two identical URLs modulo those characters??
-    if fn.endswith(os.sep): fn += "index.html"
-    fn = os.sep.join(f.replace('.',os.extsep) for f in fn.split(os.sep)) # just in case we're on RISC OS (not tested)
-    fnExc = fn+os.extsep+"exception"
     ifModSince = None
-    if os.path.exists(fn):
+    if cache:
+      fn = re.sub('[%&?@*#{}<>!:+`=|$]','',cache+os.sep+unquote(re.sub('.*?://','',url)).replace('/',os.sep)) # these characters need to be removed on Windows's filesystem; TODO: store original URL somewhere just in case some misguided webmaster puts two identical URLs modulo those characters??
+      if fn.endswith(os.sep): fn += "index.html"
+      fn = os.sep.join(f.replace('.',os.extsep) for f in fn.split(os.sep)) # just in case we're on RISC OS (not tested)
+      fnExc = fn+os.extsep+"exception"
+      if os.path.exists(fn):
         if refetch: pass # ignore already dl'd
         elif refresh:
             ifModSince=os.stat(fn).st_mtime
         elif returnFilename: return fn
         else: return open(fn,'rb').read()
-    elif os.path.exists(fnExc) and not refetch and not refresh: raise HTTPError("",int(open(fnExc).read()),"HTTP error on last fetch",{},None) # useful especially if a wrapper script is using our fetch() for multiple chapters and stopping on a 404
+      elif os.path.exists(fnExc) and not refetch and not refresh: raise HTTPError("",int(open(fnExc).read()),"HTTP error on last fetch",{},None) # useful especially if a wrapper script is using our fetch() for multiple chapters and stopping on a 404
+      Path(fn[:fn.rindex(os.sep)]).mkdir(parents=True,exist_ok=True)
     sys.stderr.write("Fetching "+url+"...")
     sys.stderr.flush()
-    if os.sep in fn: Path(fn[:fn.rindex(os.sep)]).mkdir(parents=True,exist_ok=True)
     global _last_urlopen_time
     try: _last_urlopen_time
     except: _last_urlopen_time = 0
@@ -391,17 +401,25 @@ def fetch(url,
     try: dat = urlopen(Request(url,headers=headers)).read()
     except HTTPError as e:
         _last_urlopen_time = time.time()
-        if e.getcode()==304:
+        if e.getcode()==304 and cache:
             sys.stderr.write(" no new data\n")
             if returnFilename: return fn
             else: return open(fn,'rb').read()
         else:
-            open(fnExc,"w").write(str(e.getcode())) ; raise
+            if cache: open(fnExc,"w").write(str(e.getcode()))
+            raise
     _last_urlopen_time = time.time()
-    sys.stderr.write(" saved\n")
-    open(fn,'wb').write(dat)
-    if returnFilename: return fn
-    else: return dat
+    if cache:
+        open(fn,'wb').write(dat)
+        sys.stderr.write(" saved\n")
+    else: sys.stderr.write(" fetched\n")
+    if not returnFilename: return dat
+    elif cache: return fn
+    ext = url.rsplit('/',1)[-1]
+    if not '.' in ext: ext="html" # ../index.html
+    else: ext=ext.rsplit('.',1)[-1]
+    t = tempfile.NamedTemporaryFile('wb',delete=False,suffix=os.extsep+ext)
+    t.write(dat) ; return t.name
 
 def ncc_html(R, headings = [],
              hasFullText = False,
