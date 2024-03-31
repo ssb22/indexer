@@ -34,7 +34,7 @@ Anemone DAISY maker
 from http://ssb22.user.srcf.net/indexer/anemone.html
 (also mirrored at http://ssb22.gitlab.io/indexer/anemone.html just in case)
 
-`anemone.py` is a Python 3 script to put together a DAISY file from HTML text, MP3 audio recordings and time index data.  It produces DAISY 2.02 files by default, or DAISY 3 (i.e. ANSI/NISO Z39.86) if an option is set.  It currently can produce one of two different types of digital talking book:
+`anemone.py` is a Python 3 script to put together a DAISY digital talking book, from HTML text, MP3 audio recordings and time index data.  It produces DAISY 2.02 files by default, or DAISY 3 (i.e. ANSI/NISO Z39.86) if an option is set.  It currently can produce one of two different types of digital talking book:
 
 1. Full audio with basic Navigation Control Centre only: this requires a list of MP3 files for the audio, one MP3 per section, and the title of each section can be placed either in a separate text file or in the filename of the MP3 file.
 
