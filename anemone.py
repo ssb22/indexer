@@ -1,6 +1,6 @@
 #!/usr/bin/env python3
 """
-Anemone 1.33 (http://ssb22.user.srcf.net/anemone)
+Anemone 1.34 (http://ssb22.user.srcf.net/anemone)
 (c) 2023-24 Silas S. Brown.  License: Apache 2
 Run program with --help for usage instructions.
 """
@@ -320,6 +320,7 @@ def write_all(R,recordingTexts): # INTERNAL
 
 def getHeadings(recordingTexts): # INTERNAL
     ret = []
+    cvChapCount = 0
     for txtNo,t in enumerate(recordingTexts):
         if not type(t)==tuple: # title only
             ret.append(t) ; continue
@@ -346,8 +347,10 @@ def getHeadings(recordingTexts): # INTERNAL
                 sys.stderr.write(f"WARNING: Chapter {txtNo+1} is completely blank!  (Is {'--marker-attribute' if __name__=='__main__' else 'marker_attribute'} set correctly?)\n")
                 nums = []
             chap.append(('h1',nums[0] if len(nums)==1 and not nums[0]=="1" else str(txtNo+1),first//2)) # TODO: could say "Chapter " before this number if R.lang.startswith("en") and we're not supposed to use some other word for this book
-            if [re.findall("[1-9][0-9]*",textsAndTimes[f][1]) for f in range(first+2,len(textsAndTimes),2)]==[[str(n)] for n in range(2,len(textsAndTimes)//2+2)]: chap += [('h2',f"{chap[0][1]}:{v}",first//2+v-1) for v in range(2,len(textsAndTimes)//2+2)] # looks like we're dealing with consecutive chapter and verse numbers with no other headings, so index the verse numbers (except verse 1 to which we probably can't have a duplicate link from the chapter link)
+            if [re.findall("[1-9][0-9]*",textsAndTimes[f][1])[:1] for f in range(first+2,len(textsAndTimes),2)]==[[str(n)] for n in range(2,len(textsAndTimes)//2+2)]: # looks like we're dealing with consecutive chapter and verse numbers with no other headings, so index the verse numbers
+                chap += [('h2',f"{chap[0][1]}:{v}",first//2+v-1) for v in range(1,len(textsAndTimes)//2+2)] ; cvChapCount += 1
         ret.append(chap)
+    if cvChapCount not in [0,len(ret)]: sys.stderr.write(f"WARNING: Verse-indexed only {cvChapCount} of {len(ret)} chapters\n")
     return ret
 
 def recodeMP3(f):
