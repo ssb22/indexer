@@ -1,6 +1,6 @@
 #!/usr/bin/env python3
 """
-Anemone 1.34 (http://ssb22.user.srcf.net/anemone)
+Anemone 1.35 (http://ssb22.user.srcf.net/anemone)
 (c) 2023-24 Silas S. Brown.  License: Apache 2
 Run program with --help for usage instructions.
 """
@@ -34,12 +34,13 @@ def anemone(*files,**options):
     (this can also be done on the command line
     with careful quoting).
     If you do not give this function any arguments
-    it will look at the system command line."""
+    it will look at the system command line.
+    Return value is a list of warnings, if any."""
     
     R=Run(*[(json.dumps(f) if type(f)==dict else f) for f in files],**options)
     if R.mp3_recode: check_we_got_LAME()
     write_all(R,get_texts(R))
-    R.cleanup()
+    R.cleanup() ; return R.warnings
 
 def populate_argument_parser(args): # INTERNAL
     """Calls add_argument on args, with the names
@@ -77,6 +78,7 @@ def get_argument_parser(): # INTERNAL
     return args
 
 import time, sys, os, re, json, math, tempfile
+from collections import namedtuple as NT
 from functools import reduce
 from subprocess import run, PIPE
 from zipfile import ZipFile, ZIP_DEFLATED
@@ -107,13 +109,12 @@ class Run(): # INTERNAL
   command line, or from anemone() caller."""
   def __init__(R,*inFiles,**kwargs):
     # I know the convention is "self" but I am
-    # working in giant print and my screen real
-    # estate is important, that's why I was using
-    # global variables before... 1 letter please..
+    # working in giant print so my screen area
+    # is important, so 1 letter please...
     R.recordingFiles,R.jsonData = [],[]
     R.textFiles,R.htmlData = [],[]
     R.imageFiles,R.outputFile = [],None
-    R.filesToDelete = []
+    R.filesToDelete = [] ; R.warnings = []
     if inFiles: R.__dict__.update(get_argument_parser().parse_args(list(inFiles)+['--'+k.replace('_','-') for k,v in kwargs.items() if v==True]+[a for k,v in kwargs.items() for a in ['--'+k.replace('_','-'),str(v)] if not v==True and not v==False and not v==None]).__dict__) # so flag=False is ignored (as we default to False), and option=None means use the default
     else: R.__dict__.update(get_argument_parser().parse_args().__dict__)
     for f in R.files:
@@ -149,10 +150,12 @@ class Run(): # INTERNAL
     if R.htmlData and not len(R.recordingFiles)==len(R.htmlData): error(f"If HTML documents are specified, there must be exactly one HTML document for each recording.  We got f{len(R.htmlData)} HTML documents and f{len(R.recordingFiles)} recordings.")
     if not R.outputFile: R.outputFile=f"output_daisy{os.extsep}zip"
     if not R.title: R.title=R.outputFile.replace(f"{os.extsep}zip","").replace("_daisy","")
+  def warning(R,warningText):
+      R.warnings.append(warningText) ; sys.stderr.write(f"WARNING: {warningText}\n")
   def cleanup(R):
     for f in R.filesToDelete:
         try: Path(f).unlink()
-        except: sys.stderr.write(f"Warning: couldn't delete {f}\n")
+        except: self.warn(f"couldn't delete {f}\n")
 
 def check_we_got_LAME(): # INTERNAL
     if which('lame'): return
@@ -160,6 +163,11 @@ def check_we_got_LAME(): # INTERNAL
         os.environ["PATH"] += r";C:\Program Files (x86)\Lame for Audacity;C:\Program Files\Lame for Audacity"
         if which('lame'): return
     error(f"Anemone requires the LAME program to recode MP3s.\nPlease {'run the exe installer from lame.buanzo.org' if sys.platform=='win32' else 'install lame'} and try again.")
+
+PageInfo = NT('PageInfo',['duringId','pageNo'])
+TagAndText = NT('TagAndText',['tag','text'])
+TextsAndTimesWithPages = NT('TextsAndTimesWithPages',['textsAndTimes','pageInfos'])
+TOCInfo = NT('TOCInfo',['hTag','hLine','itemNo'])
 
 def get_texts(R): # INTERNAL
     """Gets the text markup required for the run,
@@ -197,7 +205,7 @@ def get_texts(R): # INTERNAL
                     else: self.addTo.append(img)
                 pageNo = attrs.get(R.page_attribute,None)
                 if pageNo:
-                    pageNos.append((self.pageNoGoesAfter,pageNo))
+                    pageNos.append(PageInfo(self.pageNoGoesAfter,pageNo))
                 if attrs.get(R.marker_attribute,None) in want_pids:
                     self.theStartTag = tag
                     self.tagDepth = 0
@@ -229,15 +237,15 @@ def get_texts(R): # INTERNAL
         PidsExtractor().feed(h)
         rTxt = []
         for i in range(len(markers)):
-            if i: rTxt.append(parseTime(jsonAttr(markers[i],"time")))
+            if i: rTxt.append(parseTime(jsonAttr(markers[i],"time"))) # assume marker 0 is 0
             if want_pids[i] in id_to_content:
                 tag,content = id_to_content[want_pids[i]]
                 content = ''.join(content).strip()
-                rTxt.append((tag,re.sub('( *</?br> *)+','<br />',content))) # (allow line breaks inside paragraphs, in case any in mid-"sentence", but collapse them because readers typically add extra space to each)
+                rTxt.append(TagAndText(tag,re.sub('( *</?br> *)+','<br />',content))) # (allow line breaks inside paragraphs, in case any in mid-"sentence", but collapse them because readers typically add extra space to each)
             else:
-                sys.stderr.write(f"Warning: JSON {len(recordingTexts)+1} marker {i+1} marks paragraph ID {want_pids[i]} which is not present in HTML {len(recordingTexts)+1}.  Anemone will make this a blank paragraph.\n")
-                rTxt.append(('p',''))
-        recordingTexts.append((rTxt,pageNos))
+                R.warning(f"JSON {len(recordingTexts)+1} marker {i+1} marks paragraph ID {want_pids[i]} which is not present in HTML {len(recordingTexts)+1}.  Anemone will make this a blank paragraph.")
+                rTxt.append(TagAndText('p',''))
+        recordingTexts.append(TextsAndTimesWithPages(rTxt,pageNos))
     return recordingTexts
 
 tagRewrite = { # used by get_texts
@@ -269,10 +277,11 @@ def parseTime(t):
     return tot
 
 def write_all(R,recordingTexts): # INTERNAL
-    "each item is: 1 text for section title of whole recording, or ([(type,text),time,(type,text),time,(type,text)],[(goesBefore,pageNo),...])"
+    "each item is either 1 text for section title of whole recording, or a TextsAndTimesWithPages i.e. ([TagAndText,time,TagAndText,time,TagAndText],[PageInfo,...])"
     assert len(R.recordingFiles) == len(recordingTexts)
-    headings = getHeadings(recordingTexts)
-    hasFullText = any(type(t)==tuple for t in recordingTexts)
+    headings = getHeadings(R,recordingTexts)
+    merge0lenSpans(recordingTexts,headings)
+    hasFullText = any(type(t)==TextsAndTimesWithPages for t in recordingTexts)
     if R.mp3_recode: # parallelise lame if possible
         executor = ThreadPoolExecutor(max_workers=cpu_count())
         recordings=[executor.submit(recodeMP3,f) for f in R.recordingFiles]
@@ -303,55 +312,78 @@ def write_all(R,recordingTexts): # INTERNAL
         if R.mp3_recode: sys.stderr.write(f"Adding {recNo:04d}.mp3..."),sys.stderr.flush()
         z.writestr(f"{recNo:04d}.mp3",recordings[recNo-1].result() if R.mp3_recode else open(R.recordingFiles[recNo-1],'rb').read())
         if R.mp3_recode: sys.stderr.write(" done\n")
-        z.writestr(f'{recNo:04d}.smil',D(section_smil(R,recNo,secsSoFar,secsThisRecording,pSoFar,rTxt[0] if type(rTxt)==tuple else rTxt)))
-        z.writestr(f'{recNo:04d}.{"xml" if R.daisy3 else "htm"}',D(text_htm(R,(rTxt[0][::2] if type(rTxt)==tuple else [('h1',rTxt)]),pSoFar)))
+        z.writestr(f'{recNo:04d}.smil',D(section_smil(R,recNo,secsSoFar,secsThisRecording,pSoFar,rTxt.textsAndTimes if type(rTxt)==TextsAndTimesWithPages else rTxt)))
+        z.writestr(f'{recNo:04d}.{"xml" if R.daisy3 else "htm"}',D(text_htm(R,(rTxt.textsAndTimes[::2] if type(rTxt)==TextsAndTimesWithPages else [('h1',rTxt)]),pSoFar)))
         secsSoFar += secsThisRecording
-        pSoFar += (1+len(rTxt[0])//2 if type(rTxt)==tuple else 1)
+        pSoFar += (1+len(rTxt.textsAndTimes)//2 if type(rTxt)==TextsAndTimesWithPages else 1)
     for n,u in enumerate(R.imageFiles): z.writestr(f'{n+1}{u[u.rindex("."):]}',fetch(u,False,R.cache,R.refresh,R.refetch,R.delay,R.user_agent))
     if R.daisy3:
         z.writestr('dtbook.2005.basic.css',D(d3css))
         z.writestr('package.opf',D(package_opf(R,hasFullText,len(recordingTexts),secsSoFar)))
         z.writestr('text.res',D(textres))
     else: z.writestr('master.smil',D(master_smil(R,headings,secsSoFar)))
-    z.writestr('navigation.ncx' if R.daisy3 else 'ncc.html',D(ncc_html(R,headings,hasFullText,secsSoFar,[(t[1] if type(t)==tuple else []) for t in recordingTexts])))
+    z.writestr('navigation.ncx' if R.daisy3 else 'ncc.html',D(ncc_html(R,headings,hasFullText,secsSoFar,[(t.pageInfos if type(t)==TextsAndTimesWithPages else []) for t in recordingTexts])))
     if not R.daisy3: z.writestr('er_book_info.xml',D(er_book_info(durations))) # not DAISY standard but EasyReader can use this
     z.close()
     sys.stderr.write(f"Wrote {R.outputFile}\n")
 
-def getHeadings(recordingTexts): # INTERNAL
+def getHeadings(R,recordingTexts): # INTERNAL
     ret = []
     cvChapCount = 0
     for txtNo,t in enumerate(recordingTexts):
-        if not type(t)==tuple: # title only
-            ret.append(t) ; continue
+        if not type(t)==TextsAndTimesWithPages:
+            ret.append(t) ; continue # title only
         textsAndTimes,pages = t ; first = None
-        chap = []
+        chapHeadings = []
         for v,u in enumerate(textsAndTimes):
-            if not type(u)==tuple: continue # time
+            if type(u)==float: continue # time
             tag,text = u
             if first==None: first = v
             if not tag.startswith('h'):
                 continue
-            if v//2 - 1 == first//2 and not textsAndTimes[first][0].startswith('h'): # chapter starts with non-heading followed by heading: check the non-heading for "Chapter N" etc
-                nums=re.findall("[1-9][0-9]*",textsAndTimes[first][1])
+            if v//2 - 1 == first//2 and not textsAndTimes[first].tag.startswith('h'): # chapter starts with non-heading followed by heading: check the non-heading for "Chapter N" etc
+                nums=re.findall("[1-9][0-9]*",textsAndTimes[first].text)
                 if len(nums)==1:
                     text=f"{nums[0]}: {text}" # for TOC
-                    textsAndTimes[v-1] = (textsAndTimes[first-1] if first else 0) # for audio jump-navigation to include the "Chapter N" (TODO: option to merge the in-chapter text instead, so "Chapter N" appears as part of the heading, not scrolled past quickly?)
-            chap.append((tag,re.sub('<img src.*?/>','',text),v//2))
-        if not chap:
-            # Chapter with no heading.
+                    textsAndTimes[v-1] = (textsAndTimes[first-1] if first else 0) # for audio jump-navigation to include the "Chapter N" (TODO: option to merge the in-chapter text instead, so "Chapter N" appears as part of the heading, not scrolled past quickly?  merge0lenSpans will now do this if the chapter paragraph is promoted to heading, but beware we might not want the whole of the 'chapter N' text to be part of the TOC, just the number.  Thorium actually stops playing when it hits the 0-length paragraph before the heading, so promoting it might be better)
+            chapHeadings.append(TOCInfo(tag,re.sub('<img src.*?/>','',text),v//2))
+        if not chapHeadings:
             # This'll be a problem, as master_smil and ncc_html need headings to refer to the chapter at all.  (Well, ncc_html can also do it by page number if we have them, but we haven't tested all DAISY readers with page number only navigation, and what if we don't even have page numbers?)
             # So let's see if we can at least get a chapter number.
-            if not first==None: nums=re.findall("[1-9][0-9]*",textsAndTimes[first][1])
+            if not first==None: nums=re.findall("[1-9][0-9]*",textsAndTimes[first].text)
             else:
-                sys.stderr.write(f"WARNING: Chapter {txtNo+1} is completely blank!  (Is {'--marker-attribute' if __name__=='__main__' else 'marker_attribute'} set correctly?)\n")
+                R.warning(f"Chapter {txtNo+1} is completely blank!  (Is {'--marker-attribute' if __name__=='__main__' else 'marker_attribute'} set correctly?)")
                 nums = []
-            chap.append(('h1',nums[0] if len(nums)==1 and not nums[0]=="1" else str(txtNo+1),first//2)) # TODO: could say "Chapter " before this number if R.lang.startswith("en") and we're not supposed to use some other word for this book
-            if [re.findall("[1-9][0-9]*",textsAndTimes[f][1])[:1] for f in range(first+2,len(textsAndTimes),2)]==[[str(n)] for n in range(2,len(textsAndTimes)//2+2)]: # looks like we're dealing with consecutive chapter and verse numbers with no other headings, so index the verse numbers
-                chap += [('h2',f"{chap[0][1]}:{v}",first//2+v-1) for v in range(1,len(textsAndTimes)//2+2)] ; cvChapCount += 1
-        ret.append(chap)
-    if cvChapCount not in [0,len(ret)]: sys.stderr.write(f"WARNING: Verse-indexed only {cvChapCount} of {len(ret)} chapters\n")
+            chapHeadings.append(TOCInfo('h1',nums[0] if len(nums)==1 and not nums[0]=="1" else str(txtNo+1),first//2)) # TODO: could say "Chapter " before this number if R.lang.startswith("en") and we're not supposed to use some other word for this book
+            # NB textsAndTimes doesn't yet have 0 and totalLen added, so it's text,time,text,time,text
+            # so len = 1,3,5... num texts = (1+len)//2 = 1+(len//2) and end of range is 2+(len//2)
+            if [re.findall("[1-9][0-9]*",textsAndTimes[f].text)[:1] for f in range(first+2,len(textsAndTimes),2)]==[[str(n)] for n in range(2,len(textsAndTimes)//2+2)]: # looks like we're dealing with consecutive chapter and verse numbers with no other headings, so index the verse numbers
+                v = 1
+                while v < len(textsAndTimes)//2+2:
+                    lastV = v
+                    while lastV < len(textsAndTimes)//2+1 and (0 if v==1 else textsAndTimes[2*v-3])==textsAndTimes[2*lastV-1]: lastV += 1 # check for a span of them sharing a time
+                    chapHeadings.append(TOCInfo('h2',f"{chapHeadings[0].hLine}:{v}{'' if v==lastV else f'-{lastV}'}",first//2+v-1))
+                    v = lastV + 1
+                cvChapCount += 1
+        ret.append(chapHeadings)
+    if cvChapCount not in [0,len(ret)]: R.warning(f"Verse-indexed only {cvChapCount} of {len(ret)} chapters")
     return ret
+
+def merge0lenSpans(recordingTexts,headings): # INTERNAL
+    for cT,cH in zip(recordingTexts,headings):
+        if not type(cT)==TextsAndTimesWithPages:
+            continue
+        textsAndTimes,pages = cT
+        i=0
+        while i < len(textsAndTimes)-2:
+            while i < len(textsAndTimes)-2 and type(textsAndTimes[i])==TagAndText and (0 if i==0 else textsAndTimes[i-1])==textsAndTimes[i+1] and textsAndTimes[i][0]==textsAndTimes[i+2][0]: # tag identical to next tag, and 0-length
+                textsAndTimes[i] = TagAndText(textsAndTimes[i].tag, f"{textsAndTimes[i].text}{' ' if textsAndTimes[i].tag=='span' else '<br>'}{textsAndTimes[i+2].text}") # new combined item
+                del textsAndTimes[i+1:i+3] # old
+                for hI,hV in enumerate(cH):
+                    if hV.itemNo > i//2: cH[hI]=TOCInfo(hV.hTag,hV.hLine,hV.itemNo-1)
+                for pI,pInfo in enumerate(pages):
+                    if pInfo.duringId > i//2: pages[pI]=PageInfo(pInfo.duringId-1,pInfo.pageNo)
+            i += 1
 
 def recodeMP3(f):
     """Takes an MP3 or WAV filename, re-codes it
@@ -429,9 +461,9 @@ def ncc_html(R, headings = [],
              hasFullText = False,
              totalSecs = 0, pageNos=[]):# INTERNAL
     """Returns the Navigation Control Centre (NCC)
-    pageNos is [[(goesAfter,pageNo),...],...]"""
+    pageNos is [[PageInfo,...],...]"""
     numPages = sum(len(l) for l in pageNos)
-    maxPageNo = max((max((int(N) for after,N in PNs),default=0) for PNs in pageNos),default=0)
+    maxPageNo = max((max((int(i.pageNo) for i in PNs),default=0) for PNs in pageNos),default=0)
     # TODO: we assume all pages are 'normal' pages
     # (not 'front' pages in Roman letters etc)
     headingsR = normaliseDepth(R,HReduce(headings)) # (hType,hText,recNo,textNo)
