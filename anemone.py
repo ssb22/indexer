@@ -1,6 +1,6 @@
 #!/usr/bin/env python3
 """
-Anemone 1.35 (http://ssb22.user.srcf.net/anemone)
+Anemone 1.36 (http://ssb22.user.srcf.net/anemone)
 (c) 2023-24 Silas S. Brown.  License: Apache 2
 Run program with --help for usage instructions.
 """
@@ -67,6 +67,7 @@ def populate_argument_parser(args): # INTERNAL
     args.add_argument("--daisy3",action="store_true",help="Use the Daisy 3 format (ANSI/NISO Z39.86) instead of the Daisy 2.02 format.  This may require more modern reader software, and Anemone does not yet support Daisy 3 only features like tables in the text.")
     args.add_argument("--mp3-recode",action="store_true",help="re-code the MP3 files to ensure they are constant bitrate and more likely to work with the more limited DAISY-reading programs like FSReader 3 (this option requires LAME)")
     args.add_argument("--allow-jumps",action="store_true",help="Allow jumps in heading levels e.g. h1 to h3 if the input HTML does it.  This seems OK on modern readers but might cause older reading devices to give an error.  Without this option, headings are promoted where necessary to ensure only incremental depth increase.") # might cause older reading devices to give an error: and is also flagged up by the validator
+    args.add_argument("--dry-run",action="store_true",help="Don't actually output DAISY, just check the input and parameters")
 
 generator=__doc__.strip().split('\n')[0] # string we use to identify ourselves in HTTP requests and in Daisy files
 
@@ -155,7 +156,7 @@ class Run(): # INTERNAL
   def cleanup(R):
     for f in R.filesToDelete:
         try: Path(f).unlink()
-        except: self.warn(f"couldn't delete {f}\n")
+        except: R.warning(f"couldn't delete {f}\n")
 
 def check_we_got_LAME(): # INTERNAL
     if which('lame'): return
@@ -280,6 +281,7 @@ def write_all(R,recordingTexts): # INTERNAL
     "each item is either 1 text for section title of whole recording, or a TextsAndTimesWithPages i.e. ([TagAndText,time,TagAndText,time,TagAndText],[PageInfo,...])"
     assert len(R.recordingFiles) == len(recordingTexts)
     headings = getHeadings(R,recordingTexts)
+    if R.dry_run: return sys.stderr.write(f"Dry run: {len(R.warnings) if R.warnings else 'no'} warning{'' if len(R.warnings)==1 else 's'} for {R.outputFile}\n")
     merge0lenSpans(recordingTexts,headings)
     hasFullText = any(type(t)==TextsAndTimesWithPages for t in recordingTexts)
     if R.mp3_recode: # parallelise lame if possible
@@ -345,7 +347,7 @@ def getHeadings(R,recordingTexts): # INTERNAL
                 nums=re.findall("[1-9][0-9]*",textsAndTimes[first].text)
                 if len(nums)==1:
                     text=f"{nums[0]}: {text}" # for TOC
-                    textsAndTimes[v-1] = (textsAndTimes[first-1] if first else 0) # for audio jump-navigation to include the "Chapter N" (TODO: option to merge the in-chapter text instead, so "Chapter N" appears as part of the heading, not scrolled past quickly?  merge0lenSpans will now do this if the chapter paragraph is promoted to heading, but beware we might not want the whole of the 'chapter N' text to be part of the TOC, just the number.  Thorium actually stops playing when it hits the 0-length paragraph before the heading, so promoting it might be better)
+                    textsAndTimes[v-1] = (textsAndTimes[first-1] if first else 0) + 0.001 # for audio jump-navigation to include the "Chapter N" (TODO: option to merge the in-chapter text instead, so "Chapter N" appears as part of the heading, not scrolled past quickly?  merge0lenSpans will now do this if the chapter paragraph is promoted to heading, but beware we might not want the whole of the 'chapter N' text to be part of the TOC, just the number.  Thorium actually stops playing when it hits the 0-length paragraph before the heading, so promoting it might be better; trying the +0.001 for now to make timestamps not exactly equal)
             chapHeadings.append(TOCInfo(tag,re.sub('<img src.*?/>','',text),v//2))
         if not chapHeadings:
             # This'll be a problem, as master_smil and ncc_html need headings to refer to the chapter at all.  (Well, ncc_html can also do it by page number if we have them, but we haven't tested all DAISY readers with page number only navigation, and what if we don't even have page numbers?)
@@ -357,7 +359,9 @@ def getHeadings(R,recordingTexts): # INTERNAL
             chapHeadings.append(TOCInfo('h1',nums[0] if len(nums)==1 and not nums[0]=="1" else str(txtNo+1),first//2)) # TODO: could say "Chapter " before this number if R.lang.startswith("en") and we're not supposed to use some other word for this book
             # NB textsAndTimes doesn't yet have 0 and totalLen added, so it's text,time,text,time,text
             # so len = 1,3,5... num texts = (1+len)//2 = 1+(len//2) and end of range is 2+(len//2)
-            if [re.findall("[1-9][0-9]*",textsAndTimes[f].text)[:1] for f in range(first+2,len(textsAndTimes),2)]==[[str(n)] for n in range(2,len(textsAndTimes)//2+2)]: # looks like we're dealing with consecutive chapter and verse numbers with no other headings, so index the verse numbers
+            if first+2<len(textsAndTimes) and re.search("[1-9][0-9]*",textsAndTimes[first+2].text):
+              v2 = int(re.findall("[1-9][0-9]*",textsAndTimes[first+2].text)[0]) # might not start at 2, might start at 13 or something, but does it then increase incrementally:
+              if [re.findall("[1-9][0-9]*",textsAndTimes[f].text)[:1] for f in range(first+4,len(textsAndTimes),2)]==[[str(n)] for n in range(v2+1,v2+len(textsAndTimes)//2)]: # looks like we're dealing with consecutive chapter and verse numbers with no other headings, so index the verse numbers
                 v = 1
                 while v < len(textsAndTimes)//2+2:
                     lastV = v
@@ -442,6 +446,7 @@ def fetch(url,
             if returnFilename: return fn
             else: return open(fn,'rb').read()
         else:
+            sys.stderr.write(f"error {e.getcode()}\n")
             if cache: open(fnExc,"w").write(str(e.getcode()))
             raise
     _last_urlopen_time = time.time()
