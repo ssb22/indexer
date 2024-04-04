@@ -1,6 +1,6 @@
 #!/usr/bin/env python3
 """
-Anemone 1.36 (http://ssb22.user.srcf.net/anemone)
+Anemone 1.37 (http://ssb22.user.srcf.net/anemone)
 (c) 2023-24 Silas S. Brown.  License: Apache 2
 Run program with --help for usage instructions.
 """
@@ -67,6 +67,7 @@ def populate_argument_parser(args): # INTERNAL
     args.add_argument("--daisy3",action="store_true",help="Use the Daisy 3 format (ANSI/NISO Z39.86) instead of the Daisy 2.02 format.  This may require more modern reader software, and Anemone does not yet support Daisy 3 only features like tables in the text.")
     args.add_argument("--mp3-recode",action="store_true",help="re-code the MP3 files to ensure they are constant bitrate and more likely to work with the more limited DAISY-reading programs like FSReader 3 (this option requires LAME)")
     args.add_argument("--allow-jumps",action="store_true",help="Allow jumps in heading levels e.g. h1 to h3 if the input HTML does it.  This seems OK on modern readers but might cause older reading devices to give an error.  Without this option, headings are promoted where necessary to ensure only incremental depth increase.") # might cause older reading devices to give an error: and is also flagged up by the validator
+    args.add_argument("--strict-ncc-divs",action="store_true",help="Avoid using a heading in the navigation control centre when there isn't a heading in the text.  This currently applies when spans with verse numbering are detected.  Turning on this option will make the DAISY more conformant to the specification, but some readers (EasyReader 10, Thorium) won't show these headings in the navigation.  On the other hand, when using verse-numbered spans without this option, EasyReader 10 may not show any text at all if Daisy 2 is in use (Anemone will warn if this is the case), or it may promote all verses to headings, losing paragraph formatting, if Daisy 3 is in use (which might be the least bad option if you still want these navigation points to work).")
     args.add_argument("--dry-run",action="store_true",help="Don't actually output DAISY, just check the input and parameters")
 
 generator=__doc__.strip().split('\n')[0] # string we use to identify ourselves in HTTP requests and in Daisy files
@@ -306,7 +307,7 @@ def write_all(R,recordingTexts): # INTERNAL
 """)) # TODO: message in other languages?
     # (it's iOS users that need the above, apparently.  Can't DAISY have a non-ZIP extension so Apple systems don't automatically unpack it?  but we do need to manually unpack if writing to a CD-ROM for old devices.  Can't Apple look at some kind of embedded "don't auto-unpack this zip" request?)
     secsSoFar = 0
-    durations = [] ; pSoFar = 0
+    durations = [] ; curP = 1
     for recNo in range(1,len(recordingTexts)+1):
         secsThisRecording = MP3(R.recordingFiles[recNo-1]).info.length
         rTxt = recordingTexts[recNo-1]
@@ -314,10 +315,10 @@ def write_all(R,recordingTexts): # INTERNAL
         if R.mp3_recode: sys.stderr.write(f"Adding {recNo:04d}.mp3..."),sys.stderr.flush()
         z.writestr(f"{recNo:04d}.mp3",recordings[recNo-1].result() if R.mp3_recode else open(R.recordingFiles[recNo-1],'rb').read())
         if R.mp3_recode: sys.stderr.write(" done\n")
-        z.writestr(f'{recNo:04d}.smil',D(section_smil(R,recNo,secsSoFar,secsThisRecording,pSoFar,rTxt.textsAndTimes if type(rTxt)==TextsAndTimesWithPages else rTxt)))
-        z.writestr(f'{recNo:04d}.{"xml" if R.daisy3 else "htm"}',D(text_htm(R,(rTxt.textsAndTimes[::2] if type(rTxt)==TextsAndTimesWithPages else [('h1',rTxt)]),pSoFar)))
+        z.writestr(f'{recNo:04d}.smil',D(section_smil(R,recNo,secsSoFar,secsThisRecording,curP,rTxt.textsAndTimes if type(rTxt)==TextsAndTimesWithPages else rTxt)))
+        z.writestr(f'{recNo:04d}.{"xml" if R.daisy3 else "htm"}',D(text_htm(R,(rTxt.textsAndTimes[::2] if type(rTxt)==TextsAndTimesWithPages else [('h1',rTxt)]),curP)))
         secsSoFar += secsThisRecording
-        pSoFar += (1+len(rTxt.textsAndTimes)//2 if type(rTxt)==TextsAndTimesWithPages else 1)
+        curP += (1+len(rTxt.textsAndTimes)//2 if type(rTxt)==TextsAndTimesWithPages else 1)
     for n,u in enumerate(R.imageFiles): z.writestr(f'{n+1}{u[u.rindex("."):]}',fetch(u,False,R.cache,R.refresh,R.refetch,R.delay,R.user_agent))
     if R.daisy3:
         z.writestr('dtbook.2005.basic.css',D(d3css))
@@ -355,22 +356,28 @@ def getHeadings(R,recordingTexts): # INTERNAL
             if not first==None: nums=re.findall("[1-9][0-9]*",textsAndTimes[first].text)
             else:
                 R.warning(f"Chapter {txtNo+1} is completely blank!  (Is {'--marker-attribute' if __name__=='__main__' else 'marker_attribute'} set correctly?)")
-                nums = []
-            chapHeadings.append(TOCInfo('h1',nums[0] if len(nums)==1 and not nums[0]=="1" else str(txtNo+1),first//2)) # TODO: could say "Chapter " before this number if R.lang.startswith("en") and we're not supposed to use some other word for this book
-            # NB textsAndTimes doesn't yet have 0 and totalLen added, so it's text,time,text,time,text
-            # so len = 1,3,5... num texts = (1+len)//2 = 1+(len//2) and end of range is 2+(len//2)
+                nums = [] ; first = 0 ; textsAndTimes.append(TagAndText('p',''))
+            chapterNumberText = nums[0] if len(nums)==1 and not nums[0]=="1" else str(txtNo+1) # TODO: could say "Chapter " before this number if R.lang.startswith("en") and we're not supposed to use some other word for this book, but if we do, ensure to keep the non-"Chapter " version for use with startswith below
+            # In EasyReader 10 on Android, unless there is at least one HEADING (not just div), navigation display is non-functional.  And every heading must point to a 'real' heading in the text, otherwise EasyReader 10 will delete all the text in Daisy 2, or promote something to a heading in Daisy 3 (this is not done by Thorium Reader)
+            # So let's add a "real" start-of-chapter heading before the text, with time 0.001 second (don't set it to 0 or Thorium can have issues)
+            textsAndTimes.insert(first,(textsAndTimes[first-1] if first else 0)+0.001)
+            textsAndTimes.insert(first,TagAndText('h1',chapterNumberText)) # we'll ref this
+            chapHeadings=[TOCInfo('h1',chapterNumberText,first//2)] # points to our extra heading
+            if textsAndTimes[first+2].text.startswith(chapterNumberText): textsAndTimes[first+2]=TagAndText(textsAndTimes[first+2].tag,textsAndTimes[first+2].text[len(chapterNumberText):].strip()) # because we just had the number as a heading, so we don't also need it repeated as 1st thing in text
+            first += 2 # past the heading we added
             if first+2<len(textsAndTimes) and re.search("[1-9][0-9]*",textsAndTimes[first+2].text):
               v2 = int(re.findall("[1-9][0-9]*",textsAndTimes[first+2].text)[0]) # might not start at 2, might start at 13 or something, but does it then increase incrementally:
-              if [re.findall("[1-9][0-9]*",textsAndTimes[f].text)[:1] for f in range(first+4,len(textsAndTimes),2)]==[[str(n)] for n in range(v2+1,v2+len(textsAndTimes)//2)]: # looks like we're dealing with consecutive chapter and verse numbers with no other headings, so index the verse numbers
+              if [re.findall("[1-9][0-9]*",textsAndTimes[f].text)[:1] for f in range(first+4,len(textsAndTimes),2)]==[[str(n)] for n in range(v2+1,v2+(len(textsAndTimes)-first)//2)]: # looks like we're dealing with consecutive chapter and verse numbers with no other headings, so index the verse numbers
                 v = 1
-                while v < len(textsAndTimes)//2+2:
+                while v < (len(textsAndTimes)-first)//2+2:
                     lastV = v
-                    while lastV < len(textsAndTimes)//2+1 and (0 if v==1 else textsAndTimes[2*v-3])==textsAndTimes[2*lastV-1]: lastV += 1 # check for a span of them sharing a time
-                    chapHeadings.append(TOCInfo('h2',f"{chapHeadings[0].hLine}:{v}{'' if v==lastV else f'-{lastV}'}",first//2+v-1))
+                    while lastV < (len(textsAndTimes)-first)//2+1 and (0 if v==1 else textsAndTimes[first+2*v-3])==textsAndTimes[first+2*lastV-1]: lastV += 1 # check for a span of them sharing a time
+                    chapHeadings.append(TOCInfo('div' if R.strict_ncc_divs else 'h2',f"{chapHeadings[0].hLine}:{v}{'' if v==lastV else f'-{lastV}'}",first//2+v-1))
                     v = lastV + 1
                 cvChapCount += 1
         ret.append(chapHeadings)
     if cvChapCount not in [0,len(ret)]: R.warning(f"Verse-indexed only {cvChapCount} of {len(ret)} chapters")
+    if cvChapCount and not R.daisy3 and not R.strict_ncc_divs: R.warning("Verse-indexing in Daisy 2 can prevent EasyReader 10 from displaying the text: try Daisy 3 instead") # (and with strict_ncc_divs, verses are not shown in Book navigation)
     return ret
 
 def merge0lenSpans(recordingTexts,headings): # INTERNAL
@@ -500,7 +507,7 @@ def ncc_html(R, headings = [],
     <meta name="ncc:tocItems" content="{len(headingsR)+sum(len(PNs) for PNs in pageNos)}" />
     <meta name="ncc:totalTime" content="{int(totalSecs/3600)}:{int(totalSecs/60)%60:02d}:{math.ceil(totalSecs%60):02d}" />
     <meta name="ncc:multimediaType" content="{"audioFullText" if hasFullText else "audioNcc"}" />
-    <meta name="{'dtb' if R.daisy3 else 'ncc'}:depth" content="{max(int(h[0][1:]) for h in headingsR)}" />
+    <meta name="{'dtb' if R.daisy3 else 'ncc'}:depth" content="{max(int(h[0][1:]) for h in headingsR if h[0].startswith('h'))}" />
     <meta name="ncc:files" content="{2+len(headings)*(3 if hasFullText else 2)+len(R.imageFiles)}" />
   </head>
   {f'<docTitle><text>{R.title}</text></docTitle>' if R.daisy3 else ''}
@@ -660,7 +667,7 @@ def text_htm(R,paras,offset=0): # INTERNAL
     <{'book' if R.daisy3 else 'body'}>
         {f'<frontmatter><doctitle>{R.title}</doctitle></frontmatter><bodymatter>' if R.daisy3 else ''}
 """+"\n".join(f"""{''.join(f'<level{n}>' for n in range(min(int(tag[1:]),next(int(paras[p][0][1:]) for p in range(num-1,-1,-1) if paras[p][0].startswith('h'))+1) if any(paras[P][0].startswith('h') for P in range(num-1,-1,-1)) else 1,int(tag[1:])+1)) if R.daisy3 and tag.startswith('h') else ''}{'<level1>' if R.daisy3 and not num and not tag.startswith('h') else ''}{'<p>' if tag=='span' and (num==0 or not paras[num-1][0]=="span" or paras[num-1][1].endswith("<br />")) else ''}<{tag} id=\"p{num+offset}\"{(' class="word"' if len(text.split())==1 else ' class="sentence"') if tag=='span' else ''}>{re.sub("<br />$","",re.sub('<img src="[^"]*" [^/]*/>','',text))}</{tag}>{'</p>' if tag=='span' and (text.endswith("<br />") or num+1==len(paras) or not paras[num+1][0]=='span') else ''}{'<p><imggroup>' if R.daisy3 and re.search('<img src="',text) else ''}{''.join(re.findall('<img src="[^"]*" [^/]*/>',text))}{'</imggroup></p>' if R.daisy3 and re.search('<img src="',text) else ''}{''.join(f'</level{n}>' for n in range(next(int(paras[p][0][1:]) for p in range(num,-1,-1) if paras[p][0].startswith('h')) if any(paras[P][0].startswith('h') for P in range(num,-1,-1)) else 1,0 if num+1==len(paras) else int(paras[num+1][0][1:])-1,-1)) if R.daisy3 and (num+1==len(paras) or paras[num+1][0].startswith('h')) else ''}""" for num,(tag,text) in enumerate(normaliseDepth(R,paras)))+f"""
-        </{'bodymatter></book' if R.daisy3 else 'body'}>
+    </{'bodymatter></book' if R.daisy3 else 'body'}>
 </{'dtbook' if R.daisy3 else 'html'}>
 """)
 
