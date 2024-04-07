@@ -2,7 +2,7 @@
 # (works on both Python 2 and Python 3)
 
 # ohi_latex: Offline HTML Indexer for LaTeX
-# v1.393 (c) 2014-20,2023-24 Silas S. Brown
+# v1.394 (c) 2014-20,2023-24 Silas S. Brown
 
 # Licensed under the Apache License, Version 2.0 (the "License");
 # you may not use this file except in compliance with the License.
@@ -647,7 +647,7 @@ if __name__ == "__main__":
     sys.stderr.write("Reading from "+infile+"... ")
     infile = open(infile)
  else:
-    sys.stderr.write("Reading from standard input... ")
+    sys.stderr.write("Reading from "+("standard input" if sys.stdin.isatty() else "pipe")+"... ")
     infile = sys.stdin
  sys.stderr.flush()
  if outfile: outf = open(outfile,'w')

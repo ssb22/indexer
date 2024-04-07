@@ -1,7 +1,7 @@
 #!/usr/bin/env python
 # (works in both Python 2 and Python 3)
 
-# Offline HTML Indexer v1.33 (c) 2013-15,2020,2023 Silas S. Brown.
+# Offline HTML Indexer v1.34 (c) 2013-15,20,23-24 Silas S. Brown.
 
 # Licensed under the Apache License, Version 2.0 (the "License");
 # you may not use this file except in compliance with the License.
@@ -70,7 +70,7 @@ if infile:
     sys.stderr.write("Reading from "+infile+"... ")
     infile = open(infile)
 else:
-    sys.stderr.write("Reading from standard input... ")
+    sys.stderr.write("Reading from "+("standard input" if sys.stdin.isatty() else "pipe")+"... ")
     infile = sys.stdin
 fragments = re.split(r'<a name="([^"]*)"></a>',infile.read())
 # odd indices should be the tag names, even should be the HTML in between
