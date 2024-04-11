@@ -2,7 +2,7 @@
 # (works on both Python 2 and Python 3)
 
 # ohi_latex: Offline HTML Indexer for LaTeX
-# v1.394 (c) 2014-20,2023-24 Silas S. Brown
+# v1.395 (c) 2014-20,2023-24 Silas S. Brown
 
 # Licensed under the Apache License, Version 2.0 (the "License");
 # you may not use this file except in compliance with the License.
@@ -166,6 +166,7 @@ def makeLatex(unistr):
     '<h3>':r'\subsection*{','</h3>':'}',
     '<h3 numbered>':r'\subsection{',
     '<title>':r'\title{','</title>':'}%title\n',
+    '<code>':r'{\tt ','</code>':'}',
   }
   if whole_doc_in_footnotesize: simple_html2latex_noregex.update({"<big>":r"\normalsize{}","</big>":r"\footnotesize{}","<normal-size>":r"\normalsize{}","</normal-size>":r"\footnotesize{}","<small>":"","</small>":""})
   anchorsHad = {}
