@@ -1,6 +1,6 @@
 #!/usr/bin/env python3
 """
-Anemone 1.38 (http://ssb22.user.srcf.net/anemone)
+Anemone 1.39 (http://ssb22.user.srcf.net/anemone)
 (c) 2023-24 Silas S. Brown.  License: Apache 2
 Run program with --help for usage instructions.
 """
@@ -67,7 +67,7 @@ def populate_argument_parser(args): # INTERNAL
     args.add_argument("--daisy3",action="store_true",help="Use the Daisy 3 format (ANSI/NISO Z39.86) instead of the Daisy 2.02 format.  This may require more modern reader software, and Anemone does not yet support Daisy 3 only features like tables in the text.")
     args.add_argument("--mp3-recode",action="store_true",help="re-code the MP3 files to ensure they are constant bitrate and more likely to work with the more limited DAISY-reading programs like FSReader 3 (this option requires LAME)")
     args.add_argument("--allow-jumps",action="store_true",help="Allow jumps in heading levels e.g. h1 to h3 if the input HTML does it.  This seems OK on modern readers but might cause older reading devices to give an error.  Without this option, headings are promoted where necessary to ensure only incremental depth increase.") # might cause older reading devices to give an error: and is also flagged up by the validator
-    args.add_argument("--strict-ncc-divs",action="store_true",help="Avoid using a heading in the navigation control centre when there isn't a heading in the text.  This currently applies when spans with verse numbering are detected.  Turning on this option will make the DAISY more conformant to the specification, but some readers (EasyReader 10, Thorium) won't show these headings in the navigation.  On the other hand, when using verse-numbered spans without this option, EasyReader 10 may not show any text at all if Daisy 2 is in use (Anemone will warn if this is the case), or it may promote all verses to headings, losing paragraph formatting, if Daisy 3 is in use (which might be the least bad option if you still want these navigation points to work).")
+    args.add_argument("--strict-ncc-divs",action="store_true",help="When generating Daisy 2, avoid using a heading in the navigation control centre when there isn't a heading in the text.  This currently applies when spans with verse numbering are detected.  Turning on this option will make the DAISY more conformant to the specification, but some readers (EasyReader 10, Thorium) won't show these headings in the navigation in Daisy 2 (but will show them anyway in Daisy 3, so this option is applied automatically in Daisy 3).  On the other hand, when using verse-numbered spans without this option, EasyReader 10 may not show any text at all in Daisy 2 (Anemone will warn if this is the case).  This setting cannot stop EasyReader promoting all verses to headings (losing paragraph formatting) in Daisy 3, which is the least bad option if you want these navigation points to work.")
     args.add_argument("--merge-books",default="",help="Combine multiple books into one, for saving media on CD-based DAISY players that cannot handle more than one book.  The format of this option is book1/N1,book2/N2,etc where book1 is the book title and N1 is the number of MP3 files to group into it.  All headings are pushed down one level and book name headings are added at top level.")
     args.add_argument("--dry-run",action="store_true",help="Don't actually output DAISY, just check the input and parameters")
 
@@ -170,7 +170,8 @@ def check_we_got_LAME(): # INTERNAL
 PageInfo = NT('PageInfo',['duringId','pageNo'])
 TagAndText = NT('TagAndText',['tag','text'])
 TextsAndTimesWithPages = NT('TextsAndTimesWithPages',['textsAndTimes','pageInfos'])
-TOCInfo = NT('TOCInfo',['hTag','hLine','itemNo'])
+ChapterTOCInfo = NT('ChapterTOCInfo',['hTag','hLine','itemNo'])
+BookTOCInfo = NT('BookTOCInfo',['hTag','hLine','recNo','itemNo'])
 
 def get_texts(R): # INTERNAL
     """Gets the text markup required for the run,
@@ -318,7 +319,7 @@ def write_all(R,recordingTexts): # INTERNAL
         z.writestr(f"{recNo:04d}.mp3",recordings[recNo-1].result() if R.mp3_recode else open(R.recordingFiles[recNo-1],'rb').read())
         if R.mp3_recode: sys.stderr.write(" done\n")
         z.writestr(f'{recNo:04d}.smil',D(section_smil(R,recNo,secsSoFar,secsThisRecording,curP,rTxt.textsAndTimes if type(rTxt)==TextsAndTimesWithPages else rTxt)))
-        z.writestr(f'{recNo:04d}.{"xml" if R.daisy3 else "htm"}',D(text_htm(R,(rTxt.textsAndTimes[::2] if type(rTxt)==TextsAndTimesWithPages else [('h1',rTxt)]),curP)))
+        z.writestr(f'{recNo:04d}.{"xml" if R.daisy3 else "htm"}',D(text_htm(R,(rTxt.textsAndTimes[::2] if type(rTxt)==TextsAndTimesWithPages else [TagAndText('h1',rTxt)]),curP)))
         secsSoFar += secsThisRecording
         curP += (1+len(rTxt.textsAndTimes)//2 if type(rTxt)==TextsAndTimesWithPages else 1)
     for n,u in enumerate(R.imageFiles): z.writestr(f'{n+1}{u[u.rindex("."):]}',fetch(u,False,R.cache,R.refresh,R.refetch,R.delay,R.user_agent))
@@ -327,7 +328,7 @@ def write_all(R,recordingTexts): # INTERNAL
         z.writestr('package.opf',D(package_opf(R,hasFullText,len(recordingTexts),secsSoFar)))
         z.writestr('text.res',D(textres))
     else: z.writestr('master.smil',D(master_smil(R,headings,secsSoFar)))
-    z.writestr('navigation.ncx' if R.daisy3 else 'ncc.html',D(ncc_html(R,headings,hasFullText,secsSoFar,[(t.pageInfos if type(t)==TextsAndTimesWithPages else []) for t in recordingTexts])))
+    z.writestr('navigation.ncx' if R.daisy3 else 'ncc.html',D(ncc_html(R,headings,hasFullText,secsSoFar,[[0]+(t.textsAndTimes if type(t)==TextsAndTimesWithPages else [t])+[durations[i]] for i,t in enumerate(recordingTexts)],[(t.pageInfos if type(t)==TextsAndTimesWithPages else []) for t in recordingTexts])))
     if not R.daisy3: z.writestr('er_book_info.xml',D(er_book_info(durations))) # not DAISY standard but EasyReader can use this
     z.close()
     sys.stderr.write(f"Wrote {R.outputFile}\n")
@@ -335,7 +336,7 @@ def write_all(R,recordingTexts): # INTERNAL
 def getHeadings(R,recordingTexts): # INTERNAL
     ret = []
     cvChapCount = chapNo = 0
-    try: bookTitlesAndNumChaps = [(n,int(v)) for n,v in [b.split('/') for b in R.merge_books.split(',')]]
+    try: bookTitlesAndNumChaps = [(n,int(v)) for n,v in [b.split('/') for b in R.merge_books.split(',') if b]]
     except: error(f"Unable to parse merge-books={R.merge_books}")
     for t in recordingTexts:
         chapNo += 1
@@ -359,7 +360,7 @@ def getHeadings(R,recordingTexts): # INTERNAL
                 if len(nums)==1:
                     text=f"{nums[0]}: {text}" # for TOC
                     textsAndTimes[v-1] = (textsAndTimes[first-1] if first else 0) + 0.001 # for audio jump-navigation to include the "Chapter N" (TODO: option to merge the in-chapter text instead, so "Chapter N" appears as part of the heading, not scrolled past quickly?  merge0lenSpans will now do this if the chapter paragraph is promoted to heading, but beware we might not want the whole of the 'chapter N' text to be part of the TOC, just the number.  Thorium actually stops playing when it hits the 0-length paragraph before the heading, so promoting it might be better; trying the +0.001 for now to make timestamps not exactly equal)
-            chapHeadings.append(TOCInfo(tag,re.sub('<img src.*?/>','',text),v//2))
+            chapHeadings.append(ChapterTOCInfo(tag,re.sub('<img src.*?/>','',text),v//2))
         if not chapHeadings:
             # This'll be a problem, as master_smil and ncc_html need headings to refer to the chapter at all.  (Well, ncc_html can also do it by page number if we have them, but we haven't tested all DAISY readers with page number only navigation, and what if we don't even have page numbers?)
             # So let's see if we can at least get a chapter number.
@@ -372,7 +373,7 @@ def getHeadings(R,recordingTexts): # INTERNAL
             # So let's add a "real" start-of-chapter heading before the text, with time 0.001 second (don't set it to 0 or Thorium can have issues)
             textsAndTimes.insert(first,(textsAndTimes[first-1] if first else 0)+0.001)
             textsAndTimes.insert(first,TagAndText('h1',chapterNumberText)) # we'll ref this
-            chapHeadings=[TOCInfo('h1',chapterNumberText,first//2)] # points to our extra heading
+            chapHeadings=[ChapterTOCInfo('h1',chapterNumberText,first//2)] # points to our extra heading
             if textsAndTimes[first+2].text.startswith(chapterNumberText): textsAndTimes[first+2]=TagAndText(textsAndTimes[first+2].tag,textsAndTimes[first+2].text[len(chapterNumberText):].strip()) # because we just had the number as a heading, so we don't also need it repeated as 1st thing in text
             first += 2 # past the heading we added
             if first+2<len(textsAndTimes) and re.search("[1-9][0-9]*",textsAndTimes[first+2].text):
@@ -382,15 +383,16 @@ def getHeadings(R,recordingTexts): # INTERNAL
                 while v < (len(textsAndTimes)-first)//2+2:
                     lastV = v
                     while lastV < (len(textsAndTimes)-first)//2+1 and (0 if v==1 else textsAndTimes[first+2*v-3])==textsAndTimes[first+2*lastV-1]: lastV += 1 # check for a span of them sharing a time
-                    chapHeadings.append(TOCInfo('div' if R.strict_ncc_divs else 'h2',f"{chapHeadings[0].hLine}:{v}{'' if v==lastV else f'-{lastV}'}",first//2+v-1))
+                    chapHeadings.append(ChapterTOCInfo('div' if R.daisy3 or R.strict_ncc_divs else 'h2',f"{chapHeadings[0].hLine}:{v}{'' if v==lastV else f'-{lastV}'}",first//2+v-1))
                     v = lastV + 1
                 cvChapCount += 1
         if bookTitlesAndNumChaps:
-            chapHeadings=[TOCInfo(f'h{int(i.hTag[1:])+1}' if i.hTag.startswith('h') else i.hTag,i.hLine,i.itemNo) for i in chapHeadings] # add 1 to each heading level
-            if chapNo==1: chapHeadings.insert(0,TOCInfo('h1',bookTitlesAndNumChaps[0][0],chapHeadings[0].itemNo)) # the book title (must point to a real heading for similar reason as above, TODO: if there's substantial text before 1st heading, we'll need to insert a heading in the text with 0.001s audio or something instead of doing this; may also need to in-place change recordingTexts adding 1 to all headings: don't do this unless inserting h1)
+            chapHeadings=[ChapterTOCInfo(f'h{int(i.hTag[1:])+1}' if i.hTag.startswith('h') else i.hTag,i.hLine,i.itemNo) for i in chapHeadings] # add 1 to each heading level
+            if chapNo==1: chapHeadings.insert(0,ChapterTOCInfo('h1',bookTitlesAndNumChaps[0][0],chapHeadings[0].itemNo)) # the book title (must point to a real heading for similar reason as above, TODO: if there's substantial text before 1st heading, we'll need to insert a heading in the text with 0.001s audio or something instead of doing this; may also need to in-place change recordingTexts adding 1 to all headings: don't do this unless inserting h1)
         ret.append(chapHeadings)
+    if len(bookTitlesAndNumChaps)>1 or bookTitlesAndNumChaps and not chapNo==bookTitlesAndNumChaps[0][1]: R.warning("merge-books specified more files than given")
     if cvChapCount not in [0,len(ret)]: R.warning(f"Verse-indexed only {cvChapCount} of {len(ret)} chapters")
-    if cvChapCount and not R.daisy3 and not R.strict_ncc_divs: R.warning("Verse-indexing in Daisy 2 can prevent EasyReader 10 from displaying the text: try Daisy 3 instead") # (and with strict_ncc_divs, verses are not shown in Book navigation)
+    if cvChapCount and not R.daisy3 and not R.strict_ncc_divs: R.warning("Verse-indexing in Daisy 2 can prevent EasyReader 10 from displaying the text: try Daisy 3 instead") # (and with strict_ncc_divs, verses are not shown in Book navigation in Daisy 2)
     return ret
 
 def merge0lenSpans(recordingTexts,headings): # INTERNAL
@@ -400,11 +402,11 @@ def merge0lenSpans(recordingTexts,headings): # INTERNAL
         textsAndTimes,pages = cT
         i=0
         while i < len(textsAndTimes)-2:
-            while i < len(textsAndTimes)-2 and type(textsAndTimes[i])==TagAndText and (0 if i==0 else textsAndTimes[i-1])==textsAndTimes[i+1] and textsAndTimes[i][0]==textsAndTimes[i+2][0]: # tag identical to next tag, and 0-length
+            while i < len(textsAndTimes)-2 and type(textsAndTimes[i])==TagAndText and (0 if i==0 else textsAndTimes[i-1])==textsAndTimes[i+1] and textsAndTimes[i].tag==textsAndTimes[i+2].tag: # tag identical and 0-length
                 textsAndTimes[i] = TagAndText(textsAndTimes[i].tag, f"{textsAndTimes[i].text}{' ' if textsAndTimes[i].tag=='span' else '<br>'}{textsAndTimes[i+2].text}") # new combined item
                 del textsAndTimes[i+1:i+3] # old
                 for hI,hV in enumerate(cH):
-                    if hV.itemNo > i//2: cH[hI]=TOCInfo(hV.hTag,hV.hLine,hV.itemNo-1)
+                    if hV.itemNo > i//2: cH[hI]=ChapterTOCInfo(hV.hTag,hV.hLine,hV.itemNo-1)
                 for pI,pInfo in enumerate(pages):
                     if pInfo.duringId > i//2: pages[pI]=PageInfo(pInfo.duringId-1,pInfo.pageNo)
             i += 1
@@ -484,7 +486,9 @@ def fetch(url,
 
 def ncc_html(R, headings = [],
              hasFullText = False,
-             totalSecs = 0, pageNos=[]):# INTERNAL
+             totalSecs = 0,
+             recTimeTxts = [], # including 0,tot
+             pageNos=[]): # INTERNAL
     """Returns the Navigation Control Centre (NCC)
     pageNos is [[PageInfo,...],...]"""
     numPages = sum(len(l) for l in pageNos)
@@ -520,20 +524,20 @@ def ncc_html(R, headings = [],
     <meta name="ncc:tocItems" content="{len(headingsR)+sum(len(PNs) for PNs in pageNos)}" />
     <meta name="ncc:totalTime" content="{int(totalSecs/3600)}:{int(totalSecs/60)%60:02d}:{math.ceil(totalSecs%60):02d}" />
     <meta name="ncc:multimediaType" content="{"audioFullText" if hasFullText else "audioNcc"}" />
-    <meta name="{'dtb' if R.daisy3 else 'ncc'}:depth" content="{max(int(h[0][1:]) for h in headingsR if h[0].startswith('h'))}" />
+    <meta name="{'dtb' if R.daisy3 else 'ncc'}:depth" content="{max(int(h.hTag[1:]) for h in headingsR if h.hTag.startswith('h'))}" />
     <meta name="ncc:files" content="{2+len(headings)*(3 if hasFullText else 2)+len(R.imageFiles)}" />
   </head>
   {f'<docTitle><text>{R.title}</text></docTitle>' if R.daisy3 else ''}
   {f'<docAuthor><text>{R.creator}</text></docAuthor>' if R.daisy3 else ''}
   <{'navMap' if R.daisy3 else 'body'}>"""+''.join((f"""
-    <navPoint id="s{s+1}" class="{t[0]}" playOrder="{s+1}">
-      <navLabel><text>{t[1]}</text></navLabel>
-      <content src="{t[2]+1:04d}.smil#t{t[2]+1}.{t[3]}"/>
-    {'</navPoint>'*sum(1 for j in range((1 if s+1==len(headingsR) else int(headingsR[s+1][0][1])),int(t[0][1])+1) if str(j) in ''.join((i[0][1] if i[0][1]>=('1' if s+1==len(headingsR) else headingsR[s+1][0][1]) else '0') for i in reversed(headingsR[:s+1])).split('0',1)[0])}""" if R.daisy3 else ''.join(f"""
+    <navPoint id="s{s+1}" class="{t.hTag}" playOrder="{s+1}">
+      <navLabel><text>{t.hLine}</text>{'' if recTimeTxts[t.recNo][2*t.itemNo]==recTimeTxts[t.recNo][2*t.itemNo+2] else f'''<audio src="{t.recNo+1:04d}.mp3" clipBegin="{recTimeTxts[t.recNo][2*t.itemNo]:.3f}s" clipEnd="{recTimeTxts[t.recNo][2*t.itemNo+2]:.3f}s"/>'''}</navLabel>
+      <content src="{t.recNo+1:04d}.smil#t{t.recNo+1}.{t.itemNo}"/>
+    {'</navPoint>'*numDaisy3NavpointsToClose(s,headingsR)}""" if R.daisy3 else ''.join(f"""
     <span class="page-normal" id="page{N}"><a href="{r+1:04d}.smil#t{r+1}.{after}">{N}</a></span>""" for r,PNs in enumerate(pageNos) for (PO,(after,N)) in enumerate(PNs) if (r,after)<=t[2:4] and (not s or (r,after)>headingsR[s-1][2:4]))+f"""
-    <{t[0]} class="{'section' if s or R.allow_jumps else 'title'}" id="s{s+1}">
-      <a href="{t[2]+1:04d}.smil#t{t[2]+1}.{t[3]}">{t[1]}</a>
-    </{t[0]}>""") for s,t in enumerate(headingsR))+('</navMap><pageList>'+''.join(f"""
+    <{t.hTag} class="{'section' if s or R.allow_jumps else 'title'}" id="s{s+1}">
+      <a href="{t.recNo+1:04d}.smil#t{t.recNo+1}.{t.itemNo}">{t.hLine}</a>
+    </{t.hTag}>""") for s,t in enumerate(headingsR))+('</navMap><pageList>'+''.join(f"""
     <pageTarget class="pagenum" type="normal" value="{N}" id="page{N}" playOrder="{len(headingsR)+sum(len(P) for P in pageNos[:r])+PO+1}">
       <navLabel><text>{N}</text></navLabel>
       <content src="{r+1:04d}.smil#t{r+1}.{after}"/>
@@ -543,16 +547,40 @@ def ncc_html(R, headings = [],
   </body>
 </html>"""))
 
-def HReduce(headings): return reduce(lambda a,b:a+b,[([(hType,hText,recNo,textNo) for (hType,hText,textNo) in i] if type(i)==list else [('h1',i,recNo,0)]) for recNo,i in enumerate(headings)],[]) # INTERNAL
+def numDaisy3NavpointsToClose(s,headingsR):
+    thisTag = headingsR[s]
+    if thisTag.hTag.startswith('h'):
+        thisDepth = int(thisTag.hTag[1])
+    else: thisDepth = None # a div navpoint
+    if s+1==len(headingsR): nextDepth = 1
+    else:
+        nextTag = headingsR[s+1]
+        if nextTag.hTag.startswith('h'):
+            nextDepth = int(nextTag.hTag[1])
+        else: nextDepth = None # another div
+    if thisDepth == nextDepth: return 1 # e.g. this is div and next is div, or same heading level
+    elif nextDepth==None: return 0 # never close if it's heading followed by div
+    headingNums_closed = ''.join(('' if not i.hTag.startswith('h') else i.hTag[1] if int(i.hTag[1])>=nextDepth else '0') for i in reversed(headingsR[:s+1])).split('0',1)[0]
+    if thisDepth: D=thisDepth
+    else: D=int(headingNums_closed[0]) # the heading before this div (TODO: this code assumes there will be one, which is currently true as these divs are generated only by verse numbering)
+    N = sum(1 for j in range(nextDepth,D+1) if str(j) in headingNums_closed)
+    return N+(1 if thisDepth==None else 0)
+
+def HReduce(headings): # INTERNAL
+    "convert a list of ChapterTOCInfo lists (or text strings for unstructured chapters) into a single BookTOCInfo list"
+    return reduce(lambda a,b:a+b,[([BookTOCInfo(hType,hText,recNo,textNo) for (hType,hText,textNo) in i] if type(i)==list else [BookTOCInfo('h1',i,recNo,0)]) for recNo,i in enumerate(headings)],[])
 
 def normaliseDepth(R,items): # INTERNAL
-    "Ensure that heading items' depth conforms to DAISY standard"
+    "Ensure that heading items' depth conforms to DAISY standard, in a BookTOCInfo list"
     if R.allow_jumps: return items
     curDepth = 0
     for i in range(len(items)):
-      if items[i][0].lower().startswith('h'):
-        depth = int(items[i][0][1:])
-        if depth > curDepth+1: items[i]=(f'h{curDepth+1}',)+items[i][1:]
+      ii = items[i] # TagAndText or BookTOCInfo
+      if ii[0].lower().startswith('h'):
+        depth = int(ii[0][1:])
+        if depth > curDepth+1:
+            if type(ii)==BookTOCInfo: items[i]=BookTOCInfo(f'h{curDepth+1}',ii.hLine,ii.recNo,ii.itemNo)
+            else: items[i]=TagAndText(f'h{curDepth+1}',ii.text)
         curDepth = depth
     return items
 
@@ -573,7 +601,7 @@ def master_smil(R,headings = [],
     </layout>
   </head>
   <body>"""+''.join(f"""
-    <ref title="{deHTML(t[1])}" src="{t[2]+1:04d}.smil#t{t[2]+1}.{t[3]}" id="ms_{s+1:04d}" />""" for s,t in enumerate(headings))+"""
+    <ref title="{deHTML(t.hLine)}" src="{t.recNo+1:04d}.smil#t{t.recNo+1}.{t.itemNo}" id="ms_{s+1:04d}" />""" for s,t in enumerate(headings))+"""
   </body>
 </smil>
 """
@@ -668,7 +696,7 @@ def package_opf(R,hasFullText,numRecs,totalSecs): # INTERNAL
 """
 
 def text_htm(R,paras,offset=0): # INTERNAL
-    "paras = [(type,text),(type,text),...], type=h1/p/span, text is xhtml i.e. & use &amp; etc"
+    "paras = TagAndText list, text is xhtml i.e. & use &amp; etc"
     return deBlank(f"""<?xml version="1.0"{' encoding="utf-8"' if R.daisy3 else ''}?>{'<?xml-stylesheet type="text/css" href="dtbook.2005.basic.css"?>' if R.daisy3 else ''}
 {'<!DOCTYPE dtbook PUBLIC "-//NISO//DTD dtbook 2005-3//EN" "http://www.daisy.org/z3986/2005/dtbook-2005-3.dtd">' if R.daisy3 else '<!DOCTYPE html PUBLIC "-//W3C//DTD XHTML 1.0 Transitional//EN" "http://www.w3.org/TR/xhtml1/DTD/xhtml1-transitional.dtd">'}
 <{'dtbook xmlns="http://www.daisy.org/z3986/2005/dtbook/" version="2005-2"' if R.daisy3 else f'html lang="{R.lang}" xmlns="http://www.w3.org/1999/xhtml"'} xml:lang="{R.lang}">
@@ -679,7 +707,7 @@ def text_htm(R,paras,offset=0): # INTERNAL
     </head>
     <{'book' if R.daisy3 else 'body'}>
         {f'<frontmatter><doctitle>{R.title}</doctitle></frontmatter><bodymatter>' if R.daisy3 else ''}
-"""+"\n".join(f"""{''.join(f'<level{n}>' for n in range(min(int(tag[1:]),next(int(paras[p][0][1:]) for p in range(num-1,-1,-1) if paras[p][0].startswith('h'))+1) if any(paras[P][0].startswith('h') for P in range(num-1,-1,-1)) else 1,int(tag[1:])+1)) if R.daisy3 and tag.startswith('h') else ''}{'<level1>' if R.daisy3 and not num and not tag.startswith('h') else ''}{'<p>' if tag=='span' and (num==0 or not paras[num-1][0]=="span" or paras[num-1][1].endswith("<br />")) else ''}<{tag} id=\"p{num+offset}\"{(' class="word"' if len(text.split())==1 else ' class="sentence"') if tag=='span' else ''}>{re.sub("<br />$","",re.sub('<img src="[^"]*" [^/]*/>','',text))}</{tag}>{'</p>' if tag=='span' and (text.endswith("<br />") or num+1==len(paras) or not paras[num+1][0]=='span') else ''}{'<p><imggroup>' if R.daisy3 and re.search('<img src="',text) else ''}{''.join(re.findall('<img src="[^"]*" [^/]*/>',text))}{'</imggroup></p>' if R.daisy3 and re.search('<img src="',text) else ''}{''.join(f'</level{n}>' for n in range(next(int(paras[p][0][1:]) for p in range(num,-1,-1) if paras[p][0].startswith('h')) if any(paras[P][0].startswith('h') for P in range(num,-1,-1)) else 1,0 if num+1==len(paras) else int(paras[num+1][0][1:])-1,-1)) if R.daisy3 and (num+1==len(paras) or paras[num+1][0].startswith('h')) else ''}""" for num,(tag,text) in enumerate(normaliseDepth(R,paras)))+f"""
+"""+"\n".join(f"""{''.join(f'<level{n}>' for n in range(min(int(tag[1:]),next(int(paras[p].tag[1:]) for p in range(num-1,-1,-1) if paras[p].tag.startswith('h'))+1) if any(paras[P].tag.startswith('h') for P in range(num-1,-1,-1)) else 1,int(tag[1:])+1)) if R.daisy3 and tag.startswith('h') else ''}{'<level1>' if R.daisy3 and not num and not tag.startswith('h') else ''}{'<p>' if tag=='span' and (num==0 or not paras[num-1].tag=="span" or paras[num-1].text.endswith("<br />")) else ''}<{tag} id=\"p{num+offset}\"{(' class="word"' if len(text.split())==1 else ' class="sentence"') if tag=='span' else ''}>{re.sub("<br />$","",re.sub('<img src="[^"]*" [^/]*/>','',text))}</{tag}>{'</p>' if tag=='span' and (text.endswith("<br />") or num+1==len(paras) or not paras[num+1].tag=='span') else ''}{'<p><imggroup>' if R.daisy3 and re.search('<img src="',text) else ''}{''.join(re.findall('<img src="[^"]*" [^/]*/>',text))}{'</imggroup></p>' if R.daisy3 and re.search('<img src="',text) else ''}{''.join(f'</level{n}>' for n in range(next(int(paras[p].tag[1:]) for p in range(num,-1,-1) if paras[p].tag.startswith('h')) if any(paras[P].tag.startswith('h') for P in range(num,-1,-1)) else 1,0 if num+1==len(paras) else int(paras[num+1].tag[1:])-1,-1)) if R.daisy3 and (num+1==len(paras) or paras[num+1].tag.startswith('h')) else ''}""" for num,(tag,text) in enumerate(normaliseDepth(R,paras)))+f"""
     </{'bodymatter></book' if R.daisy3 else 'body'}>
 </{'dtbook' if R.daisy3 else 'html'}>
 """)
