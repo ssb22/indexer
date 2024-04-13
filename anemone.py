@@ -1,6 +1,6 @@
 #!/usr/bin/env python3
 """
-Anemone 1.39 (http://ssb22.user.srcf.net/anemone)
+Anemone 1.4 (http://ssb22.user.srcf.net/anemone)
 (c) 2023-24 Silas S. Brown.  License: Apache 2
 Run program with --help for usage instructions.
 """
@@ -323,6 +323,7 @@ def write_all(R,recordingTexts): # INTERNAL
         secsSoFar += secsThisRecording
         curP += (1+len(rTxt.textsAndTimes)//2 if type(rTxt)==TextsAndTimesWithPages else 1)
     for n,u in enumerate(R.imageFiles): z.writestr(f'{n+1}{u[u.rindex("."):]}',fetch(u,False,R.cache,R.refresh,R.refetch,R.delay,R.user_agent))
+    if not R.date: R.date = "%d-%02d-%02d" % time.localtime()[:3]
     if R.daisy3:
         z.writestr('dtbook.2005.basic.css',D(d3css))
         z.writestr('package.opf',D(package_opf(R,hasFullText,len(recordingTexts),secsSoFar)))
@@ -496,7 +497,6 @@ def ncc_html(R, headings = [],
     # TODO: we assume all pages are 'normal' pages
     # (not 'front' pages in Roman letters etc)
     headingsR = normaliseDepth(R,HReduce(headings)) # (hType,hText,recNo,textNo)
-    if not R.date: R.date = "%d-%02d-%02d" % time.localtime()[:3]
     return deBlank(f"""<?xml version="1.0" encoding="utf-8"?>
 {'<!DOCTYPE ncx PUBLIC "-//NISO//DTD ncx 2005-1//EN" "http://www.daisy.org/z3986/2005/ncx-2005-1.dtd">' if R.daisy3 else '<!DOCTYPE html PUBLIC "-//W3C//DTD XHTML 1.0 Transitional//EN" "http://www.w3.org/TR/xhtml1/DTD/xhtml1-transitional.dtd">'}
 <{'ncx xmlns="http://www.daisy.org/z3986/2005/ncx/" version="2005-1"' if R.daisy3 else f'html lang="{R.lang}" xmlns="http://www.w3.org/1999/xhtml"'} xml:lang="{R.lang}">
@@ -522,25 +522,25 @@ def ncc_html(R, headings = [],
     <meta name="ncc:pageNormal" content="{numPages}" />
     <meta name="ncc:pageSpecial" content="0" />
     <meta name="ncc:tocItems" content="{len(headingsR)+sum(len(PNs) for PNs in pageNos)}" />
-    <meta name="ncc:totalTime" content="{int(totalSecs/3600)}:{int(totalSecs/60)%60:02d}:{math.ceil(totalSecs%60):02d}" />
+    <meta name="ncc:totalTime" content="{hmsTime(totalSecs)}" />
     <meta name="ncc:multimediaType" content="{"audioFullText" if hasFullText else "audioNcc"}" />
-    <meta name="{'dtb' if R.daisy3 else 'ncc'}:depth" content="{max(int(h.hTag[1:]) for h in headingsR if h.hTag.startswith('h'))}" />
+    <meta name="{'dtb' if R.daisy3 else 'ncc'}:depth" content="{max(int(h.hTag[1:]) for h in headingsR if h.hTag.startswith('h'))+(1 if any(h.hTag=='div' for h in headingsR) else 0)}" />
     <meta name="ncc:files" content="{2+len(headings)*(3 if hasFullText else 2)+len(R.imageFiles)}" />
   </head>
   {f'<docTitle><text>{R.title}</text></docTitle>' if R.daisy3 else ''}
   {f'<docAuthor><text>{R.creator}</text></docAuthor>' if R.daisy3 else ''}
-  <{'navMap' if R.daisy3 else 'body'}>"""+''.join((f"""
+  <{'navMap id="navMap"' if R.daisy3 else 'body'}>"""+''.join((f"""
     <navPoint id="s{s+1}" class="{t.hTag}" playOrder="{s+1}">
-      <navLabel><text>{t.hLine}</text>{'' if recTimeTxts[t.recNo][2*t.itemNo]==recTimeTxts[t.recNo][2*t.itemNo+2] else f'''<audio src="{t.recNo+1:04d}.mp3" clipBegin="{recTimeTxts[t.recNo][2*t.itemNo]:.3f}s" clipEnd="{recTimeTxts[t.recNo][2*t.itemNo+2]:.3f}s"/>'''}</navLabel>
-      <content src="{t.recNo+1:04d}.smil#t{t.recNo+1}.{t.itemNo}"/>
+      <navLabel><text>{t.hLine}</text>{'' if recTimeTxts[t.recNo][2*t.itemNo]==recTimeTxts[t.recNo][2*t.itemNo+2] else f'''<audio src="{t.recNo+1:04d}.mp3" clipBegin="{hmsTime(recTimeTxts[t.recNo][2*t.itemNo])}" clipEnd="{hmsTime(recTimeTxts[t.recNo][2*t.itemNo+2])}"/>'''}</navLabel>
+      <content src="{t.recNo+1:04d}.smil#pr{t.recNo+1}.{t.itemNo}"/>
     {'</navPoint>'*numDaisy3NavpointsToClose(s,headingsR)}""" if R.daisy3 else ''.join(f"""
     <span class="page-normal" id="page{N}"><a href="{r+1:04d}.smil#t{r+1}.{after}">{N}</a></span>""" for r,PNs in enumerate(pageNos) for (PO,(after,N)) in enumerate(PNs) if (r,after)<=t[2:4] and (not s or (r,after)>headingsR[s-1][2:4]))+f"""
     <{t.hTag} class="{'section' if s or R.allow_jumps else 'title'}" id="s{s+1}">
       <a href="{t.recNo+1:04d}.smil#t{t.recNo+1}.{t.itemNo}">{t.hLine}</a>
-    </{t.hTag}>""") for s,t in enumerate(headingsR))+('</navMap><pageList>'+''.join(f"""
+    </{t.hTag}>""") for s,t in enumerate(headingsR))+('</navMap><pageList id="page">'+''.join(f"""
     <pageTarget class="pagenum" type="normal" value="{N}" id="page{N}" playOrder="{len(headingsR)+sum(len(P) for P in pageNos[:r])+PO+1}">
       <navLabel><text>{N}</text></navLabel>
-      <content src="{r+1:04d}.smil#t{r+1}.{after}"/>
+      <content src="{r+1:04d}.smil#pr{r+1}.{after}"/>
     </pageTarget>""" for r,PNs in enumerate(pageNos) for (PO,(after,N)) in enumerate(PNs))+f"""
   </pageList>
 </ncx>""" if R.daisy3 else """
@@ -595,7 +595,7 @@ def master_smil(R,headings = [],
     <meta name="dc:title" content="{deHTML(R.title)}" />
     <meta name="dc:format" content="Daisy 2.02" />
     <meta name="ncc:generator" content="{generator}" />
-    <meta name="ncc:timeInThisSmil" content="{int(totalSecs/3600)}:{int(totalSecs/60)%60:02d}:{totalSecs%60:06.3f}" />
+    <meta name="ncc:timeInThisSmil" content="{hmsTime(totalSecs)}" />
     <layout>
       <region id="textView" />
     </layout>
@@ -620,8 +620,8 @@ def section_smil(R, recNo=1,
   <head>
     {'<meta name="dtb:uid" content=""/>' if R.daisy3 else '<meta name="dc:format" content="Daisy 2.02" />'}
     <meta name="{'dtb' if R.daisy3 else 'ncc'}:generator" content="{generator}" />
-    <meta name="{'dtb' if R.daisy3 else 'ncc'}:totalElapsedTime" content="{int(totalSecsSoFar/3600)}:{int(totalSecsSoFar/60)%60:02d}:{totalSecsSoFar%60:06.3f}" />""" + ("" if R.daisy3 else f"""
-    <meta name="ncc:timeInThisSmil" content="{int(secsThisRecording/3600)}:{int(secsThisRecording/60)%60:02d}:{secsThisRecording%60:06.3f}" />
+    <meta name="{'dtb' if R.daisy3 else 'ncc'}:totalElapsedTime" content="{hmsTime(totalSecsSoFar)}" />""" + ("" if R.daisy3 else f"""
+    <meta name="ncc:timeInThisSmil" content="{hmsTime(secsThisRecording)}" />
     <meta name="title" content="{deHTML(textsAndTimes[1][1])}" />
     <meta name="dc:title" content="{deHTML(textsAndTimes[1][1])}" />
     <layout>
@@ -629,11 +629,11 @@ def section_smil(R, recNo=1,
     </layout>""")+f"""
   </head>
   <body>
-    <seq id="sq{recNo}" dur="{secsThisRecording:.3f}s">"""+"".join(f"""
+    <seq id="sq{recNo}" dur="{hmsTime(secsThisRecording) if R.daisy3 else f'{secsThisRecording:.3f}s'}" fill="remove">"""+"".join(f"""
       <par {'' if R.daisy3 else 'endsync="last" '}id="pr{recNo}.{i//2}">
         <text id="t{recNo}.{i//2}" src="{recNo:04d}.{'xml' if R.daisy3 else 'htm'}#p{startP+i//2}" />
         {'' if R.daisy3 or textsAndTimes[i-1]==textsAndTimes[i+1] else f'<seq id="sq{recNo}.{i//2}a">'}
-          {'' if textsAndTimes[i-1]==textsAndTimes[i+1] else f'''<audio src="{recNo:04d}.mp3" clip{'B' if R.daisy3 else '-b'}egin="{'' if R.daisy3 else 'npt='}{textsAndTimes[i-1]:.3f}s" clip{'E' if R.daisy3 else '-e'}nd="{'' if R.daisy3 else 'npt='}{textsAndTimes[i+1]:.3f}s" id="aud{recNo}.{i//2}" />'''}
+          {'' if textsAndTimes[i-1]==textsAndTimes[i+1] else f'''<audio src="{recNo:04d}.mp3" clip{'B' if R.daisy3 else '-b'}egin="{hmsTime(textsAndTimes[i-1]) if R.daisy3 else f'npt={textsAndTimes[i-1]:.3f}s'}" clip{'E' if R.daisy3 else '-e'}nd="{hmsTime(textsAndTimes[i+1]) if R.daisy3 else f'npt={textsAndTimes[i+1]:.3f}s'}" id="aud{recNo}.{i//2}" />'''}
         {'' if R.daisy3 or textsAndTimes[i-1]==textsAndTimes[i+1] else '</seq>'}
       </par>{''.join(f'<par><text id="t{recNo}.{i//2}.{j}" src="{recNo:04d}.xml#{re.sub(".*"+chr(34)+" id=.","",imageID)}"/></par>' for j,imageID in enumerate(re.findall('<img src="[^"]*" id="[^"]*',textsAndTimes[i][1]))) if R.daisy3 else ''}""" for i in range(1,len(textsAndTimes),2))+"""
     </seq>
@@ -642,6 +642,8 @@ def section_smil(R, recNo=1,
 """)
 # (do not omit text with 0-length audio altogether, even in Daisy 2: unlike image tags after paragraphs, it might end up not being displayed by EasyReader etc.  Omitting audio does NOT save being stopped at the beginning of the chapter when rewinding by paragraph: is this a bug or a feature?)
 def deBlank(s): return re.sub("\n *\n","\n",s) # INTERNAL (see use above)
+
+def hmsTime(secs): return f"{int(secs/3600)}:{int(secs/60)%60:02d}:{secs%60:06.3f}"
 
 def deHTML(t):
     "Remove HTML tags from t, collapse whitespace and escape quotes so it can be included in an XML attribute"
@@ -652,8 +654,7 @@ def package_opf(R,hasFullText,numRecs,totalSecs): # INTERNAL
     return f"""<?xml version="1.0" encoding="utf-8"?>
 <!DOCTYPE package
   PUBLIC "+//ISBN 0-9673008-1-9//DTD OEB 1.2 Package//EN" "http://openebook.org/dtds/oeb-1.2/oebpkg12.dtd">
-<package xmlns="http://openebook.org/namespaces/oeb-package/1.0/"
-         unique-identifier="uid">
+<package xmlns="http://openebook.org/namespaces/oeb-package/1.0/" unique-identifier="{R.url}">
    <metadata>
       <dc-metadata xmlns:dc="http://purl.org/dc/elements/1.1/">
          <dc:Format>ANSI/NISO Z39.86-2005</dc:Format>
@@ -661,18 +662,16 @@ def package_opf(R,hasFullText,numRecs,totalSecs): # INTERNAL
          <dc:Date>{R.date}</dc:Date>
          <dc:Publisher>{R.publisher}</dc:Publisher>
          <dc:Title>{R.title}</dc:Title>
-         <dc:Identifier id="uid"/>
+         <dc:Identifier id="{R.url}"/>
          <dc:Creator>{R.creator}</dc:Creator>
          <dc:Type>text</dc:Type>
       </dc-metadata>
       <x-metadata>
          <meta name="dtb:multimediaType" content="{"audioFullText" if hasFullText else "audioNcc"}"/>
-         <meta name="dtb:totalTime" content="{int(totalSecs/3600)}:{int(totalSecs/60)%60:02d}:{math.ceil(totalSecs%60):02d}"/>
+         <meta name="dtb:totalTime" content="{hmsTime(totalSecs)}"/>
          <meta name="dtb:multimediaContent" content="audio,text{',image' if R.imageFiles else ''}"/>
-         <meta name="dtb:narrator"
-               content="{deHTML(R.reader)}"/>
-         <meta name="dtb:producedDate"
-               content="{R.date}"/>
+         <meta name="dtb:narrator" content="{deHTML(R.reader)}"/>
+         <meta name="dtb:producedDate" content="{R.date}"/>
       </x-metadata>
    </metadata>
    <manifest>
@@ -682,12 +681,8 @@ def package_opf(R,hasFullText,numRecs,totalSecs): # INTERNAL
       <item href="dtbook.2005.basic.css" id="opf-{len(R.imageFiles)+numRecs+1}" media-type="text/css"/>"""+''.join(f"""
       <item href="{i:04d}.xml" id="opf-{i+len(R.imageFiles)+numRecs+1}" media-type="application/x-dtbook+xml"/>""" for i in range(1,numRecs+1))+''.join(f"""
       <item href="{i:04d}.smil" id="{i:04d}" media-type="application/smil+xml"/>""" for i in range(1,numRecs+1))+f"""
-      <item href="navigation.ncx"
-            id="ncx"
-            media-type="application/x-dtbncx+xml"/>
-      <item href="text.res"
-            id="resource"
-            media-type="application/x-dtbresource+xml"/>
+      <item href="navigation.ncx" id="ncx" media-type="application/x-dtbncx+xml"/>
+      <item href="text.res" id="resource" media-type="application/x-dtbresource+xml"/>
    </manifest>
    <spine>"""+"".join(f"""
       <itemref idref="{i:04d}"/>""" for i in range(1,numRecs+1))+"""
@@ -701,12 +696,18 @@ def text_htm(R,paras,offset=0): # INTERNAL
 {'<!DOCTYPE dtbook PUBLIC "-//NISO//DTD dtbook 2005-3//EN" "http://www.daisy.org/z3986/2005/dtbook-2005-3.dtd">' if R.daisy3 else '<!DOCTYPE html PUBLIC "-//W3C//DTD XHTML 1.0 Transitional//EN" "http://www.w3.org/TR/xhtml1/DTD/xhtml1-transitional.dtd">'}
 <{'dtbook xmlns="http://www.daisy.org/z3986/2005/dtbook/" version="2005-2"' if R.daisy3 else f'html lang="{R.lang}" xmlns="http://www.w3.org/1999/xhtml"'} xml:lang="{R.lang}">
     <head>
+        {'<meta name="dt:version" content="1.0" />' if R.daisy3 else ''}
         {f'<meta name="dc:Title" content="{deHTML(R.title)}"/>' if R.daisy3 else f'<title>{R.title}</title>'}
-        {'<meta name="dtb:uid" content=""/>' if R.daisy3 else '<meta content="text/html; charset=utf-8" http-equiv="content-type"/>'}
+        {f'<meta name="dc:Creator" content="{deHTML(R.creator)}"/>' if R.daisy3 else ''}
+        {f'<meta name="dc:Publisher" content="{deHTML(R.publisher)}"/>' if R.daisy3 else ''}
+        {f'<meta name="dc:Date" content="{R.date}"/>' if R.daisy3 else ''}
+        {f'<meta name="dc:Language" content="{R.lang}" />' if R.daisy3 else ''}
+        {f'<meta name="dc:identifier" content="{R.url}" />' if R.daisy3 else ''}
+        {f'<meta name="dtb:uid" content="{R.url}"/>' if R.daisy3 else '<meta content="text/html; charset=utf-8" http-equiv="content-type"/>'}
         <meta name="generator" content="{generator}"/>
     </head>
     <{'book' if R.daisy3 else 'body'}>
-        {f'<frontmatter><doctitle>{R.title}</doctitle></frontmatter><bodymatter>' if R.daisy3 else ''}
+        {f'<frontmatter><doctitle>{R.title}</doctitle><docauthor>{R.creator}</docauthor></frontmatter><bodymatter>' if R.daisy3 else ''}
 """+"\n".join(f"""{''.join(f'<level{n}>' for n in range(min(int(tag[1:]),next(int(paras[p].tag[1:]) for p in range(num-1,-1,-1) if paras[p].tag.startswith('h'))+1) if any(paras[P].tag.startswith('h') for P in range(num-1,-1,-1)) else 1,int(tag[1:])+1)) if R.daisy3 and tag.startswith('h') else ''}{'<level1>' if R.daisy3 and not num and not tag.startswith('h') else ''}{'<p>' if tag=='span' and (num==0 or not paras[num-1].tag=="span" or paras[num-1].text.endswith("<br />")) else ''}<{tag} id=\"p{num+offset}\"{(' class="word"' if len(text.split())==1 else ' class="sentence"') if tag=='span' else ''}>{re.sub("<br />$","",re.sub('<img src="[^"]*" [^/]*/>','',text))}</{tag}>{'</p>' if tag=='span' and (text.endswith("<br />") or num+1==len(paras) or not paras[num+1].tag=='span') else ''}{'<p><imggroup>' if R.daisy3 and re.search('<img src="',text) else ''}{''.join(re.findall('<img src="[^"]*" [^/]*/>',text))}{'</imggroup></p>' if R.daisy3 and re.search('<img src="',text) else ''}{''.join(f'</level{n}>' for n in range(next(int(paras[p].tag[1:]) for p in range(num,-1,-1) if paras[p].tag.startswith('h')) if any(paras[P].tag.startswith('h') for P in range(num,-1,-1)) else 1,0 if num+1==len(paras) else int(paras[num+1].tag[1:])-1,-1)) if R.daisy3 and (num+1==len(paras) or paras[num+1].tag.startswith('h')) else ''}""" for num,(tag,text) in enumerate(normaliseDepth(R,paras)))+f"""
     </{'bodymatter></book' if R.daisy3 else 'body'}>
 </{'dtbook' if R.daisy3 else 'html'}>
