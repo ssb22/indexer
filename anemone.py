@@ -1,6 +1,6 @@
 #!/usr/bin/env python3
 """
-Anemone 1.4 (http://ssb22.user.srcf.net/anemone)
+Anemone 1.41 (http://ssb22.user.srcf.net/anemone)
 (c) 2023-24 Silas S. Brown.  License: Apache 2
 Run program with --help for usage instructions.
 """
@@ -69,6 +69,7 @@ def populate_argument_parser(args): # INTERNAL
     args.add_argument("--allow-jumps",action="store_true",help="Allow jumps in heading levels e.g. h1 to h3 if the input HTML does it.  This seems OK on modern readers but might cause older reading devices to give an error.  Without this option, headings are promoted where necessary to ensure only incremental depth increase.") # might cause older reading devices to give an error: and is also flagged up by the validator
     args.add_argument("--strict-ncc-divs",action="store_true",help="When generating Daisy 2, avoid using a heading in the navigation control centre when there isn't a heading in the text.  This currently applies when spans with verse numbering are detected.  Turning on this option will make the DAISY more conformant to the specification, but some readers (EasyReader 10, Thorium) won't show these headings in the navigation in Daisy 2 (but will show them anyway in Daisy 3, so this option is applied automatically in Daisy 3).  On the other hand, when using verse-numbered spans without this option, EasyReader 10 may not show any text at all in Daisy 2 (Anemone will warn if this is the case).  This setting cannot stop EasyReader promoting all verses to headings (losing paragraph formatting) in Daisy 3, which is the least bad option if you want these navigation points to work.")
     args.add_argument("--merge-books",default="",help="Combine multiple books into one, for saving media on CD-based DAISY players that cannot handle more than one book.  The format of this option is book1/N1,book2/N2,etc where book1 is the book title and N1 is the number of MP3 files to group into it.  All headings are pushed down one level and book name headings are added at top level.")
+    args.add_argument("--chapter-titles",default="",help="Comma-separated list of titles to use for chapters that don't have titles, e.g. 'Chapter N' in the language of the book (this can help for search-based navigation)")
     args.add_argument("--dry-run",action="store_true",help="Don't actually output DAISY, just check the input and parameters")
 
 generator=__doc__.strip().split('\n')[0] # string we use to identify ourselves in HTTP requests and in Daisy files
@@ -369,12 +370,16 @@ def getHeadings(R,recordingTexts): # INTERNAL
             else:
                 R.warning(f"Chapter {chapNo} is completely blank!  (Is {'--marker-attribute' if __name__=='__main__' else 'marker_attribute'} set correctly?)")
                 nums = [] ; first = 0 ; textsAndTimes.append(TagAndText('p',''))
-            chapterNumberText = nums[0] if len(nums)==1 and not nums[0]=="1" else str(chapNo) # TODO: could say "Chapter " before this number if R.lang.startswith("en") and we're not supposed to use some other word for this book, but if we do, ensure to keep the non-"Chapter " version for use with startswith below
+            chapterNumberTextFull = chapterNumberText = nums[0] if len(nums)==1 and not nums[0]=="1" else str(chapNo)
+            if R.chapter_titles:
+                if ',' in R.chapter_titles: chapterNumberTextFull,R.chapter_titles = R.chapter_titles.split(',',1)
+                else: chapterNumberTextFull,R.chapter_titles = R.chapter_titles, ""
+                if not chapterNumberText in chapterNumberTextFull: R.warning(f"Title for chapter {chapNo} is '{chapterNumberTextFull}' which does not contain the expected '{chapterNumberText}'")
             # In EasyReader 10 on Android, unless there is at least one HEADING (not just div), navigation display is non-functional.  And every heading must point to a 'real' heading in the text, otherwise EasyReader 10 will delete all the text in Daisy 2, or promote something to a heading in Daisy 3 (this is not done by Thorium Reader)
             # So let's add a "real" start-of-chapter heading before the text, with time 0.001 second (don't set it to 0 or Thorium can have issues)
             textsAndTimes.insert(first,(textsAndTimes[first-1] if first else 0)+0.001)
-            textsAndTimes.insert(first,TagAndText('h1',chapterNumberText)) # we'll ref this
-            chapHeadings=[ChapterTOCInfo('h1',chapterNumberText,first//2)] # points to our extra heading
+            textsAndTimes.insert(first,TagAndText('h1',chapterNumberTextFull)) # we'll ref this
+            chapHeadings=[ChapterTOCInfo('h1',chapterNumberTextFull,first//2)] # points to our extra heading
             if textsAndTimes[first+2].text.startswith(chapterNumberText): textsAndTimes[first+2]=TagAndText(textsAndTimes[first+2].tag,textsAndTimes[first+2].text[len(chapterNumberText):].strip()) # because we just had the number as a heading, so we don't also need it repeated as 1st thing in text
             first += 2 # past the heading we added
             if first+2<len(textsAndTimes) and re.search("[1-9][0-9]*",textsAndTimes[first+2].text):
@@ -384,7 +389,7 @@ def getHeadings(R,recordingTexts): # INTERNAL
                 while v < (len(textsAndTimes)-first)//2+2:
                     lastV = v
                     while lastV < (len(textsAndTimes)-first)//2+1 and (0 if v==1 else textsAndTimes[first+2*v-3])==textsAndTimes[first+2*lastV-1]: lastV += 1 # check for a span of them sharing a time
-                    chapHeadings.append(ChapterTOCInfo('div' if R.daisy3 or R.strict_ncc_divs else 'h2',f"{chapHeadings[0].hLine}:{v}{'' if v==lastV else f'-{lastV}'}",first//2+v-1))
+                    chapHeadings.append(ChapterTOCInfo('div' if R.daisy3 or R.strict_ncc_divs else 'h2',f"{chapterNumberText}:{v}{'' if v==lastV else f'-{lastV}'}",first//2+v-1))
                     v = lastV + 1
                 cvChapCount += 1
         if bookTitlesAndNumChaps:
