@@ -1,6 +1,6 @@
 #!/usr/bin/env python3
 """
-Anemone 1.41 (http://ssb22.user.srcf.net/anemone)
+Anemone 1.42 (http://ssb22.user.srcf.net/anemone)
 (c) 2023-24 Silas S. Brown.  License: Apache 2
 Run program with --help for usage instructions.
 """
@@ -106,6 +106,7 @@ class AnemoneError(Exception): pass
 
 try: from mutagen.mp3 import MP3
 except ImportError: error("Anemone needs the Mutagen library to determine MP3 play lengths.\nPlease do: pip install mutagen")
+from mutagen.wave import WAVE
 
 class Run(): # INTERNAL
   """The parameters we need for an Anemone run.
@@ -123,7 +124,7 @@ class Run(): # INTERNAL
     else: R.__dict__.update(get_argument_parser().parse_args().__dict__)
     for f in R.files:
         f = f.strip()
-        if f.endswith(f"{os.extsep}zip"):
+        if f.lower().endswith(f"{os.extsep}zip"):
             if R.outputFile: error(f"Only one {os.extsep}zip output file may be specified")
             R.outputFile = f ; continue
         if re.match("https?://",f):
@@ -136,13 +137,13 @@ class Run(): # INTERNAL
         elif f.startswith('<') and f.endswith('>'):
             R.htmlData.append(f) ; continue
         elif not os.path.exists(f): error(f"File not found: {f}")
-        if f.endswith(f"{os.extsep}mp3") or f.endswith(f"{os.extsep}wav"):
+        if f.lower().endswith(f"{os.extsep}mp3") or f.lower().endswith(f"{os.extsep}wav"):
             if f.endswith(f"{os.extsep}wav") and not R.mp3_recode: error("wav input requires mp3 recode to be set")
             R.recordingFiles.append(f)
-        elif f.endswith(f"{os.extsep}json"): R.jsonData.append(json.load(open(f,encoding="utf-8")))
-        elif f.endswith(f"{os.extsep}txt"):
+        elif f.lower().endswith(f"{os.extsep}json"): R.jsonData.append(json.load(open(f,encoding="utf-8")))
+        elif f.lower().endswith(f"{os.extsep}txt"):
             R.textFiles.append(f)
-        elif f.endswith(f"{os.extsep}html") or not os.extsep in f.rsplit(os.sep,1)[-1]:
+        elif f.lower().endswith(f"{os.extsep}html") or not os.extsep in f.rsplit(os.sep,1)[-1]:
             R.htmlData.append(open(f,encoding="utf-8").read())
         else: error(f"Can't handle '{f}'")
     if not R.recordingFiles: error("Creating DAISY files without audio is not yet implemented")
@@ -313,8 +314,9 @@ def write_all(R,recordingTexts): # INTERNAL
     secsSoFar = 0
     durations = [] ; curP = 1
     for recNo in range(1,len(recordingTexts)+1):
-        secsThisRecording = MP3(R.recordingFiles[recNo-1]).info.length
         rTxt = recordingTexts[recNo-1]
+        f = R.recordingFiles[recNo-1]
+        secsThisRecording = (MP3(f) if f.lower().endswith(f"{os.extsep}mp3") else WAVE(f)).info.length
         durations.append(secsThisRecording)
         if R.mp3_recode: sys.stderr.write(f"Adding {recNo:04d}.mp3..."),sys.stderr.flush()
         z.writestr(f"{recNo:04d}.mp3",recordings[recNo-1].result() if R.mp3_recode else open(R.recordingFiles[recNo-1],'rb').read())
