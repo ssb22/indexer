@@ -1,6 +1,6 @@
 #!/usr/bin/env python3
 """
-Anemone 1.42 (http://ssb22.user.srcf.net/anemone)
+Anemone 1.43 (http://ssb22.user.srcf.net/anemone)
 (c) 2023-24 Silas S. Brown.  License: Apache 2
 Run program with --help for usage instructions.
 """
@@ -136,7 +136,7 @@ class Run(): # INTERNAL
             continue # don't treat as a file
         elif f.startswith('<') and f.endswith('>'):
             R.htmlData.append(f) ; continue
-        elif not os.path.exists(f): error(f"File not found: {f}")
+        elif not os.path.isfile(f): error(f"File not found: {f}")
         if f.lower().endswith(f"{os.extsep}mp3") or f.lower().endswith(f"{os.extsep}wav"):
             if f.endswith(f"{os.extsep}wav") and not R.mp3_recode: error("wav input requires mp3 recode to be set")
             R.recordingFiles.append(f)
@@ -196,13 +196,14 @@ def get_texts(R): # INTERNAL
                 self.addTo = None
                 self.suppress = 0
                 self.imgsMaybeAdd = None
+                self.imgsMaybeAddTo = None
                 self.pageNoGoesAfter = 0
                 self.theStartTag = None
             def handle_starttag(self,tag,attrs):
                 tag = tagRewrite.get(tag,tag)
                 attrs = dict(attrs)
                 imgURL = attrs.get(R.image_attribute,None)
-                if imgURL and re.match("https?://.*[.][^/]*$",imgURL) and not (self.addTo==None and self.imgsMaybeAdd==None):
+                if imgURL and (re.match("https?://.*[.][^/]*$",imgURL) or os.path.isfile(imgURL)) and not (self.addTo==None and self.imgsMaybeAdd==None):
                     # TODO: might want to check attrs.get("alt",""), but DAISY3 standard does not list alt as a valid attribute for img, so we'd have to put it after with br etc (changing text_htm) and we don't know if it's in the audio or not: probably best just to leave it and rely on there being a separate caption with ID if it's in the audio
                     img = f'<img src="{(R.imageFiles.index(imgURL) if imgURL in R.imageFiles else len(R.imageFiles))+1}{imgURL[imgURL.rindex("."):]}" {f"""id="i{R.imageFiles.index(imgURL) if imgURL in R.imageFiles else len(R.imageFiles)}" """ if R.daisy3 else ""}/>' # will be moved after paragraph by text_htm
                     if not imgURL in R.imageFiles:
@@ -236,6 +237,7 @@ def get_texts(R): # INTERNAL
                     elif tag in allowedInlineTags: self.addTo.append(f'</{tag}>')
                     elif tag=="a" and re.match('[!-.:-~]$',"".join(self.addTo[self.lastAStart:]).strip()): del self.addTo[self.lastAStart:] # remove single-character link, probably to footnote (we won't know if it's in the audio or not, we're not supporting jumps and the symbols might need normalising) but do allow numbers (might be paragraph numbers etc) and non-ASCII (might be single-character CJK word)
                     if tag==self.theStartTag and self.tagDepth: self.tagDepth -= 1
+                elif tag=='p' and self.imgsMaybeAddTo and self.theStartTag=='span': self.imgsMaybeAddTo.append("<br>") # if paragraphs contain spans and it's the spans that are identified, ensure we keep this break in the surrounding structure
                 if tag=='html' and self.imgsMaybeAdd and hasattr(self,'highestImage'): del R.imageFiles[self.highestImage:] # do not include ones that were only in imgsMaybeAdd at the end of the page (and not also elsewhere)
             def handle_data(self,data):
                 if not self.addTo==None and not self.suppress:
@@ -325,7 +327,7 @@ def write_all(R,recordingTexts): # INTERNAL
         z.writestr(f'{recNo:04d}.{"xml" if R.daisy3 else "htm"}',D(text_htm(R,(rTxt.textsAndTimes[::2] if type(rTxt)==TextsAndTimesWithPages else [TagAndText('h1',rTxt)]),curP)))
         secsSoFar += secsThisRecording
         curP += (1+len(rTxt.textsAndTimes)//2 if type(rTxt)==TextsAndTimesWithPages else 1)
-    for n,u in enumerate(R.imageFiles): z.writestr(f'{n+1}{u[u.rindex("."):]}',fetch(u,False,R.cache,R.refresh,R.refetch,R.delay,R.user_agent))
+    for n,u in enumerate(R.imageFiles): z.writestr(f'{n+1}{u[u.rindex("."):]}',fetch(u,False,R.cache,R.refresh,R.refetch,R.delay,R.user_agent) if re.match("https?://",u) else open(u,'rb').read())
     if not R.date: R.date = "%d-%02d-%02d" % time.localtime()[:3]
     if R.daisy3:
         z.writestr('dtbook.2005.basic.css',D(d3css))
