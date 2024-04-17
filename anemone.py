@@ -1,6 +1,6 @@
 #!/usr/bin/env python3
 """
-Anemone 1.43 (http://ssb22.user.srcf.net/anemone)
+Anemone 1.44 (http://ssb22.user.srcf.net/anemone)
 (c) 2023-24 Silas S. Brown.  License: Apache 2
 Run program with --help for usage instructions.
 """
@@ -48,7 +48,7 @@ def populate_argument_parser(args): # INTERNAL
     also options for anemone(), and help text."""
     # TODO: could also run this with an object that takes the help text we give it and puts it into the module documentation?
     
-    args.add_argument("files",metavar="file",nargs="+",help="file name of: an MP3 recording, a text file containing its title (if no full text), a JSON file containing its time markers, an XHTML file containing its full text, or the output ZIP file.  Only one output file may be specified, but any number of the other files can be included; URLs may be given if they are to be fetched (HTML assumed if no extension).  If only MP3 files are given then titles are taken from their filenames.  You may also specify @filename where filename contains a list of files one per line.")
+    args.add_argument("files",metavar="file",nargs="+",help="file name of: an MP3 recording, a text file containing its title (if no full text), an XHTML file containing its full text, a JSON file containing its time markers (or text plus time in JSON transcript format), or the output ZIP file.  Only one output file may be specified, but any number of the other files can be included; URLs may be given if they are to be fetched (HTML assumed if no extension).  If only MP3 files are given then titles are taken from their filenames.  You may also specify @filename where filename contains a list of files one per line.")
     args.add_argument("--lang",default="en",help="the ISO 639 language code of the publication (defaults to en for English)")
     args.add_argument("--title",default="",help="the title of the publication")
     args.add_argument("--url",default="",help="the URL or ISBN of the publication")
@@ -70,6 +70,7 @@ def populate_argument_parser(args): # INTERNAL
     args.add_argument("--strict-ncc-divs",action="store_true",help="When generating Daisy 2, avoid using a heading in the navigation control centre when there isn't a heading in the text.  This currently applies when spans with verse numbering are detected.  Turning on this option will make the DAISY more conformant to the specification, but some readers (EasyReader 10, Thorium) won't show these headings in the navigation in Daisy 2 (but will show them anyway in Daisy 3, so this option is applied automatically in Daisy 3).  On the other hand, when using verse-numbered spans without this option, EasyReader 10 may not show any text at all in Daisy 2 (Anemone will warn if this is the case).  This setting cannot stop EasyReader promoting all verses to headings (losing paragraph formatting) in Daisy 3, which is the least bad option if you want these navigation points to work.")
     args.add_argument("--merge-books",default="",help="Combine multiple books into one, for saving media on CD-based DAISY players that cannot handle more than one book.  The format of this option is book1/N1,book2/N2,etc where book1 is the book title and N1 is the number of MP3 files to group into it.  All headings are pushed down one level and book name headings are added at top level.")
     args.add_argument("--chapter-titles",default="",help="Comma-separated list of titles to use for chapters that don't have titles, e.g. 'Chapter N' in the language of the book (this can help for search-based navigation)")
+    args.add_argument("--chapter-heading-level",default=1,help="Heading level to use for chapters that don't have titles")
     args.add_argument("--dry-run",action="store_true",help="Don't actually output DAISY, just check the input and parameters")
 
 generator=__doc__.strip().split('\n')[0] # string we use to identify ourselves in HTTP requests and in Daisy files
@@ -133,6 +134,7 @@ class Run(): # INTERNAL
                 R.filesToDelete.append(f)
         if f.startswith('{') and f.endswith('}'):
             R.jsonData.append(json.loads(f))
+            check_for_JSON_transcript(R)
             continue # don't treat as a file
         elif f.startswith('<') and f.endswith('>'):
             R.htmlData.append(f) ; continue
@@ -140,7 +142,7 @@ class Run(): # INTERNAL
         if f.lower().endswith(f"{os.extsep}mp3") or f.lower().endswith(f"{os.extsep}wav"):
             if f.endswith(f"{os.extsep}wav") and not R.mp3_recode: error("wav input requires mp3 recode to be set")
             R.recordingFiles.append(f)
-        elif f.lower().endswith(f"{os.extsep}json"): R.jsonData.append(json.load(open(f,encoding="utf-8")))
+        elif f.lower().endswith(f"{os.extsep}json"): R.jsonData.append(json.load(open(f,encoding="utf-8"))),check_for_JSON_transcript(R)
         elif f.lower().endswith(f"{os.extsep}txt"):
             R.textFiles.append(f)
         elif f.lower().endswith(f"{os.extsep}html") or not os.extsep in f.rsplit(os.sep,1)[-1]:
@@ -161,6 +163,18 @@ class Run(): # INTERNAL
     for f in R.filesToDelete:
         try: Path(f).unlink()
         except: R.warning(f"couldn't delete {f}\n")
+
+def check_for_JSON_transcript(R):
+    if type(R.jsonData[-1].get("segments",None))==list and all(type(s)==dict and "startTime" in s and "body" in s for s in R.jsonData[-1]["segments"]): # looks like JSON transcript format instead of markers format
+        curSpeaker=None ; bodyList = []
+        for s in R.jsonData[-1]["segments"]:
+            bodyList.append(s["body"])
+            s=s.get("speaker",curSpeaker)
+            if not s==curSpeaker:
+                curSpeaker,bodyList[-1] = s,f"[{s}] {bodyList[-1]}"
+                if len(bodyList)>1: bodyList[-2] += "<br>"
+        R.htmlData.append(' '.join(f'<span {R.marker_attribute}="{i}">{c}</span>' for i,c in enumerate(bodyList) if c))
+        R.jsonData[-1]={"markers":[{"id":f"{i}","time":t} for i,t in enumerate(s["startTime"] for s in R.jsonData[-1]["segments"])]}
 
 def check_we_got_LAME(): # INTERNAL
     if which('lame'): return
@@ -382,8 +396,8 @@ def getHeadings(R,recordingTexts): # INTERNAL
             # In EasyReader 10 on Android, unless there is at least one HEADING (not just div), navigation display is non-functional.  And every heading must point to a 'real' heading in the text, otherwise EasyReader 10 will delete all the text in Daisy 2, or promote something to a heading in Daisy 3 (this is not done by Thorium Reader)
             # So let's add a "real" start-of-chapter heading before the text, with time 0.001 second (don't set it to 0 or Thorium can have issues)
             textsAndTimes.insert(first,(textsAndTimes[first-1] if first else 0)+0.001)
-            textsAndTimes.insert(first,TagAndText('h1',chapterNumberTextFull)) # we'll ref this
-            chapHeadings=[ChapterTOCInfo('h1',chapterNumberTextFull,first//2)] # points to our extra heading
+            textsAndTimes.insert(first,TagAndText(f'h{R.chapter_heading_level}',chapterNumberTextFull)) # we'll ref this
+            chapHeadings=[ChapterTOCInfo(f'h{R.chapter_heading_level}',chapterNumberTextFull,first//2)] # points to our extra heading
             if textsAndTimes[first+2].text.startswith(chapterNumberText): textsAndTimes[first+2]=TagAndText(textsAndTimes[first+2].tag,textsAndTimes[first+2].text[len(chapterNumberText):].strip()) # because we just had the number as a heading, so we don't also need it repeated as 1st thing in text
             first += 2 # past the heading we added
             if first+2<len(textsAndTimes) and re.search("[1-9][0-9]*",textsAndTimes[first+2].text):
@@ -393,7 +407,7 @@ def getHeadings(R,recordingTexts): # INTERNAL
                 while v < (len(textsAndTimes)-first)//2+2:
                     lastV = v
                     while lastV < (len(textsAndTimes)-first)//2+1 and (0 if v==1 else textsAndTimes[first+2*v-3])==textsAndTimes[first+2*lastV-1]: lastV += 1 # check for a span of them sharing a time
-                    chapHeadings.append(ChapterTOCInfo('div' if R.daisy3 or R.strict_ncc_divs else 'h2',f"{chapterNumberText}:{v}{'' if v==lastV else f'-{lastV}'}",first//2+v-1))
+                    chapHeadings.append(ChapterTOCInfo('div' if R.daisy3 or R.strict_ncc_divs else f'h{R.chapter_heading_level+1}',f"{chapterNumberText}:{v}{'' if v==lastV else f'-{lastV}'}",first//2+v-1))
                     v = lastV + 1
                 cvChapCount += 1
         if bookTitlesAndNumChaps:
@@ -432,7 +446,7 @@ def recodeMP3(f):
     # eyed3 clear() won't help: it zeros out bytes without changing indices.
     # To ensure everything is removed, better decode to raw PCM and re-encode :-(
     pcm = f[:-3]+"pcm" # instead of .mp3
-    m = re.search(b'(?s)([0-9]+) kHz, ([0-9]+).*?([0-9]+) bit',run(["lame","-t","--decode",f,"-o",pcm],check=True,stdout=PIPE,stderr=PIPE).stderr) # hope nobody disabled --decode when building LAME (is OK on lame.buanzo.org EXEs)
+    m = re.search(b'(?s)([0-9.]+) kHz, ([0-9]+).*?([0-9]+) bit',run(["lame","-t","--decode",f,"-o",pcm],check=True,stdout=PIPE,stderr=PIPE).stderr) # hope nobody disabled --decode when building LAME (is OK on lame.buanzo.org EXEs)
     if not m: error("lame did not give expected format for frequency, channels and bits output")
     mp3bytes = run(["lame","--quiet","-r","-s",m.group(1).decode('latin1')]+(['-a'] if m.group(2)==b'2' else [])+['-m','m','--bitwidth',m.group(3).decode('latin1'),pcm,"--resample","44.1","-b","64","-q","0","-o","-"],check=True,stdout=PIPE).stdout
     os.remove(pcm) ; return mp3bytes
