@@ -1,8 +1,10 @@
 #!/usr/bin/env python3
 """
-Anemone 1.44 (http://ssb22.user.srcf.net/anemone)
+Anemone 1.45 (http://ssb22.user.srcf.net/anemone)
 (c) 2023-24 Silas S. Brown.  License: Apache 2
-Run program with --help for usage instructions.
+
+To use this module, either run it from the command
+line, or import it and use the anemone() function.
 """
 
 # Licensed under the Apache License, Version 2.0 (the "License");
@@ -35,18 +37,23 @@ def anemone(*files,**options):
     with careful quoting).
     If you do not give this function any arguments
     it will look at the system command line.
-    Return value is a list of warnings, if any."""
+    Return value is a list of warnings, if any.
+
+    Other functions below are generally for
+    internal use and are of interest only if you
+    want to maintain Anemone, although you might
+    find {fetch(), deBlank(), version} useful."""
     
     R=Run(*[(json.dumps(f) if type(f)==dict else f) for f in files],**options)
     if R.mp3_recode: check_we_got_LAME()
     write_all(R,get_texts(R))
     R.cleanup() ; return R.warnings
 
-def populate_argument_parser(args): # INTERNAL
+def populate_argument_parser(args):
     """Calls add_argument on args, with the names
-    of all the command-line options, which are
-    also options for anemone(), and help text."""
-    # TODO: could also run this with an object that takes the help text we give it and puts it into the module documentation?
+    of all Anemone command-line options, which are
+    also options for anemone(), and help text.
+    This is also used for runtime module help."""
     
     args.add_argument("files",metavar="file",nargs="+",help="file name of: an MP3 recording, a text file containing its title (if no full text), an XHTML file containing its full text, a JSON file containing its time markers (or text plus time in JSON transcript format), or the output ZIP file.  Only one output file may be specified, but any number of the other files can be included; URLs may be given if they are to be fetched (HTML assumed if no extension).  If only MP3 files are given then titles are taken from their filenames.  You may also specify @filename where filename contains a list of files one per line.")
     args.add_argument("--lang",default="en",help="the ISO 639 language code of the publication (defaults to en for English)")
@@ -75,14 +82,16 @@ def populate_argument_parser(args): # INTERNAL
 
 generator=__doc__.strip().split('\n')[0] # string we use to identify ourselves in HTTP requests and in Daisy files
 
-def get_argument_parser(): # INTERNAL
-    "Creates and populates our argument parser"
+def get_argument_parser():
+    "populates an ArgumentParser for Anemone"
+    
     from argparse import ArgumentParser
     args = ArgumentParser(prog="anemone",description=generator,fromfile_prefix_chars='@')
     populate_argument_parser(args)
     return args
 
 import time, sys, os, re, json, math, tempfile
+import textwrap
 from collections import namedtuple as NT
 from functools import reduce
 from subprocess import run, PIPE
@@ -96,10 +105,17 @@ from urllib.parse import unquote
 from pathlib import Path # Python 3.5+
 from shutil import which
 
-def error(m): # INTERNAL
-    """Main error handler.  If we're running as an
+class DocUpdater:
+    def __init__(self,p):
+        self.p = p
+        self.p.__doc__ += "\nOptions when run as a command-line utility:\n"
+    def add_argument(self,*args,**kwargs): self.p.__doc__ += f"\n* {(chr(10)+'  ').join(textwrap.wrap((args[0]+': ' if args[0].startswith('--') else '')+kwargs['help'],50))}\n"
+populate_argument_parser(DocUpdater(sys.modules[__name__])) ; del DocUpdater
+
+def error(m):
+    """Anemone error handler.  If running as an
     application, print message and error-exit.  If
-    we're a module, raise an exception instead."""
+    running as a module, raise an AnemoneError."""
     
     if __name__=="__main__": sys.stderr.write(f"Error: {m}\n"),sys.exit(1)
     else: raise AnemoneError(str(m))
@@ -109,7 +125,7 @@ try: from mutagen.mp3 import MP3
 except ImportError: error("Anemone needs the Mutagen library to determine MP3 play lengths.\nPlease do: pip install mutagen")
 from mutagen.wave import WAVE
 
-class Run(): # INTERNAL
+class Run():
   """The parameters we need for an Anemone run.
   Constructor can either parse args from the
   command line, or from anemone() caller."""
@@ -165,6 +181,10 @@ class Run(): # INTERNAL
         except: R.warning(f"couldn't delete {f}\n")
 
 def check_for_JSON_transcript(R):
+    """Checks to see if the last thing added to
+    the Run object is a JSON podcast transcript,
+    and converts it to HTML + time markers"""
+    
     if type(R.jsonData[-1].get("segments",None))==list and all(type(s)==dict and "startTime" in s and "body" in s for s in R.jsonData[-1]["segments"]): # looks like JSON transcript format instead of markers format
         curSpeaker=None ; bodyList = []
         for s in R.jsonData[-1]["segments"]:
@@ -176,7 +196,11 @@ def check_for_JSON_transcript(R):
         R.htmlData.append(' '.join(f'<span {R.marker_attribute}="{i}">{c}</span>' for i,c in enumerate(bodyList) if c))
         R.jsonData[-1]={"markers":[{"id":f"{i}","time":t} for i,t in enumerate(s["startTime"] for s in R.jsonData[-1]["segments"])]}
 
-def check_we_got_LAME(): # INTERNAL
+def check_we_got_LAME():
+    """Complains if a LAME binary is not
+    available on this system.  Makes a little
+    extra effort to find one on Windows."""
+    
     if which('lame'): return
     if sys.platform=='win32':
         os.environ["PATH"] += r";C:\Program Files (x86)\Lame for Audacity;C:\Program Files\Lame for Audacity"
@@ -188,8 +212,9 @@ TagAndText = NT('TagAndText',['tag','text'])
 TextsAndTimesWithPages = NT('TextsAndTimesWithPages',['textsAndTimes','pageInfos'])
 ChapterTOCInfo = NT('ChapterTOCInfo',['hTag','hLine','itemNo'])
 BookTOCInfo = NT('BookTOCInfo',['hTag','hLine','recNo','itemNo'])
+del NT
 
-def get_texts(R): # INTERNAL
+def get_texts(R):
     """Gets the text markup required for the run,
     extracting it from HTML (guided by JSON IDs)
     if we need to do that."""
@@ -202,7 +227,7 @@ def get_texts(R): # INTERNAL
         want_pids = [jsonAttr(m,"id") for m in markers]
         id_to_content = {}
         pageNos = []
-        allowedInlineTags=['br'] # Dolphin EasyReader does not render <strong> and <em>, and constructs like "(<em>Publication name</em>" result in incorrect space after "(" so best leave it out
+        allowedInlineTags=['br'] # Dolphin EasyReader does not render <strong> and <em> (or <b> and <i>) although Thorium Reader does.  Constructs like "(<em>Publication name</em>" result in incorrect space after "(" in EasyReader, so best leave it out (TODO: option to keep it if we know a reader like Thorium will be in use?  and/or allow <em>...</em> when the marked-up phrase is both preceded and followed by space or start/end paragraph?)  Also <sup> and <sub> are not supported and will likely result in spurious line breaks.
         assert not 'rt' in allowedInlineTags, "if allowing this, need to revise rt suppression logic" # and would have to rely on rp parens for most readers, so if a text has a LOT of ruby it could get quite unreadable
         class PidsExtractor(HTMLParser):
             def __init__(self):
@@ -298,8 +323,13 @@ def parseTime(t):
         tot += float(u)*mul ; mul *= 60
     return tot
 
-def write_all(R,recordingTexts): # INTERNAL
-    "each item is either 1 text for section title of whole recording, or a TextsAndTimesWithPages i.e. ([TagAndText,time,TagAndText,time,TagAndText],[PageInfo,...])"
+def write_all(R,recordingTexts):
+    """Writes the DAISY zip and everything in it.
+    Each item of recordingTexts is either 1 text
+    for section title of whole recording, or a
+    TextsAndTimesWithPages i.e. ([TagAndText,time,
+    TagAndText,time,TagAndText],[PageInfo,...])"""
+    
     assert len(R.recordingFiles) == len(recordingTexts)
     headings = getHeadings(R,recordingTexts)
     if R.dry_run: return sys.stderr.write(f"Dry run: {len(R.warnings) if R.warnings else 'no'} warning{'' if len(R.warnings)==1 else 's'} for {R.outputFile}\n")
@@ -353,7 +383,10 @@ def write_all(R,recordingTexts): # INTERNAL
     z.close()
     sys.stderr.write(f"Wrote {R.outputFile}\n")
 
-def getHeadings(R,recordingTexts): # INTERNAL
+def getHeadings(R,recordingTexts):
+    """Gets headings from recordingTexts for the
+    DAISY's NCC / OPF data"""
+    
     ret = []
     cvChapCount = chapNo = 0
     try: bookTitlesAndNumChaps = [(n,int(v)) for n,v in [b.split('/') for b in R.merge_books.split(',') if b]]
@@ -394,6 +427,7 @@ def getHeadings(R,recordingTexts): # INTERNAL
                 else: chapterNumberTextFull,R.chapter_titles = R.chapter_titles, ""
                 if not chapterNumberText in chapterNumberTextFull: R.warning(f"Title for chapter {chapNo} is '{chapterNumberTextFull}' which does not contain the expected '{chapterNumberText}'")
             # In EasyReader 10 on Android, unless there is at least one HEADING (not just div), navigation display is non-functional.  And every heading must point to a 'real' heading in the text, otherwise EasyReader 10 will delete all the text in Daisy 2, or promote something to a heading in Daisy 3 (this is not done by Thorium Reader)
+            # (EasyReader 10 on Android also inserts a newline after every span class=sentence if it's a SMIL item, even if there's no navigation pointing to it)
             # So let's add a "real" start-of-chapter heading before the text, with time 0.001 second (don't set it to 0 or Thorium can have issues)
             textsAndTimes.insert(first,(textsAndTimes[first-1] if first else 0)+0.001)
             textsAndTimes.insert(first,TagAndText(f'h{R.chapter_heading_level}',chapterNumberTextFull)) # we'll ref this
@@ -419,7 +453,18 @@ def getHeadings(R,recordingTexts): # INTERNAL
     if cvChapCount and not R.daisy3 and not R.strict_ncc_divs: R.warning("Verse-indexing in Daisy 2 can prevent EasyReader 10 from displaying the text: try Daisy 3 instead") # (and with strict_ncc_divs, verses are not shown in Book navigation in Daisy 2)
     return ret
 
-def merge0lenSpans(recordingTexts,headings): # INTERNAL
+def merge0lenSpans(recordingTexts,headings):
+    """Finds spans in the text that are marked as
+    zero length in the audio, and merges them into
+    their neighbours if possible.  This is so that
+    the resulting DAISY file can still be
+    navigable if some of the time markers are
+    somehow missing in the input JSON, i.e. we
+    don't know when item 1 becomes item 2, but we
+    do know where item 1 starts and where item 2
+    ends, so can we set the navigation to create
+    a combined item for both 1 and 2."""
+    
     for cT,cH in zip(recordingTexts,headings):
         if not type(cT)==TextsAndTimesWithPages:
             continue
@@ -439,6 +484,7 @@ def recodeMP3(f):
     """Takes an MP3 or WAV filename, re-codes it
     as suitable for DAISY, and returns the bytes
     of new MP3 data for putting into DAISY ZIP"""
+    
     if f.endswith("wav"): return run(["lame","--quiet",f,"-m","m","--resample","44.1","-b","64","-q","0","-o","-"],check=True,stdout=PIPE).stdout # TODO: ensure lame doesn't take any headers or images embedded in the wav (if it does, we might need first to convert to headerless pcm as below)
     # If that didn't return, we have MP3 input.
     # It seems broken players like FSReader can get timing wrong if mp3 contains
@@ -452,14 +498,38 @@ def recodeMP3(f):
     os.remove(pcm) ; return mp3bytes
 
 def fetch(url,
-          returnFilename=False, # if True, returns the cached filename we saved it in, if False, return the actual data
-          cache = "cache", # the cache directory (None = don't save, unless returnFilename=True in which case we write a temporary file which the caller should remove)
-          refresh = False, # if True, send If-Modified-Since request if we have a cached item
-          refetch = False, # if True, reloads
-          delay = 0, # between fetches (tracked globally)
+          returnFilename=False,
+          cache = "cache",
+          refresh = False,
+          refetch = False,
+          delay = 0,
           user_agent = None):
-    """Fetches a URL, with delay and cache options
-    (see comments on parameters)"""
+    """Fetches a URL, with delay and/or cache.
+    
+    returnFilename: if True, returns the cached
+    filename we saved it in, if False, return the
+    actual data.
+
+    cache: the cache directory (None = don't save,
+    unless returnFilename=True in which case we
+    write a temporary file which the caller
+    should remove)
+
+    refresh: if True, send an If-Modified-Since
+    request if we have a cached item (the date of
+    modification will be the timestamp of the file
+    in the cache, not necessarily the actual last
+    modified time as given by the server)
+
+    refetch: if True, reload unconditionally
+    without first checking the cache
+
+    delay: number of seconds between fetches
+    (tracked globally from last fetch)
+
+    user_agent: the User-Agent string to use, if
+    not using Python's default User-Agent"""
+    
     ifModSince = None
     if cache:
       fn = re.sub('[%&?@*#{}<>!:+`=|$]','',cache+os.sep+unquote(re.sub('.*?://','',url)).replace('/',os.sep)) # these characters need to be removed on Windows's filesystem; TODO: store original URL somewhere just in case some misguided webmaster puts two identical URLs modulo those characters??
@@ -511,15 +581,17 @@ def fetch(url,
 def ncc_html(R, headings = [],
              hasFullText = False,
              totalSecs = 0,
-             recTimeTxts = [], # including 0,tot
-             pageNos=[]): # INTERNAL
+             recTimeTxts = [],
+             pageNos=[]):
     """Returns the Navigation Control Centre (NCC)
+    recTimeTxts includes 0 and total
     pageNos is [[PageInfo,...],...]"""
+    
     numPages = sum(len(l) for l in pageNos)
     maxPageNo = max((max((int(i.pageNo) for i in PNs),default=0) for PNs in pageNos),default=0)
     # TODO: we assume all pages are 'normal' pages
     # (not 'front' pages in Roman letters etc)
-    headingsR = normaliseDepth(R,HReduce(headings)) # (hType,hText,recNo,textNo)
+    headingsR = normaliseDepth(R,hReduce(headings)) # (hType,hText,recNo,textNo)
     return deBlank(f"""<?xml version="1.0" encoding="utf-8"?>
 {'<!DOCTYPE ncx PUBLIC "-//NISO//DTD ncx 2005-1//EN" "http://www.daisy.org/z3986/2005/ncx-2005-1.dtd">' if R.daisy3 else '<!DOCTYPE html PUBLIC "-//W3C//DTD XHTML 1.0 Transitional//EN" "http://www.w3.org/TR/xhtml1/DTD/xhtml1-transitional.dtd">'}
 <{'ncx xmlns="http://www.daisy.org/z3986/2005/ncx/" version="2005-1"' if R.daisy3 else f'html lang="{R.lang}" xmlns="http://www.w3.org/1999/xhtml"'} xml:lang="{R.lang}">
@@ -571,6 +643,9 @@ def ncc_html(R, headings = [],
 </html>"""))
 
 def numDaisy3NavpointsToClose(s,headingsR):
+    """Calculates the number of DAISY 3 navigation
+    points that need closing after index s"""
+    
     thisTag = headingsR[s]
     if thisTag.hTag.startswith('h'):
         thisDepth = int(thisTag.hTag[1])
@@ -589,12 +664,16 @@ def numDaisy3NavpointsToClose(s,headingsR):
     N = sum(1 for j in range(nextDepth,D+1) if str(j) in headingNums_closed)
     return N+(1 if thisDepth==None else 0)
 
-def HReduce(headings): # INTERNAL
-    "convert a list of ChapterTOCInfo lists (or text strings for unstructured chapters) into a single BookTOCInfo list"
+def hReduce(headings):
+    """convert a list of ChapterTOCInfo lists (or
+    text strings for unstructured chapters) into a
+    single BookTOCInfo list"""
     return reduce(lambda a,b:a+b,[([BookTOCInfo(hType,hText,recNo,textNo) for (hType,hText,textNo) in i] if type(i)==list else [BookTOCInfo('h1',i,recNo,0)]) for recNo,i in enumerate(headings)],[])
 
-def normaliseDepth(R,items): # INTERNAL
-    "Ensure that heading items' depth conforms to DAISY standard, in a BookTOCInfo list"
+def normaliseDepth(R,items):
+    """Ensure that heading items' depth conforms
+    to DAISY standard, in a BookTOCInfo list"""
+    
     if R.allow_jumps: return items
     curDepth = 0
     for i in range(len(items)):
@@ -608,9 +687,9 @@ def normaliseDepth(R,items): # INTERNAL
     return items
 
 def master_smil(R,headings = [],
-                totalSecs = 0): # INTERNAL
+                totalSecs = 0):
     "Compile the master smil for a DAISY file"
-    headings = HReduce(headings)
+    headings = hReduce(headings)
     return f"""<?xml version="1.0"?>
 <!DOCTYPE smil PUBLIC "-//W3C//DTD SMIL 1.0//EN" "http://www.w3.org/TR/REC-smil/SMIL10.dtd">
 <smil>
@@ -633,7 +712,7 @@ def section_smil(R, recNo=1,
                  totalSecsSoFar=0,
                  secsThisRecording=0,
                  startP=0,
-                 textsAndTimes=[]): # INTERNAL
+                 textsAndTimes=[]):
     "Compile a section SMIL for a DAISY file"
     if not type(textsAndTimes)==list: textsAndTimes=[textsAndTimes]
     textsAndTimes = [0]+textsAndTimes+[secsThisRecording]
@@ -664,15 +743,33 @@ def section_smil(R, recNo=1,
 </smil>
 """)
 # (do not omit text with 0-length audio altogether, even in Daisy 2: unlike image tags after paragraphs, it might end up not being displayed by EasyReader etc.  Omitting audio does NOT save being stopped at the beginning of the chapter when rewinding by paragraph: is this a bug or a feature?)
-def deBlank(s): return re.sub("\n *\n","\n",s) # INTERNAL (see use above)
 
-def hmsTime(secs): return f"{int(secs/3600)}:{int(secs/60)%60:02d}:{secs%60:06.3f}"
+def deBlank(s):
+    """Remove blank lines from s
+    (does not currently remove the first line if
+    blank).  Used so that optional items can be
+    placed on their own lines in our format-string
+    templates for DAISY markup.
+    """
+    return re.sub("\n( *\n)+","\n",s)
+
+def hmsTime(secs):
+    """Formats a floating-point number of seconds
+    into the DAISY standard hours:minutes:seconds
+    with fractions to 3 decimal places.  (Some
+    old DAISY readers can crash if more than 3
+    decimals are used, so we must stick to 3)"""
+    
+    return f"{int(secs/3600)}:{int(secs/60)%60:02d}:{secs%60:06.3f}"
 
 def deHTML(t):
-    "Remove HTML tags from t, collapse whitespace and escape quotes so it can be included in an XML attribute"
+    """Remove HTML tags from t, collapse
+    whitespace and escape quotes so it can be
+    included in an XML attribute"""
+    
     return re.sub(r'\s+',' ',re.sub('<[^>]*>','',t)).replace('"','&quot;').strip()
 
-def package_opf(R,hasFullText,numRecs,totalSecs): # INTERNAL
+def package_opf(R,hasFullText,numRecs,totalSecs):
     "Make the package OPF for a DAISY 3 file"
     return f"""<?xml version="1.0" encoding="utf-8"?>
 <!DOCTYPE package
@@ -713,8 +810,11 @@ def package_opf(R,hasFullText,numRecs,totalSecs): # INTERNAL
 </package>
 """
 
-def text_htm(R,paras,offset=0): # INTERNAL
-    "paras = TagAndText list, text is xhtml i.e. & use &amp; etc"
+def text_htm(R,paras,offset=0):
+    """Format the text, as htm for DAISY 2 or xml
+    for DAISY 3.
+    paras = TagAndText list, text is xhtml i.e. & use &amp; etc."""
+    
     return deBlank(f"""<?xml version="1.0"{' encoding="utf-8"' if R.daisy3 else ''}?>{'<?xml-stylesheet type="text/css" href="dtbook.2005.basic.css"?>' if R.daisy3 else ''}
 {'<!DOCTYPE dtbook PUBLIC "-//NISO//DTD dtbook 2005-3//EN" "http://www.daisy.org/z3986/2005/dtbook-2005-3.dtd">' if R.daisy3 else '<!DOCTYPE html PUBLIC "-//W3C//DTD XHTML 1.0 Transitional//EN" "http://www.w3.org/TR/xhtml1/DTD/xhtml1-transitional.dtd">'}
 <{'dtbook xmlns="http://www.daisy.org/z3986/2005/dtbook/" version="2005-2"' if R.daisy3 else f'html lang="{R.lang}" xmlns="http://www.w3.org/1999/xhtml"'} xml:lang="{R.lang}">
@@ -736,8 +836,10 @@ def text_htm(R,paras,offset=0): # INTERNAL
 </{'dtbook' if R.daisy3 else 'html'}>
 """)
 
-def er_book_info(durations): # INTERNAL
-    "durations = list of secsThisRecording"
+def er_book_info(durations):
+    """Return the EasyReader book info.
+    durations = list of secsThisRecording"""
+    
     return """<?xml version="1.0" encoding="utf-8"?>
 <book_info>
     <smil_info>"""+"".join(f"""
@@ -780,3 +882,8 @@ textres = """<?xml version="1.0" encoding="utf-8"?>
 <resources xmlns="http://www.daisy.org/z3986/2005/resource/" version="2005-1"><!-- SKIPPABLE NCX --><scope nsuri="http://www.daisy.org/z3986/2005/ncx/"><nodeSet id="ns001" select="//smilCustomTest[@bookStruct='LINE_NUMBER']"><resource xml:lang="en" id="r001"><text>Row</text></resource></nodeSet><nodeSet id="ns002" select="//smilCustomTest[@bookStruct='NOTE']"><resource xml:lang="en" id="r002"><text>Note</text></resource></nodeSet><nodeSet id="ns003" select="//smilCustomTest[@bookStruct='NOTE_REFERENCE']"><resource xml:lang="en" id="r003"><text>Note reference</text></resource></nodeSet><nodeSet id="ns004" select="//smilCustomTest[@bookStruct='ANNOTATION']"><resource xml:lang="en" id="r004"><text>Annotation</text></resource></nodeSet><nodeSet id="ns005" select="//smilCustomTest[@id='annoref']"><resource xml:lang="en" id="r005"><text>Annotation reference</text></resource></nodeSet><nodeSet id="ns006" select="//smilCustomTest[@bookStruct='PAGE_NUMBER']"><resource xml:lang="en" id="r006"><text>Page</text></resource></nodeSet><nodeSet id="ns007" select="//smilCustomTest[@bookStruct='OPTIONAL_SIDEBAR']"><resource xml:lang="en" id="r007"><text>Optional sidebar</text></resource></nodeSet><nodeSet id="ns008" select="//smilCustomTest[@bookStruct='OPTIONAL_PRODUCER_NOTE']"><resource xml:lang="en" id="r008"><text>Optional producer note</text></resource></nodeSet></scope><!-- ESCAPABLE SMIL --><scope nsuri="http://www.w3.org/2001/SMIL20/"><nodeSet id="esns001" select="//seq[@bookStruct='line']"><resource xml:lang="en" id="esr001"><text>Row</text></resource></nodeSet><nodeSet id="esns002" select="//seq[@class='note']"><resource xml:lang="en" id="esr002"><text>Note</text></resource></nodeSet><nodeSet id="esns003" select="//seq[@class='noteref']"><resource xml:lang="en" id="esr003"><text>Note reference</text></resource></nodeSet><nodeSet id="esns004" select="//seq[@class='annotation']"><resource xml:lang="en" id="esr004"><text>Annotation</text></resource></nodeSet><nodeSet id="esns005" select="//seq[@class='annoref']"><resource xml:lang="en" id="esr005"><text>Annotation reference</text></resource></nodeSet><nodeSet id="esns006" select="//seq[@class='pagenum']"><resource xml:lang="en" id="esr006"><text>Page</text></resource></nodeSet><nodeSet id="esns007" select="//seq[@class='sidebar']"><resource xml:lang="en" id="esr007"><text>Optional sidebar</text></resource></nodeSet><nodeSet id="esns008" select="//seq[@class='prodnote']"><resource xml:lang="en" id="esr008"><text>Optional producer note</text></resource></nodeSet></scope><!-- ESCAPABLE DTBOOK --><scope nsuri="http://www.daisy.org/z3986/2005/dtbook/"><nodeSet id="ns009" select="//annotation"><resource xml:lang="en" id="r009"><text>Annotation</text></resource></nodeSet><nodeSet id="ns010" select="//blockquote"><resource xml:lang="en" id="r010"><text>Quote</text></resource></nodeSet><nodeSet id="ns011" select="//code"><resource xml:lang="en" id="r011"><text>Code</text></resource></nodeSet><nodeSet id="ns012" select="//list"><resource xml:lang="en" id="r012"><text>List</text></resource></nodeSet><nodeSet id="ns018" select="//note"><resource xml:lang="en" id="r018"><text>Note</text></resource></nodeSet><nodeSet id="ns013" select="//poem"><resource xml:lang="en" id="r013"><text>Poem</text></resource></nodeSet><nodeSet id="ns0014" select="//prodnote[@render='optional']"><resource xml:lang="en" id="r014"><text>Optional producer note</text></resource></nodeSet><nodeSet id="ns015" select="//sidebar[@render='optional']"><resource xml:lang="en" id="r015"><text>Optional sidebar</text></resource></nodeSet><nodeSet id="ns016" select="//table"><resource xml:lang="en" id="r016"><text>Table</text></resource></nodeSet><nodeSet id="ns017" select="//tr"><resource xml:lang="en" id="r017"><text>Table row</text></resource></nodeSet></scope></resources>"""
 
 if __name__ == "__main__": anemone()
+
+version = float(__doc__.split()[1]) # for code importing the module to check
+
+# __all__ cuts down what's listed in help(anemone), w/out stopping other things being available via dir() and help(symbol).  Might be useful especially because the default help() lists all classes, including namedtuple classes, with all default methods, before even getting to the anemone() function.  They can have other things *after* anemone(), but we want them to see anemone() as near to the top of the documentation as possible.  So let's take out the classes.
+__all__ = sorted(n for n,s in globals().items() if (type(s)==type(anemone) or n=='version') and not n in ['run','unquote','urlopen','which'])
