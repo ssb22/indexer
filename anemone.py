@@ -1,6 +1,6 @@
 #!/usr/bin/env python3
 """
-Anemone 1.45 (http://ssb22.user.srcf.net/anemone)
+Anemone 1.46 (http://ssb22.user.srcf.net/anemone)
 (c) 2023-24 Silas S. Brown.  License: Apache 2
 
 To use this module, either run it from the command
@@ -227,7 +227,7 @@ def get_texts(R):
         want_pids = [jsonAttr(m,"id") for m in markers]
         id_to_content = {}
         pageNos = []
-        allowedInlineTags=['br'] # Dolphin EasyReader does not render <strong> and <em> (or <b> and <i>) although Thorium Reader does.  Constructs like "(<em>Publication name</em>" result in incorrect space after "(" in EasyReader, so best leave it out (TODO: option to keep it if we know a reader like Thorium will be in use?  and/or allow <em>...</em> when the marked-up phrase is both preceded and followed by space or start/end paragraph?)  Also <sup> and <sub> are not supported and will likely result in spurious line breaks.
+        allowedInlineTags={'br':'br','strong':'strong','em':'em','b':'strong','i':'em'}
         assert not 'rt' in allowedInlineTags, "if allowing this, need to revise rt suppression logic" # and would have to rely on rp parens for most readers, so if a text has a LOT of ruby it could get quite unreadable
         class PidsExtractor(HTMLParser):
             def __init__(self):
@@ -263,7 +263,7 @@ def get_texts(R):
                     return
                 if tag==self.theStartTag and not tag=="p": # can nest
                     self.tagDepth += 1
-                if not self.addTo==None and tag in allowedInlineTags: self.addTo.append(f'<{tag}>')
+                if not self.addTo==None and tag in allowedInlineTags: self.addTo.append(f'<{allowedInlineTags[tag]}>')
                 elif not self.addTo==None and tag=='a': self.lastAStart = len(self.addTo)
                 elif tag=='rt': self.suppress += 1
             def handle_endtag(self,tag):
@@ -273,7 +273,7 @@ def get_texts(R):
                     if tag==self.theStartTag and self.tagDepth == 0:
                         self.highestImage,self.imgsMaybeAddTo, self.imgsMaybeAdd = len(R.imageFiles),self.addTo,[] # if we find any images (not in an id'd element) after the end of the id'd element, we might want to add them in with any inside it, but only if there's another id'd element after them i.e. not if they're just random decoration at the bottom of the page
                         self.addTo = None
-                    elif tag in allowedInlineTags: self.addTo.append(f'</{tag}>')
+                    elif tag in allowedInlineTags: self.addTo.append(f'</{allowedInlineTags[tag]}>')
                     elif tag=="a" and re.match('[!-.:-~]$',"".join(self.addTo[self.lastAStart:]).strip()): del self.addTo[self.lastAStart:] # remove single-character link, probably to footnote (we won't know if it's in the audio or not, we're not supporting jumps and the symbols might need normalising) but do allow numbers (might be paragraph numbers etc) and non-ASCII (might be single-character CJK word)
                     if tag==self.theStartTag and self.tagDepth: self.tagDepth -= 1
                 elif tag=='p' and self.imgsMaybeAddTo and self.theStartTag=='span': self.imgsMaybeAddTo.append("<br>") # if paragraphs contain spans and it's the spans that are identified, ensure we keep this break in the surrounding structure
@@ -288,6 +288,10 @@ def get_texts(R):
             if want_pids[i] in id_to_content:
                 tag,content = id_to_content[want_pids[i]]
                 content = ''.join(content).strip()
+                while True: # EasyReader 10 workaround: it does not show strong or em, which is OK but it puts space around it: no good if it happened after a "(" or similar, so delete those occurrences
+                    c2 = re.sub(r"<(?P<tag>(strong|em))>(.*?)</(?P=tag)>",lambda m:m.group(3) if m.start() and content[m.start()-1] not in ' >' or m.end()<len(content) and content[m.end()] not in ' <' else m.group(),content)
+                    if c2==content: break
+                    content = c2 # and re-check
                 rTxt.append(TagAndText(tag,re.sub('( *</?br> *)+','<br />',content))) # (allow line breaks inside paragraphs, in case any in mid-"sentence", but collapse them because readers typically add extra space to each)
             else:
                 R.warning(f"JSON {len(recordingTexts)+1} marker {i+1} marks paragraph ID {want_pids[i]} which is not present in HTML {len(recordingTexts)+1}.  Anemone will make this a blank paragraph.")
