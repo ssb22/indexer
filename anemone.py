@@ -1,6 +1,6 @@
 #!/usr/bin/env python3
 """
-Anemone 1.46 (http://ssb22.user.srcf.net/anemone)
+Anemone 1.47 (http://ssb22.user.srcf.net/anemone)
 (c) 2023-24 Silas S. Brown.  License: Apache 2
 
 To use this module, either run it from the command
@@ -45,7 +45,9 @@ def anemone(*files,**options):
     find {fetch(), deBlank(), version} useful."""
     
     R=Run(*[(json.dumps(f) if type(f)==dict else f) for f in files],**options)
-    if R.mp3_recode: check_we_got_LAME()
+    R.wav_encode = any(f.strip().lower().endswith(f"{os.extsep}wav") for f in files if type(f)==str)
+    if R.mp3_recode or R.wav_encode:
+        check_we_got_LAME()
     write_all(R,get_texts(R))
     R.cleanup() ; return R.warnings
 
@@ -55,7 +57,7 @@ def populate_argument_parser(args):
     also options for anemone(), and help text.
     This is also used for runtime module help."""
     
-    args.add_argument("files",metavar="file",nargs="+",help="file name of: an MP3 recording, a text file containing its title (if no full text), an XHTML file containing its full text, a JSON file containing its time markers (or text plus time in JSON transcript format), or the output ZIP file.  Only one output file may be specified, but any number of the other files can be included; URLs may be given if they are to be fetched (HTML assumed if no extension).  If only MP3 files are given then titles are taken from their filenames.  You may also specify @filename where filename contains a list of files one per line.")
+    args.add_argument("files",metavar="file",nargs="+",help="file name of: an MP3 or WAV recording, a text file containing its title (if no full text), an XHTML file containing its full text, a JSON file containing its time markers (or text plus time in JSON transcript format), or the output ZIP file.  Only one output file may be specified, but any number of the other files can be included; URLs may be given if they are to be fetched (HTML assumed if no extension).  If only MP3 files are given then titles are taken from their filenames.  You may also specify @filename where filename contains a list of files one per line.")
     args.add_argument("--lang",default="en",help="the ISO 639 language code of the publication (defaults to en for English)")
     args.add_argument("--title",default="",help="the title of the publication")
     args.add_argument("--url",default="",help="the URL or ISBN of the publication")
@@ -156,7 +158,6 @@ class Run():
             R.htmlData.append(f) ; continue
         elif not os.path.isfile(f): error(f"File not found: {f}")
         if f.lower().endswith(f"{os.extsep}mp3") or f.lower().endswith(f"{os.extsep}wav"):
-            if f.endswith(f"{os.extsep}wav") and not R.mp3_recode: error("wav input requires mp3 recode to be set")
             R.recordingFiles.append(f)
         elif f.lower().endswith(f"{os.extsep}json"): R.jsonData.append(json.load(open(f,encoding="utf-8"))),check_for_JSON_transcript(R)
         elif f.lower().endswith(f"{os.extsep}txt"):
@@ -194,7 +195,7 @@ def check_for_JSON_transcript(R):
                 curSpeaker,bodyList[-1] = s,f"[{s}] {bodyList[-1]}"
                 if len(bodyList)>1: bodyList[-2] += "<br>"
         R.htmlData.append(' '.join(f'<span {R.marker_attribute}="{i}">{c}</span>' for i,c in enumerate(bodyList) if c))
-        R.jsonData[-1]={"markers":[{"id":f"{i}","time":t} for i,t in enumerate(s["startTime"] for s in R.jsonData[-1]["segments"])]}
+        R.jsonData[-1]={"markers":[{"id":f"{i}","time":t} for i,t in enumerate(s["startTime"] for s in R.jsonData[-1]["segments"]) if bodyList[i]]}
 
 def check_we_got_LAME():
     """Complains if a LAME binary is not
@@ -205,7 +206,7 @@ def check_we_got_LAME():
     if sys.platform=='win32':
         os.environ["PATH"] += r";C:\Program Files (x86)\Lame for Audacity;C:\Program Files\Lame for Audacity"
         if which('lame'): return
-    error(f"Anemone requires the LAME program to recode MP3s.\nPlease {'run the exe installer from lame.buanzo.org' if sys.platform=='win32' else 'install lame'} and try again.")
+    error(f"Anemone requires the LAME program to encode/recode MP3s.\nPlease {'run the exe installer from lame.buanzo.org' if sys.platform=='win32' else 'install lame'} and try again.")
 
 PageInfo = NT('PageInfo',['duringId','pageNo'])
 TagAndText = NT('TagAndText',['tag','text'])
@@ -288,11 +289,7 @@ def get_texts(R):
             if want_pids[i] in id_to_content:
                 tag,content = id_to_content[want_pids[i]]
                 content = ''.join(content).strip()
-                while True: # EasyReader 10 workaround: it does not show strong or em, which is OK but it puts space around it: no good if it happened after a "(" or similar, so delete those occurrences
-                    c2 = re.sub(r"<(?P<tag>(strong|em))>(.*?)</(?P=tag)>",lambda m:m.group(3) if m.start() and content[m.start()-1] not in ' >' or m.end()<len(content) and content[m.end()] not in ' <' else m.group(),content)
-                    if c2==content: break
-                    content = c2 # and re-check
-                rTxt.append(TagAndText(tag,re.sub('( *</?br> *)+','<br />',content))) # (allow line breaks inside paragraphs, in case any in mid-"sentence", but collapse them because readers typically add extra space to each)
+                rTxt.append(TagAndText(tag,content_fixes(content)))
             else:
                 R.warning(f"JSON {len(recordingTexts)+1} marker {i+1} marks paragraph ID {want_pids[i]} which is not present in HTML {len(recordingTexts)+1}.  Anemone will make this a blank paragraph.")
                 rTxt.append(TagAndText('p',''))
@@ -302,6 +299,24 @@ def get_texts(R):
 tagRewrite = { # used by get_texts
     'legend':'h3', # used in fieldset
 }
+
+def content_fixes(content):
+    """Miscellaneous fixes for final XML/XHTML
+    to work around some issues with readers"""
+    content = easyReader_em_fix(content)
+    content = re.sub('( *</?br> *)+',' <br />',content) # allow line breaks inside paragraphs, in case any in mid-"sentence", but collapse them because readers typically add extra space to each, plus add a space beforehand in case any reader doesn't render the linebreak (e.g. EasyReader 10 in a sentence span)
+    return content
+
+def easyReader_em_fix(content):
+    """EasyReader 10 workaround: it does not show
+    strong or em, which is OK but it puts space
+    around it: no good if it happened after a "("
+    or similar, so delete those occurrences"""
+    while True:
+        c2 = re.sub(r"<(?P<tag>(strong|em))>(.*?)</(?P=tag)>",lambda m:easyReader_em_fix(m.group(3)) if m.start() and content[m.start()-1] not in ' >' or m.end()<len(content) and content[m.end()] not in ' <' else f"<{m.group(1)}>{easyReader_em_fix(m.group(3))}</{m.group(1)}>",content)
+        if c2==content: break
+        content = c2 # and re-check
+    return content
 
 def jsonAttr(d,suffix):
     """Returns the value of a dictionary key whose
@@ -339,10 +354,10 @@ def write_all(R,recordingTexts):
     if R.dry_run: return sys.stderr.write(f"Dry run: {len(R.warnings) if R.warnings else 'no'} warning{'' if len(R.warnings)==1 else 's'} for {R.outputFile}\n")
     merge0lenSpans(recordingTexts,headings)
     hasFullText = any(type(t)==TextsAndTimesWithPages for t in recordingTexts)
-    if R.mp3_recode: # parallelise lame if possible
+    if R.mp3_recode or R.wav_encode: # parallelise lame if possible
         if not __name__=="__main__": sys.stderr.write(f"Making {R.outputFile}...\n"),sys.stderr.flush() # especially if repeatedly called, print which outputFile we're working on BEFORE the mp3s also
         executor = ThreadPoolExecutor(max_workers=cpu_count())
-        recordings=[executor.submit(recodeMP3,f) for f in R.recordingFiles]
+        recordings=[executor.submit((recodeMP3 if R.mp3_recode or not f.lower().endswith(f"{os.extsep}mp3") else lambda f:open(f,'rb').read()),f) for f in R.recordingFiles]
     z = ZipFile(R.outputFile,"w",ZIP_DEFLATED,False)
     def D(s): return s.replace("\n","\r\n") # in case old readers require DOS line endings
     if hasFullText: z.writestr("0000.txt",D(f"""
@@ -367,10 +382,11 @@ def write_all(R,recordingTexts):
         rTxt = recordingTexts[recNo-1]
         f = R.recordingFiles[recNo-1]
         secsThisRecording = (MP3(f) if f.lower().endswith(f"{os.extsep}mp3") else WAVE(f)).info.length
+        if secsThisRecording > 3600: R.warning(f"Recording {recNo} is long enough to cause ~{secsThisRecording*.0001:.1f}sec synchronisation error on some readers") # seems lame v3.100 can result in timestamps being effectively multiplied by ~1.0001 on some players but not all, causing slight de-sync on 1h+ recordings (bladeenc may avoid this but be lower quality overall; better to keep the recordings shorter if possible)
         durations.append(secsThisRecording)
-        if R.mp3_recode: sys.stderr.write(f"Adding {recNo:04d}.mp3..."),sys.stderr.flush()
-        z.writestr(f"{recNo:04d}.mp3",recordings[recNo-1].result() if R.mp3_recode else open(R.recordingFiles[recNo-1],'rb').read())
-        if R.mp3_recode: sys.stderr.write(" done\n")
+        if R.mp3_recode or R.wav_encode: sys.stderr.write(f"Adding {recNo:04d}.mp3..."),sys.stderr.flush()
+        z.writestr(f"{recNo:04d}.mp3",recordings[recNo-1].result() if R.mp3_recode or R.wav_encode else open(R.recordingFiles[recNo-1],'rb').read())
+        if R.mp3_recode or R.wav_encode: sys.stderr.write(" done\n")
         z.writestr(f'{recNo:04d}.smil',D(section_smil(R,recNo,secsSoFar,secsThisRecording,curP,rTxt.textsAndTimes if type(rTxt)==TextsAndTimesWithPages else rTxt)))
         z.writestr(f'{recNo:04d}.{"xml" if R.daisy3 else "htm"}',D(text_htm(R,(rTxt.textsAndTimes[::2] if type(rTxt)==TextsAndTimesWithPages else [TagAndText('h1',rTxt)]),curP)))
         secsSoFar += secsThisRecording
@@ -687,7 +703,8 @@ def normaliseDepth(R,items):
         if depth > curDepth+1:
             if type(ii)==BookTOCInfo: items[i]=BookTOCInfo(f'h{curDepth+1}',ii.hLine,ii.recNo,ii.itemNo)
             else: items[i]=TagAndText(f'h{curDepth+1}',ii.text)
-        curDepth = depth
+            curDepth += 1
+        else: curDepth = depth
     return items
 
 def master_smil(R,headings = [],
@@ -835,7 +852,7 @@ def text_htm(R,paras,offset=0):
     </head>
     <{'book' if R.daisy3 else 'body'}>
         {f'<frontmatter><doctitle>{R.title}</doctitle><docauthor>{R.creator}</docauthor></frontmatter><bodymatter>' if R.daisy3 else ''}
-"""+"\n".join(f"""{''.join(f'<level{n}>' for n in range(min(int(tag[1:]),next(int(paras[p].tag[1:]) for p in range(num-1,-1,-1) if paras[p].tag.startswith('h'))+1) if any(paras[P].tag.startswith('h') for P in range(num-1,-1,-1)) else 1,int(tag[1:])+1)) if R.daisy3 and tag.startswith('h') else ''}{'<level1>' if R.daisy3 and not num and not tag.startswith('h') else ''}{'<p>' if tag=='span' and (num==0 or not paras[num-1].tag=="span" or paras[num-1].text.endswith("<br />")) else ''}<{tag} id=\"p{num+offset}\"{(' class="word"' if len(text.split())==1 else ' class="sentence"') if tag=='span' else ''}>{re.sub("<br />$","",re.sub('<img src="[^"]*" [^/]*/>','',text))}</{tag}>{'</p>' if tag=='span' and (text.endswith("<br />") or num+1==len(paras) or not paras[num+1].tag=='span') else ''}{'<p><imggroup>' if R.daisy3 and re.search('<img src="',text) else ''}{''.join(re.findall('<img src="[^"]*" [^/]*/>',text))}{'</imggroup></p>' if R.daisy3 and re.search('<img src="',text) else ''}{''.join(f'</level{n}>' for n in range(next(int(paras[p].tag[1:]) for p in range(num,-1,-1) if paras[p].tag.startswith('h')) if any(paras[P].tag.startswith('h') for P in range(num,-1,-1)) else 1,0 if num+1==len(paras) else int(paras[num+1].tag[1:])-1,-1)) if R.daisy3 and (num+1==len(paras) or paras[num+1].tag.startswith('h')) else ''}""" for num,(tag,text) in enumerate(normaliseDepth(R,paras)))+f"""
+"""+"\n".join(f"""{''.join(f'<level{n}>' for n in range(min(int(tag[1:]),next(int(paras[p].tag[1:]) for p in range(num-1,-1,-1) if paras[p].tag.startswith('h'))+1) if any(paras[P].tag.startswith('h') for P in range(num-1,-1,-1)) else 1,int(tag[1:])+1)) if R.daisy3 and tag.startswith('h') else ''}{'<level1>' if R.daisy3 and not num and not tag.startswith('h') else ''}{'<p>' if tag=='span' and (num==0 or not paras[num-1].tag=="span" or paras[num-1].text.endswith("<br />")) else ''}<{tag} id=\"p{num+offset}\"{(' class="word"' if len(text.split())==1 else ' class="sentence"') if tag=='span' else ''}>{re.sub(" *<br />$","",re.sub('<img src="[^"]*" [^/]*/>','',text))}</{tag}>{'</p>' if tag=='span' and (text.endswith("<br />") or num+1==len(paras) or not paras[num+1].tag=='span') else ''}{'<p><imggroup>' if R.daisy3 and re.search('<img src="',text) else ''}{''.join(re.findall('<img src="[^"]*" [^/]*/>',text))}{'</imggroup></p>' if R.daisy3 and re.search('<img src="',text) else ''}{''.join(f'</level{n}>' for n in range(next(int(paras[p].tag[1:]) for p in range(num,-1,-1) if paras[p].tag.startswith('h')) if any(paras[P].tag.startswith('h') for P in range(num,-1,-1)) else 1,0 if num+1==len(paras) else int(paras[num+1].tag[1:])-1,-1)) if R.daisy3 and (num+1==len(paras) or paras[num+1].tag.startswith('h')) else ''}""" for num,(tag,text) in enumerate(normaliseDepth(R,paras)))+f"""
     </{'bodymatter></book' if R.daisy3 else 'body'}>
 </{'dtbook' if R.daisy3 else 'html'}>
 """)
