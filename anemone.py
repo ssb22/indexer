@@ -1,6 +1,6 @@
 #!/usr/bin/env python3
 """
-Anemone 1.47 (http://ssb22.user.srcf.net/anemone)
+Anemone 1.48 (http://ssb22.user.srcf.net/anemone)
 (c) 2023-24 Silas S. Brown.  License: Apache 2
 
 To use this module, either run it from the command
@@ -250,9 +250,6 @@ def get_texts(R):
                         R.imageFiles.append(imgURL)
                     if self.addTo==None: self.imgsMaybeAdd.append(img)
                     else: self.addTo.append(img)
-                pageNo = attrs.get(R.page_attribute,None)
-                if pageNo:
-                    pageNos.append(PageInfo(self.pageNoGoesAfter,pageNo))
                 if attrs.get(R.marker_attribute,None) in want_pids:
                     self.theStartTag = tag
                     self.tagDepth = 0
@@ -261,12 +258,13 @@ def get_texts(R):
                     id_to_content[a] = ((tag if re.match('h[1-6]$',tag) or tag=='span' else 'p'),[])
                     if self.imgsMaybeAdd: self.imgsMaybeAddTo += self.imgsMaybeAdd # and imgsMaybeAdd will be reset to [] when this element is closed
                     self.addTo = id_to_content[a][1]
-                    return
-                if tag==self.theStartTag and not tag=="p": # can nest
+                elif tag==self.theStartTag and not tag=="p": # can nest
                     self.tagDepth += 1
-                if not self.addTo==None and tag in allowedInlineTags: self.addTo.append(f'<{allowedInlineTags[tag]}>')
+                elif not self.addTo==None and tag in allowedInlineTags: self.addTo.append(f'<{allowedInlineTags[tag]}>')
                 elif not self.addTo==None and tag=='a': self.lastAStart = len(self.addTo)
                 elif tag=='rt': self.suppress += 1
+                pageNo = attrs.get(R.page_attribute,None)
+                if pageNo: pageNos.append(PageInfo(self.pageNoGoesAfter,pageNo))
             def handle_endtag(self,tag):
                 tag = tagRewrite.get(tag,tag)
                 if self.suppress and tag=='rt': self.suppress -= 1
