@@ -1,6 +1,6 @@
 #!/usr/bin/env python3
 """
-Anemone 1.48 (http://ssb22.user.srcf.net/anemone)
+Anemone 1.49 (http://ssb22.user.srcf.net/anemone)
 (c) 2023-24 Silas S. Brown.  License: Apache 2
 
 To use this module, either run it from the command
@@ -283,7 +283,7 @@ def get_texts(R):
         PidsExtractor().feed(h)
         rTxt = []
         for i in range(len(markers)):
-            if i: rTxt.append(parseTime(jsonAttr(markers[i],"time"))) # assume marker 0 is 0
+            rTxt.append(parseTime(jsonAttr(markers[i],"time")))
             if want_pids[i] in id_to_content:
                 tag,content = id_to_content[want_pids[i]]
                 content = ''.join(content).strip()
@@ -386,7 +386,7 @@ def write_all(R,recordingTexts):
         z.writestr(f"{recNo:04d}.mp3",recordings[recNo-1].result() if R.mp3_recode or R.wav_encode else open(R.recordingFiles[recNo-1],'rb').read())
         if R.mp3_recode or R.wav_encode: sys.stderr.write(" done\n")
         z.writestr(f'{recNo:04d}.smil',D(section_smil(R,recNo,secsSoFar,secsThisRecording,curP,rTxt.textsAndTimes if type(rTxt)==TextsAndTimesWithPages else rTxt)))
-        z.writestr(f'{recNo:04d}.{"xml" if R.daisy3 else "htm"}',D(text_htm(R,(rTxt.textsAndTimes[::2] if type(rTxt)==TextsAndTimesWithPages else [TagAndText('h1',rTxt)]),curP)))
+        z.writestr(f'{recNo:04d}.{"xml" if R.daisy3 else "htm"}',D(text_htm(R,(rTxt.textsAndTimes[(1 if type(rTxt.textsAndTimes[0])==float else 0)::2] if type(rTxt)==TextsAndTimesWithPages else [TagAndText('h1',rTxt)]),curP)))
         secsSoFar += secsThisRecording
         curP += (1+len(rTxt.textsAndTimes)//2 if type(rTxt)==TextsAndTimesWithPages else 1)
     for n,u in enumerate(R.imageFiles): z.writestr(f'{n+1}{u[u.rindex("."):]}',fetch(u,False,R.cache,R.refresh,R.refetch,R.delay,R.user_agent) if re.match("https?://",u) else open(u,'rb').read())
@@ -396,7 +396,7 @@ def write_all(R,recordingTexts):
         z.writestr('package.opf',D(package_opf(R,hasFullText,len(recordingTexts),secsSoFar)))
         z.writestr('text.res',D(textres))
     else: z.writestr('master.smil',D(master_smil(R,headings,secsSoFar)))
-    z.writestr('navigation.ncx' if R.daisy3 else 'ncc.html',D(ncc_html(R,headings,hasFullText,secsSoFar,[[0]+(t.textsAndTimes if type(t)==TextsAndTimesWithPages else [t])+[durations[i]] for i,t in enumerate(recordingTexts)],[(t.pageInfos if type(t)==TextsAndTimesWithPages else []) for t in recordingTexts])))
+    z.writestr('navigation.ncx' if R.daisy3 else 'ncc.html',D(ncc_html(R,headings,hasFullText,secsSoFar,[timeAdjust(t.textsAndTimes if type(t)==TextsAndTimesWithPages else t, durations[i]) for i,t in enumerate(recordingTexts)],[(t.pageInfos if type(t)==TextsAndTimesWithPages else []) for t in recordingTexts])))
     if not R.daisy3: z.writestr('er_book_info.xml',D(er_book_info(durations))) # not DAISY standard but EasyReader can use this
     z.close()
     sys.stderr.write(f"Wrote {R.outputFile}\n")
@@ -446,8 +446,9 @@ def getHeadings(R,recordingTexts):
                 if not chapterNumberText in chapterNumberTextFull: R.warning(f"Title for chapter {chapNo} is '{chapterNumberTextFull}' which does not contain the expected '{chapterNumberText}'")
             # In EasyReader 10 on Android, unless there is at least one HEADING (not just div), navigation display is non-functional.  And every heading must point to a 'real' heading in the text, otherwise EasyReader 10 will delete all the text in Daisy 2, or promote something to a heading in Daisy 3 (this is not done by Thorium Reader)
             # (EasyReader 10 on Android also inserts a newline after every span class=sentence if it's a SMIL item, even if there's no navigation pointing to it)
-            # So let's add a "real" start-of-chapter heading before the text, with time 0.001 second (don't set it to 0 or Thorium can have issues)
-            textsAndTimes.insert(first,(textsAndTimes[first-1] if first else 0)+0.001)
+            # So let's add a "real" start-of-chapter heading before the text, with time 0.001 second if we don't know the time from the first time marker (don't set it to 0 or Thorium can have issues)
+            if first==1 and textsAndTimes[0]: first = 0 # for the insert below: put it before the non-zero opening time marker
+            else: textsAndTimes.insert(first,(textsAndTimes[first-1] if first else 0)+0.001)
             textsAndTimes.insert(first,TagAndText(f'h{R.chapter_heading_level}',chapterNumberTextFull)) # we'll ref this
             chapHeadings=[ChapterTOCInfo(f'h{R.chapter_heading_level}',chapterNumberTextFull,first//2)] # points to our extra heading
             if textsAndTimes[first+2].text.startswith(chapterNumberText): textsAndTimes[first+2]=TagAndText(textsAndTimes[first+2].tag,textsAndTimes[first+2].text[len(chapterNumberText):].strip()) # because we just had the number as a heading, so we don't also need it repeated as 1st thing in text
@@ -727,14 +728,21 @@ def master_smil(R,headings = [],
 </smil>
 """
 
+def timeAdjust(textsAndTimes,secsThisRecording):
+    """Ensure textsAndTimes starts at the
+    beginning of the recording, and ends at the
+    end.  Necessary for some players to play all
+    of the audio."""
+    if not type(textsAndTimes)==list: textsAndTimes=[textsAndTimes]
+    return [0.0]+textsAndTimes[(1 if type(textsAndTimes[0])==float else 0):(-1 if type(textsAndTimes[-1])==float else len(textsAndTimes))]+[secsThisRecording]
+
 def section_smil(R, recNo=1,
                  totalSecsSoFar=0,
                  secsThisRecording=0,
                  startP=0,
                  textsAndTimes=[]):
     "Compile a section SMIL for a DAISY file"
-    if not type(textsAndTimes)==list: textsAndTimes=[textsAndTimes]
-    textsAndTimes = [0]+textsAndTimes+[secsThisRecording]
+    textsAndTimes = timeAdjust(textsAndTimes,secsThisRecording)
     return deBlank(f"""<?xml version="1.0" encoding="utf-8"?>
 {'<!DOCTYPE smil PUBLIC "-//NISO//DTD dtbsmil 2005-2//EN" "http://www.daisy.org/z3986/2005/dtbsmil-2005-2.dtd">' if R.daisy3 else '<!DOCTYPE smil PUBLIC "-//W3C//DTD SMIL 1.0//EN" "http://www.w3.org/TR/REC-smil/SMIL10.dtd">'}
 {'<smil xmlns="http://www.w3.org/2001/SMIL20/">' if R.daisy3 else '<smil>'}
