@@ -1,6 +1,6 @@
 #!/usr/bin/env python3
 """
-Anemone 1.49 (http://ssb22.user.srcf.net/anemone)
+Anemone 1.5 (http://ssb22.user.srcf.net/anemone)
 (c) 2023-24 Silas S. Brown.  License: Apache 2
 
 To use this module, either run it from the command
@@ -77,8 +77,8 @@ def populate_argument_parser(args):
     args.add_argument("--mp3-recode",action="store_true",help="re-code the MP3 files to ensure they are constant bitrate and more likely to work with the more limited DAISY-reading programs like FSReader 3 (this option requires LAME)")
     args.add_argument("--allow-jumps",action="store_true",help="Allow jumps in heading levels e.g. h1 to h3 if the input HTML does it.  This seems OK on modern readers but might cause older reading devices to give an error.  Without this option, headings are promoted where necessary to ensure only incremental depth increase.") # might cause older reading devices to give an error: and is also flagged up by the validator
     args.add_argument("--strict-ncc-divs",action="store_true",help="When generating Daisy 2, avoid using a heading in the navigation control centre when there isn't a heading in the text.  This currently applies when spans with verse numbering are detected.  Turning on this option will make the DAISY more conformant to the specification, but some readers (EasyReader 10, Thorium) won't show these headings in the navigation in Daisy 2 (but will show them anyway in Daisy 3, so this option is applied automatically in Daisy 3).  On the other hand, when using verse-numbered spans without this option, EasyReader 10 may not show any text at all in Daisy 2 (Anemone will warn if this is the case).  This setting cannot stop EasyReader promoting all verses to headings (losing paragraph formatting) in Daisy 3, which is the least bad option if you want these navigation points to work.")
-    args.add_argument("--merge-books",default="",help="Combine multiple books into one, for saving media on CD-based DAISY players that cannot handle more than one book.  The format of this option is book1/N1,book2/N2,etc where book1 is the book title and N1 is the number of MP3 files to group into it.  All headings are pushed down one level and book name headings are added at top level.")
-    args.add_argument("--chapter-titles",default="",help="Comma-separated list of titles to use for chapters that don't have titles, e.g. 'Chapter N' in the language of the book (this can help for search-based navigation)")
+    args.add_argument("--merge-books",default="",help="Combine multiple books into one, for saving media on CD-based DAISY players that cannot handle more than one book.  The format of this option is book1/N1,book2/N2,etc where book1 is the book title and N1 is the number of MP3 files to group into it (or if passing the option into the anemone module, you may use a list of tuples).  All headings are pushed down one level and book name headings are added at top level.")
+    args.add_argument("--chapter-titles",default="",help="Comma-separated list of titles to use for chapters that don't have titles, e.g. 'Chapter N' in the language of the book (this can help for search-based navigation).  If passing this option into the anemone module, you may use a list instead of a comma-separated string, which might be useful if there are commas in some chapter titles.")
     args.add_argument("--chapter-heading-level",default=1,help="Heading level to use for chapters that don't have titles")
     args.add_argument("--dry-run",action="store_true",help="Don't actually output DAISY, just check the input and parameters")
 
@@ -139,8 +139,11 @@ class Run():
     R.textFiles,R.htmlData = [],[]
     R.imageFiles,R.outputFile = [],None
     R.filesToDelete = [] ; R.warnings = []
-    if inFiles: R.__dict__.update(get_argument_parser().parse_args(list(inFiles)+['--'+k.replace('_','-') for k,v in kwargs.items() if v==True]+[a for k,v in kwargs.items() for a in ['--'+k.replace('_','-'),str(v)] if not v==True and not v==False and not v==None]).__dict__) # so flag=False is ignored (as we default to False), and option=None means use the default
-    else: R.__dict__.update(get_argument_parser().parse_args().__dict__)
+    if inFiles: R.__dict__.update(get_argument_parser().parse_args(list(inFiles)+['--'+k.replace('_','-') for k,v in kwargs.items() if v==True]+[a for k,v in kwargs.items() for a in ['--'+k.replace('_','-'),str(v)] if not v==True and not v==False and not v==None and not type(v)==list]).__dict__) # so flag=False is ignored (as we default to False), and option=None means use the default
+    else: R.__dict__.update(get_argument_parser().parse_args().__dict__) # defaults
+    R.__dict__.update((k,v) for k,v in kwargs.items() if type(v)==list) # for kwargs passed in to the module as lists (merge_books, chapter_titles), skip the parser
+    for k in ['merge_books','chapter_titles']:
+        if not type(R.__dict__[k])==list: R.__dict__[k]=R.__dict__[k].split(',') # comma-separate if coming from the command line, but allow lists to be passed in to the module
     for f in R.files:
         f = f.strip()
         if f.lower().endswith(f"{os.extsep}zip"):
@@ -356,7 +359,7 @@ def write_all(R,recordingTexts):
         if not __name__=="__main__": sys.stderr.write(f"Making {R.outputFile}...\n"),sys.stderr.flush() # especially if repeatedly called, print which outputFile we're working on BEFORE the mp3s also
         executor = ThreadPoolExecutor(max_workers=cpu_count())
         recordings=[executor.submit((recodeMP3 if R.mp3_recode or not f.lower().endswith(f"{os.extsep}mp3") else lambda f:open(f,'rb').read()),f) for f in R.recordingFiles]
-    z = ZipFile(R.outputFile,"w",ZIP_DEFLATED,False)
+    z = ZipFile(R.outputFile,"w",ZIP_DEFLATED,True)
     def D(s): return s.replace("\n","\r\n") # in case old readers require DOS line endings
     if hasFullText: z.writestr("0000.txt",D(f"""
     If you're reading this, it likely means your
@@ -405,9 +408,8 @@ def getHeadings(R,recordingTexts):
     """Gets headings from recordingTexts for the
     DAISY's NCC / OPF data"""
     
-    ret = []
-    cvChapCount = chapNo = 0
-    try: bookTitlesAndNumChaps = [(n,int(v)) for n,v in [b.split('/') for b in R.merge_books.split(',') if b]]
+    ret = [] ; cvChaps = [] ; chapNo = 0
+    try: bookTitlesAndNumChaps = [(n,int(v)) for n,v in [(b if type(b)==tuple else b.split('/')) for b in R.merge_books if b]]
     except: error(f"Unable to parse merge-books={R.merge_books}")
     for t in recordingTexts:
         chapNo += 1
@@ -441,8 +443,8 @@ def getHeadings(R,recordingTexts):
                 nums = [] ; first = 0 ; textsAndTimes.append(TagAndText('p',''))
             chapterNumberTextFull = chapterNumberText = nums[0] if len(nums)==1 and not nums[0]=="1" else str(chapNo)
             if R.chapter_titles:
-                if ',' in R.chapter_titles: chapterNumberTextFull,R.chapter_titles = R.chapter_titles.split(',',1)
-                else: chapterNumberTextFull,R.chapter_titles = R.chapter_titles, ""
+                if len(R.chapter_titles)>1: chapterNumberTextFull,R.chapter_titles = R.chapter_titles[0],R.chapter_titles[1:]
+                else: chapterNumberTextFull,R.chapter_titles = R.chapter_titles[0], []
                 if not chapterNumberText in chapterNumberTextFull: R.warning(f"Title for chapter {chapNo} is '{chapterNumberTextFull}' which does not contain the expected '{chapterNumberText}'")
             # In EasyReader 10 on Android, unless there is at least one HEADING (not just div), navigation display is non-functional.  And every heading must point to a 'real' heading in the text, otherwise EasyReader 10 will delete all the text in Daisy 2, or promote something to a heading in Daisy 3 (this is not done by Thorium Reader)
             # (EasyReader 10 on Android also inserts a newline after every span class=sentence if it's a SMIL item, even if there's no navigation pointing to it)
@@ -455,21 +457,21 @@ def getHeadings(R,recordingTexts):
             first += 2 # past the heading we added
             if first+2<len(textsAndTimes) and re.search("[1-9][0-9]*",textsAndTimes[first+2].text):
               v2 = int(re.findall("[1-9][0-9]*",textsAndTimes[first+2].text)[0]) # might not start at 2, might start at 13 or something, but does it then increase incrementally:
-              if [re.findall("[1-9][0-9]*",textsAndTimes[f].text)[:1] for f in range(first+4,len(textsAndTimes),2)]==[[str(n)] for n in range(v2+1,v2+(len(textsAndTimes)-first)//2)]: # looks like we're dealing with consecutive chapter and verse numbers with no other headings, so index the verse numbers
+              if [re.findall("[1-9][0-9]*",textsAndTimes[f].text)[:1] for f in range(first+4,len(textsAndTimes),2) if textsAndTimes[f].text]==[[str(n)] for n in range(v2+1,v2+(len(textsAndTimes)-first)//2-sum(1 for f in range(first+4,len(textsAndTimes),2) if not textsAndTimes[f].text))]: # looks like we're dealing with consecutive chapter and verse numbers with no other headings, so index the verse numbers (this is resilient to blank paragraphs due to an extra timing marker somewhere, but might cause incorrect numbering if that extra timing marker is not at the end)
                 v = 1
                 while v < (len(textsAndTimes)-first)//2+2:
                     lastV = v
                     while lastV < (len(textsAndTimes)-first)//2+1 and (0 if v==1 else textsAndTimes[first+2*v-3])==textsAndTimes[first+2*lastV-1]: lastV += 1 # check for a span of them sharing a time
-                    chapHeadings.append(ChapterTOCInfo('div' if R.daisy3 or R.strict_ncc_divs else f'h{R.chapter_heading_level+1}',f"{chapterNumberText}:{v}{'' if v==lastV else f'-{lastV}'}",first//2+v-1))
+                    if any(textsAndTimes[first+2*vv-2].text for vv in range(v,lastV+1)): chapHeadings.append(ChapterTOCInfo('div' if R.daisy3 or R.strict_ncc_divs else f'h{R.chapter_heading_level+1}',f"{chapterNumberText}:{v}{'' if v==lastV else f'-{lastV}'}",first//2+v-1))
                     v = lastV + 1
-                cvChapCount += 1
+                cvChaps.append(len(ret)+1)
         if bookTitlesAndNumChaps:
             chapHeadings=[ChapterTOCInfo(f'h{int(i.hTag[1:])+1}' if i.hTag.startswith('h') else i.hTag,i.hLine,i.itemNo) for i in chapHeadings] # add 1 to each heading level
             if chapNo==1: chapHeadings.insert(0,ChapterTOCInfo('h1',bookTitlesAndNumChaps[0][0],chapHeadings[0].itemNo)) # the book title (must point to a real heading for similar reason as above, TODO: if there's substantial text before 1st heading, we'll need to insert a heading in the text with 0.001s audio or something instead of doing this; may also need to in-place change recordingTexts adding 1 to all headings: don't do this unless inserting h1)
         ret.append(chapHeadings)
     if len(bookTitlesAndNumChaps)>1 or bookTitlesAndNumChaps and not chapNo==bookTitlesAndNumChaps[0][1]: R.warning("merge-books specified more files than given")
-    if cvChapCount not in [0,len(ret)]: R.warning(f"Verse-indexed only {cvChapCount} of {len(ret)} chapters")
-    if cvChapCount and not R.daisy3 and not R.strict_ncc_divs: R.warning("Verse-indexing in Daisy 2 can prevent EasyReader 10 from displaying the text: try Daisy 3 instead") # (and with strict_ncc_divs, verses are not shown in Book navigation in Daisy 2)
+    if len(cvChaps) not in [0,len(ret)]: R.warning(f"Verse-indexed only {len(cvChaps)} of {len(ret)} chapters.  Missing: {', '.join(str(i) for i in range(1,len(ret)+1) if not i in cvChaps)}")
+    if cvChaps and not R.daisy3 and not R.strict_ncc_divs: R.warning("Verse-indexing in Daisy 2 can prevent EasyReader 10 from displaying the text: try Daisy 3 instead") # (and with strict_ncc_divs, verses are not shown in Book navigation in Daisy 2)
     return ret
 
 def merge0lenSpans(recordingTexts,headings):
