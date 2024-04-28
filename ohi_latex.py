@@ -2,7 +2,7 @@
 # (works on both Python 2 and Python 3)
 
 # ohi_latex: Offline HTML Indexer for LaTeX
-# v1.395 (c) 2014-20,2023-24 Silas S. Brown
+# v1.396 (c) 2014-20,2023-24 Silas S. Brown
 
 # Licensed under the Apache License, Version 2.0 (the "License");
 # you may not use this file except in compliance with the License.
@@ -360,6 +360,7 @@ def makeLatex(unistr):
     u"\u266d":"$\\flat$",
     u"\u266e":"$\\natural$",
     u"\u266f":"$\\sharp$",
+    u"\u26ac":"$\\circ$",
     u"\u2713":"$\\checkmark$",
     u"\u2714":"\\textbf{$\\checkmark$}",
     u"\u2756":"$\\diamondsuit$",
