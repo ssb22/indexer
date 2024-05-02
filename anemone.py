@@ -1,6 +1,6 @@
 #!/usr/bin/env python3
 """
-Anemone 1.5 (http://ssb22.user.srcf.net/anemone)
+Anemone 1.51 (http://ssb22.user.srcf.net/anemone)
 (c) 2023-24 Silas S. Brown.  License: Apache 2
 
 To use this module, either run it from the command
@@ -354,13 +354,22 @@ def write_all(R,recordingTexts):
     headings = getHeadings(R,recordingTexts)
     if R.dry_run: return sys.stderr.write(f"Dry run: {len(R.warnings) if R.warnings else 'no'} warning{'' if len(R.warnings)==1 else 's'} for {R.outputFile}\n")
     merge0lenSpans(recordingTexts,headings)
-    hasFullText = any(type(t)==TextsAndTimesWithPages for t in recordingTexts)
     if R.mp3_recode or R.wav_encode: # parallelise lame if possible
         if not __name__=="__main__": sys.stderr.write(f"Making {R.outputFile}...\n"),sys.stderr.flush() # especially if repeatedly called, print which outputFile we're working on BEFORE the mp3s also
         executor = ThreadPoolExecutor(max_workers=cpu_count())
         recordings=[executor.submit((recodeMP3 if R.mp3_recode or not f.lower().endswith(f"{os.extsep}mp3") else lambda f:open(f,'rb').read()),f) for f in R.recordingFiles]
+    else: executor,recordings = None,None
+    try: _write0(R,recordingTexts,headings,recordings)
+    except: # unhandled exception: clean up
+        try: executor.shutdown(wait=False,cancel_futures=False) # (cancel_futures is Python 3.9+)
+        except: pass # (no executor / can't do it)
+        try: os.remove(R.outputFile) # incomplete
+        except: pass
+        raise
+def _write0(R,recordingTexts,headings,recordings):
     z = ZipFile(R.outputFile,"w",ZIP_DEFLATED,True)
     def D(s): return s.replace("\n","\r\n") # in case old readers require DOS line endings
+    hasFullText = any(type(t)==TextsAndTimesWithPages for t in recordingTexts)
     if hasFullText: z.writestr("0000.txt",D(f"""
     If you're reading this, it likely means your
     operating system has unpacked the ZIP file
