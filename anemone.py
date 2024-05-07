@@ -1,6 +1,6 @@
 #!/usr/bin/env python3
 """
-Anemone 1.51 (http://ssb22.user.srcf.net/anemone)
+Anemone 1.52 (http://ssb22.user.srcf.net/anemone)
 (c) 2023-24 Silas S. Brown.  License: Apache 2
 
 To use this module, either run it from the command
@@ -45,11 +45,9 @@ def anemone(*files,**options):
     find {fetch(), deBlank(), version} useful."""
     
     R=Run(*[(json.dumps(f) if type(f)==dict else f) for f in files],**options)
-    R.wav_encode = any(f.strip().lower().endswith(f"{os.extsep}wav") for f in files if type(f)==str)
-    if R.mp3_recode or R.wav_encode:
-        check_we_got_LAME()
+    if R.mp3_recode or any(f.strip().lower().endswith(f"{os.extsep}wav") for f in files if type(f)==str): check_we_got_LAME()
     write_all(R,get_texts(R))
-    R.cleanup() ; return R.warnings
+    return R.warnings
 
 def populate_argument_parser(args):
     """Calls add_argument on args, with the names
@@ -57,7 +55,7 @@ def populate_argument_parser(args):
     also options for anemone(), and help text.
     This is also used for runtime module help."""
     
-    args.add_argument("files",metavar="file",nargs="+",help="file name of: an MP3 or WAV recording, a text file containing its title (if no full text), an XHTML file containing its full text, a JSON file containing its time markers (or text plus time in JSON transcript format), or the output ZIP file.  Only one output file may be specified, but any number of the other files can be included; URLs may be given if they are to be fetched (HTML assumed if no extension).  If only MP3 files are given then titles are taken from their filenames.  You may also specify @filename where filename contains a list of files one per line.")
+    args.add_argument("files",metavar="file",nargs="+",help="file name of: an MP3 or WAV recording, a text file containing its title (if no full text), an XHTML file containing its full text, a JSON file containing its time markers (or text plus time in JSON transcript format), or the output ZIP file.  Only one output file may be specified, but any number of the other files can be included; URLs may be given if they are to be fetched.  If only sound files are given then titles are taken from their filenames.  You may also specify @filename where filename contains a list of files one per line.")
     args.add_argument("--lang",default="en",help="the ISO 639 language code of the publication (defaults to en for English)")
     args.add_argument("--title",default="",help="the title of the publication")
     args.add_argument("--url",default="",help="the URL or ISBN of the publication")
@@ -69,7 +67,7 @@ def populate_argument_parser(args):
     args.add_argument("--page-attribute",default="data-no",help="the attribute used in the HTML to indicate a page number, default is data-no")
     args.add_argument("--image-attribute",default="data-zoom",help="the attribute used in the HTML to indicate an absolute image URL to be included in the DAISY file, default is data-zoom")
     args.add_argument("--refresh",action="store_true",help="if images etc have already been fetched from URLs, ask the server if they should be fetched again (use If-Modified-Since)")
-    args.add_argument("--cache",default="cache",help="path name for the URL-fetching cache (default 'cache' in the current directory; set to empty string if you don't want to save anything)")
+    args.add_argument("--cache",default="cache",help="path name for the URL-fetching cache (default 'cache' in the current directory; set to empty string if you don't want to save anything); when using anemone as a module, you can instead pass in a requests_cache session object if you want that to do it instead, although the delay option is ignored when you do this")
     args.add_argument("--reload",dest="refetch",action="store_true",help="if images etc have already been fetched from URLs, fetch them again without If-Modified-Since")
     args.add_argument("--delay",default=0,help="minimum number of seconds between URL fetches (default none)")
     args.add_argument("--user-agent",default=f"Mozilla/5.0 (compatible, {' '.join(generator.split()[:2])})",help="User-Agent string to send for URL fetches")
@@ -92,7 +90,7 @@ def get_argument_parser():
     populate_argument_parser(args)
     return args
 
-import time, sys, os, re, json, math, tempfile
+import time, sys, os, re, json, math
 import textwrap
 from collections import namedtuple as NT
 from functools import reduce
@@ -123,9 +121,9 @@ def error(m):
     else: raise AnemoneError(str(m))
 class AnemoneError(Exception): pass
 
-try: from mutagen.mp3 import MP3
-except ImportError: error("Anemone needs the Mutagen library to determine MP3 play lengths.\nPlease do: pip install mutagen")
-from mutagen.wave import WAVE
+try: import mutagen
+except ImportError: error("Anemone needs the Mutagen library to determine play lengths.\nPlease do: pip install mutagen")
+from io import BytesIO
 
 class Run():
   """The parameters we need for an Anemone run.
@@ -135,54 +133,60 @@ class Run():
     # I know the convention is "self" but I am
     # working in giant print so my screen area
     # is important, so 1 letter please...
-    R.recordingFiles,R.jsonData = [],[]
-    R.textFiles,R.htmlData = [],[]
+    R.audioData,R.filenameTitles = [],[]
+    R.jsonData = []
+    R.textData,R.htmlData = [],[]
     R.imageFiles,R.outputFile = [],None
-    R.filesToDelete = [] ; R.warnings = []
-    if inFiles: R.__dict__.update(get_argument_parser().parse_args(list(inFiles)+['--'+k.replace('_','-') for k,v in kwargs.items() if v==True]+[a for k,v in kwargs.items() for a in ['--'+k.replace('_','-'),str(v)] if not v==True and not v==False and not v==None and not type(v)==list]).__dict__) # so flag=False is ignored (as we default to False), and option=None means use the default
-    else: R.__dict__.update(get_argument_parser().parse_args().__dict__) # defaults
-    R.__dict__.update((k,v) for k,v in kwargs.items() if type(v)==list) # for kwargs passed in to the module as lists (merge_books, chapter_titles), skip the parser
+    R.warnings = []
+    if inFiles: R.__dict__.update(get_argument_parser().parse_args(list(inFiles)+[a for k,v in kwargs.items() for a in ['--'+k.replace('_','-'),str(v)] if type(v) in [str,int]]).__dict__) # module
+    else: R.__dict__.update(get_argument_parser().parse_args().__dict__) # command line
+    R.__dict__.update((k,v) for k,v in kwargs.items() if type(v) not in [str,int,type(None)]) # (None means keep the default from parse_args; boolean and bytes we might as well handle directly; list e.g. merge_books should bypass parser; ditto session object for cache, a type we can't even name here if requests_cache is not installed)
     for k in ['merge_books','chapter_titles']:
         if not type(R.__dict__[k])==list: R.__dict__[k]=R.__dict__[k].split(',') # comma-separate if coming from the command line, but allow lists to be passed in to the module
     for f in R.files:
-        f = f.strip()
+        fOrig = f
         if f.lower().endswith(f"{os.extsep}zip"):
             if R.outputFile: error(f"Only one {os.extsep}zip output file may be specified")
             R.outputFile = f ; continue
         if re.match("https?://",f):
-            f=fetch(f,True,R.cache,R.refresh,R.refetch,R.delay,R.user_agent)
-            if not R.cache:
-                R.filesToDelete.append(f)
-        if f.startswith('{') and f.endswith('}'):
+            f=fetch(f,R.cache,R.refresh,R.refetch,R.delay,R.user_agent)
+        elif delimited(f,'{','}'): pass
+        elif delimited(f,'<','>'): pass
+        elif not os.path.isfile(f): error(f"File not found: {f}")
+        else: f = open(f,"rb").read()
+        if delimited(f,'{','}'):
             R.jsonData.append(json.loads(f))
             check_for_JSON_transcript(R)
-            continue # don't treat as a file
-        elif f.startswith('<') and f.endswith('>'):
-            R.htmlData.append(f) ; continue
-        elif not os.path.isfile(f): error(f"File not found: {f}")
-        if f.lower().endswith(f"{os.extsep}mp3") or f.lower().endswith(f"{os.extsep}wav"):
-            R.recordingFiles.append(f)
-        elif f.lower().endswith(f"{os.extsep}json"): R.jsonData.append(json.load(open(f,encoding="utf-8"))),check_for_JSON_transcript(R)
-        elif f.lower().endswith(f"{os.extsep}txt"):
-            R.textFiles.append(f)
-        elif f.lower().endswith(f"{os.extsep}html") or not os.extsep in f.rsplit(os.sep,1)[-1]:
-            R.htmlData.append(open(f,encoding="utf-8").read())
-        else: error(f"Can't handle '{f}'")
-    if not R.recordingFiles: error("Creating DAISY files without audio is not yet implemented")
+        elif delimited(f,'<','>'):
+            R.htmlData.append(f)
+        elif fOrig.lower().endswith(f"{os.extsep}mp3") or fOrig.lower().endswith(f"{os.extsep}wav"):
+            R.audioData.append(f)
+            R.filenameTitles.append(fOrig[:fOrig.rindex(os.extsep)])
+        elif fOrig.lower().endswith(f"{os.extsep}txt"):
+            R.textData.append(f.decode('utf-8').strip())
+        else: error(f"Format of '{fOrig}' has not been recognised")
+    if not R.audioData: error("Creating DAISY files without audio is not yet implemented")
     if R.htmlData and not R.jsonData: error("Full text without time markers is not yet implemented")
     if R.jsonData and not R.htmlData: error("Time markers without full text is not implemented")
-    if R.htmlData and R.textFiles: error("Combining full text with title-only text files is not yet implemented.  Please specify full text for everything or just titles for everything, not both.")
-    if R.jsonData and not len(R.recordingFiles)==len(R.jsonData): error(f"If JSON marker files are specified, there must be exactly one JSON file for each recording file.  We got f{len(R.jsonData)} JSON files and f{len(R.recordingFiles)} recording files.")
-    if R.textFiles and not len(R.recordingFiles)==len(R.textFiles): error(f"If text files are specified, there must be exactly one text file for each recording file.  We got f{len(R.textFiles)} text files and f{len(R.recordingFiles)} recording files.")
-    if R.htmlData and not len(R.recordingFiles)==len(R.htmlData): error(f"If HTML documents are specified, there must be exactly one HTML document for each recording.  We got f{len(R.htmlData)} HTML documents and f{len(R.recordingFiles)} recordings.")
+    if R.htmlData and R.textData: error("Combining full text with title-only text files is not yet implemented.  Please specify full text for everything or just titles for everything, not both.")
+    if R.jsonData and not len(R.audioData)==len(R.jsonData): error(f"If JSON marker files are specified, there must be exactly one JSON file for each recording file.  We got f{len(R.jsonData)} JSON files and f{len(R.audioData)} recording files.")
+    if R.textData and not len(R.audioData)==len(R.textData): error(f"If text files are specified, there must be exactly one text file for each recording file.  We got f{len(R.textData)} text files and f{len(R.audioData)} recording files.")
+    if R.htmlData and not len(R.audioData)==len(R.htmlData): error(f"If HTML documents are specified, there must be exactly one HTML document for each recording.  We got f{len(R.htmlData)} HTML documents and f{len(R.audioData)} recordings.")
     if not R.outputFile: R.outputFile=f"output_daisy{os.extsep}zip"
     if not R.title: R.title=R.outputFile.replace(f"{os.extsep}zip","").replace("_daisy","")
   def warning(R,warningText):
       R.warnings.append(warningText) ; sys.stderr.write(f"WARNING: {warningText}\n")
-  def cleanup(R):
-    for f in R.filesToDelete:
-        try: Path(f).unlink()
-        except: R.warning(f"couldn't delete {f}\n")
+
+def delimited(s,start,end):
+    """Checks to see if a string or binary data
+    is delimited by start and end, converting as
+    needed, after stripping"""
+    if type(s)==bytes:
+        s = s.replace(b"\xEF\xBB\xBF",b"").strip() # just in case somebody's using UTF-8 BOMs
+        return s.startswith(start.encode('latin1')) and s.endswith(end.encode('latin1'))
+    else: # string; assume no BOM to skip
+        s = s.strip()
+        return s.startswith(start) and s.endswith(end)
 
 def check_for_JSON_transcript(R):
     """Checks to see if the last thing added to
@@ -223,8 +227,8 @@ def get_texts(R):
     extracting it from HTML (guided by JSON IDs)
     if we need to do that."""
     
-    if R.textFiles: return [open(f,encoding="utf-8").read().strip() for f in R.textFiles] # section titles only, from text files
-    elif not R.htmlData: return [r[:-len(f"{os.extsep}mp3")] for r in R.recordingFiles] # section titles only, from MP3 filenames
+    if R.textData: return R.textData # section titles only, from text files
+    elif not R.htmlData: return R.filenameTitles # section titles only, from sound filenames
     recordingTexts = []
     for h,j in zip(R.htmlData,R.jsonData):
         markers = j['markers']
@@ -283,6 +287,7 @@ def get_texts(R):
             def handle_data(self,data):
                 if not self.addTo==None and not self.suppress:
                     self.addTo.append(data.replace('&','&amp;').replace('<','&lt;'))
+        if type(h)==bytes: h = h.decode('utf-8')
         PidsExtractor().feed(h)
         rTxt = []
         for i in range(len(markers)):
@@ -350,23 +355,24 @@ def write_all(R,recordingTexts):
     TextsAndTimesWithPages i.e. ([TagAndText,time,
     TagAndText,time,TagAndText],[PageInfo,...])"""
     
-    assert len(R.recordingFiles) == len(recordingTexts)
+    assert len(R.audioData) == len(recordingTexts)
     headings = getHeadings(R,recordingTexts)
     if R.dry_run: return sys.stderr.write(f"Dry run: {len(R.warnings) if R.warnings else 'no'} warning{'' if len(R.warnings)==1 else 's'} for {R.outputFile}\n")
     merge0lenSpans(recordingTexts,headings)
-    if R.mp3_recode or R.wav_encode: # parallelise lame if possible
+    if R.mp3_recode or any(not 'audio/mp3' in mutagen.File(BytesIO(dat)).mime for dat in R.audioData): # parallelise lame if possible
         if not __name__=="__main__": sys.stderr.write(f"Making {R.outputFile}...\n"),sys.stderr.flush() # especially if repeatedly called, print which outputFile we're working on BEFORE the mp3s also
         executor = ThreadPoolExecutor(max_workers=cpu_count())
-        recordings=[executor.submit((recodeMP3 if R.mp3_recode or not f.lower().endswith(f"{os.extsep}mp3") else lambda f:open(f,'rb').read()),f) for f in R.recordingFiles]
-    else: executor,recordings = None,None
-    try: _write0(R,recordingTexts,headings,recordings)
+        recordingTasks=[executor.submit((recodeMP3 if R.mp3_recode or not 'audio/mp3' in mutagen.File(BytesIO(dat)).mime else lambda x:x),dat) for dat in R.audioData]
+    else: executor,recordingTasks = None,None
+    try: _write0(R,recordingTexts,headings,recordingTasks)
     except: # unhandled exception: clean up
         try: executor.shutdown(wait=False,cancel_futures=False) # (cancel_futures is Python 3.9+)
         except: pass # (no executor / can't do it)
         try: os.remove(R.outputFile) # incomplete
         except: pass
         raise
-def _write0(R,recordingTexts,headings,recordings):
+def _write0(R,recordingTexts,headings,recordingTasks):
+    if os.sep in R.outputFile: Path(R.outputFile[:R.outputFile.rindex(os.sep)]).mkdir(parents=True,exist_ok=True)
     z = ZipFile(R.outputFile,"w",ZIP_DEFLATED,True)
     def D(s): return s.replace("\n","\r\n") # in case old readers require DOS line endings
     hasFullText = any(type(t)==TextsAndTimesWithPages for t in recordingTexts)
@@ -390,18 +396,17 @@ def _write0(R,recordingTexts,headings,recordings):
     durations = [] ; curP = 1
     for recNo in range(1,len(recordingTexts)+1):
         rTxt = recordingTexts[recNo-1]
-        f = R.recordingFiles[recNo-1]
-        secsThisRecording = (MP3(f) if f.lower().endswith(f"{os.extsep}mp3") else WAVE(f)).info.length
+        secsThisRecording = mutagen.File(BytesIO(R.audioData[recNo-1])).info.length
         if secsThisRecording > 3600: R.warning(f"Recording {recNo} is long enough to cause ~{secsThisRecording*.0001:.1f}sec synchronisation error on some readers") # seems lame v3.100 can result in timestamps being effectively multiplied by ~1.0001 on some players but not all, causing slight de-sync on 1h+ recordings (bladeenc may avoid this but be lower quality overall; better to keep the recordings shorter if possible)
         durations.append(secsThisRecording)
-        if R.mp3_recode or R.wav_encode: sys.stderr.write(f"Adding {recNo:04d}.mp3..."),sys.stderr.flush()
-        z.writestr(f"{recNo:04d}.mp3",recordings[recNo-1].result() if R.mp3_recode or R.wav_encode else open(R.recordingFiles[recNo-1],'rb').read())
-        if R.mp3_recode or R.wav_encode: sys.stderr.write(" done\n")
+        if not recordingTasks==None: sys.stderr.write(f"Adding {recNo:04d}.mp3..."),sys.stderr.flush()
+        z.writestr(f"{recNo:04d}.mp3",audioData[recNo-1] if recordingTasks==None else recordingTasks[recNo-1].result())
+        if not recordingTasks==None: sys.stderr.write(" done\n")
         z.writestr(f'{recNo:04d}.smil',D(section_smil(R,recNo,secsSoFar,secsThisRecording,curP,rTxt.textsAndTimes if type(rTxt)==TextsAndTimesWithPages else rTxt)))
         z.writestr(f'{recNo:04d}.{"xml" if R.daisy3 else "htm"}',D(text_htm(R,(rTxt.textsAndTimes[(1 if type(rTxt.textsAndTimes[0])==float else 0)::2] if type(rTxt)==TextsAndTimesWithPages else [TagAndText('h1',rTxt)]),curP)))
         secsSoFar += secsThisRecording
         curP += (1+len(rTxt.textsAndTimes)//2 if type(rTxt)==TextsAndTimesWithPages else 1)
-    for n,u in enumerate(R.imageFiles): z.writestr(f'{n+1}{u[u.rindex("."):]}',fetch(u,False,R.cache,R.refresh,R.refetch,R.delay,R.user_agent) if re.match("https?://",u) else open(u,'rb').read())
+    for n,u in enumerate(R.imageFiles): z.writestr(f'{n+1}{u[u.rindex("."):]}',fetch(u,R.cache,R.refresh,R.refetch,R.delay,R.user_agent) if re.match("https?://",u) else open(u,'rb').read())
     if not R.date: R.date = "%d-%02d-%02d" % time.localtime()[:3]
     if R.daisy3:
         z.writestr('dtbook.2005.basic.css',D(d3css))
@@ -510,25 +515,25 @@ def merge0lenSpans(recordingTexts,headings):
                     if pInfo.duringId > i//2: pages[pI]=PageInfo(pInfo.duringId-1,pInfo.pageNo)
             i += 1
 
-def recodeMP3(f):
-    """Takes an MP3 or WAV filename, re-codes it
+def recodeMP3(dat):
+    """Takes MP3 or WAV data, re-codes it
     as suitable for DAISY, and returns the bytes
     of new MP3 data for putting into DAISY ZIP"""
-    
-    if f.endswith("wav"): return run(["lame","--quiet",f,"-m","m","--resample","44.1","-b","64","-q","0","-o","-"],check=True,stdout=PIPE).stdout # TODO: ensure lame doesn't take any headers or images embedded in the wav (if it does, we might need first to convert to headerless pcm as below)
-    # If that didn't return, we have MP3 input.
+
     # It seems broken players like FSReader can get timing wrong if mp3 contains
     # too many tags at the start (e.g. images).
     # eyed3 clear() won't help: it zeros out bytes without changing indices.
     # To ensure everything is removed, better decode to raw PCM and re-encode :-(
-    pcm = f[:-3]+"pcm" # instead of .mp3
-    m = re.search(b'(?s)([0-9.]+) kHz, ([0-9]+).*?([0-9]+) bit',run(["lame","-t","--decode",f,"-o",pcm],check=True,stdout=PIPE,stderr=PIPE).stderr) # hope nobody disabled --decode when building LAME (is OK on lame.buanzo.org EXEs)
+    decodeJob = run(["lame","-t","--decode"]+(["--mp3input"] if 'audio/mp3' in mutagen.File(BytesIO(dat)).mime else [])+["-","-o","-"],input=dat,check=True,stdout=PIPE,stderr=PIPE)
+    # (On some LAME versions, the above might work
+    # with AIFF files too, but we say MP3 or WAV.
+    # Some LAME versions can't take WAV from stdin
+    # only raw when encoding, but ok if --decode)
+    m = re.search(b'(?s)([0-9.]+) kHz, ([0-9]+).*?([0-9]+) bit',decodeJob.stderr) # hope nobody disabled --decode when building LAME (is OK on lame.buanzo.org EXEs)
     if not m: error("lame did not give expected format for frequency, channels and bits output")
-    mp3bytes = run(["lame","--quiet","-r","-s",m.group(1).decode('latin1')]+(['-a'] if m.group(2)==b'2' else [])+['-m','m','--bitwidth',m.group(3).decode('latin1'),pcm,"--resample","44.1","-b","64","-q","0","-o","-"],check=True,stdout=PIPE).stdout
-    os.remove(pcm) ; return mp3bytes
+    return run(["lame","--quiet","-r","-s",m.group(1).decode('latin1')]+(['-a'] if m.group(2)==b'2' else [])+['-m','m','--bitwidth',m.group(3).decode('latin1'),"-","--resample","44.1","-b","64","-q","0","-o","-"],input=decodeJob.stdout,check=True,stdout=PIPE).stdout
 
 def fetch(url,
-          returnFilename=False,
           cache = "cache",
           refresh = False,
           refetch = False,
@@ -536,14 +541,9 @@ def fetch(url,
           user_agent = None):
     """Fetches a URL, with delay and/or cache.
     
-    returnFilename: if True, returns the cached
-    filename we saved it in, if False, return the
-    actual data.
-
-    cache: the cache directory (None = don't save,
-    unless returnFilename=True in which case we
-    write a temporary file which the caller
-    should remove)
+    cache: the cache directory (None = don't save)
+    or a requests_cache session object to do it
+    (delay option is ignored when using session)
 
     refresh: if True, send an If-Modified-Since
     request if we have a cached item (the date of
@@ -561,6 +561,17 @@ def fetch(url,
     not using Python's default User-Agent"""
     
     ifModSince = None
+    if hasattr(cache,"get"):
+        # if we're given a requests_cache session,
+        # use that instead of our own caching code
+        r = cache.request('GET',url,headers = {"User-Agent":user_agent} if user_agent else {},refresh=refresh,force_refresh=refetch)
+        if r.status_code == 200: return r.content
+        else: raise HTTPError("",r.status_code,"unexpected HTTP code",{},None)
+
+    # Fallback to our own filesystem-based code
+    # for quick command-line use if you want to
+    # manually manage the cache (delete parts of
+    # it by directory etc) :
     if cache:
       fn = re.sub('[%&?@*#{}<>!:+`=|$]','',cache+os.sep+unquote(re.sub('.*?://','',url)).replace('/',os.sep)) # these characters need to be removed on Windows's filesystem; TODO: store original URL somewhere just in case some misguided webmaster puts two identical URLs modulo those characters??
       if fn.endswith(os.sep): fn += "index.html"
@@ -570,7 +581,6 @@ def fetch(url,
         if refetch: pass # ignore already dl'd
         elif refresh:
             ifModSince=os.stat(fn).st_mtime
-        elif returnFilename: return fn
         else: return open(fn,'rb').read()
       elif os.path.exists(fnExc) and not refetch and not refresh: raise HTTPError("",int(open(fnExc).read()),"HTTP error on last fetch",{},None) # useful especially if a wrapper script is using our fetch() for multiple chapters and stopping on a 404
       Path(fn[:fn.rindex(os.sep)]).mkdir(parents=True,exist_ok=True)
@@ -589,8 +599,7 @@ def fetch(url,
         _last_urlopen_time = time.time()
         if e.getcode()==304 and cache:
             sys.stderr.write(" no new data\n")
-            if returnFilename: return fn
-            else: return open(fn,'rb').read()
+            return open(fn,'rb').read()
         else:
             sys.stderr.write(f"error {e.getcode()}\n")
             if cache: open(fnExc,"w").write(str(e.getcode()))
@@ -600,13 +609,7 @@ def fetch(url,
         open(fn,'wb').write(dat)
         sys.stderr.write(" saved\n")
     else: sys.stderr.write(" fetched\n")
-    if not returnFilename: return dat
-    elif cache: return fn
-    ext = url.rsplit('/',1)[-1]
-    if not '.' in ext: ext="html" # ../index.html
-    else: ext=ext.rsplit('.',1)[-1]
-    t = tempfile.NamedTemporaryFile('wb',delete=False,suffix=os.extsep+ext)
-    t.write(dat) ; return t.name
+    return dat
 
 def ncc_html(R, headings = [],
              hasFullText = False,

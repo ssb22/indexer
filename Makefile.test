@@ -1,7 +1,12 @@
 # -*- mode: Makefile -*-
-test:
-	echo kǎoyàn|python2 ohi_latex.py --dry-run
+test: test_ohi_latex test_anemone
+test_ohi_latex:
+	echo kǎoyàn|python2.7 ohi_latex.py --dry-run
 	grep '\\kao3\\yan4' index.tex >/dev/null
 	echo kǎoyàn|python3 ohi_latex.py --dry-run
 	grep '\\kao3\\yan4' index.tex >/dev/null
-.PHONY: test
+test_anemone:
+	sox -n test.wav synth 3 sine 300-3300
+	./anemone.py test.wav # title from filename
+	unzip -c output_daisy.zip ncc.html|grep '>test<' >/dev/null
+.PHONY: test test_ohi_latex test_anemone
