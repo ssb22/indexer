@@ -1,6 +1,6 @@
 #!/usr/bin/env python3
 """
-Anemone 1.52 (http://ssb22.user.srcf.net/anemone)
+Anemone 1.53 (http://ssb22.user.srcf.net/anemone)
 (c) 2023-24 Silas S. Brown.  License: Apache 2
 
 To use this module, either run it from the command
@@ -374,9 +374,22 @@ def write_all(R,recordingTexts):
 def _write0(R,recordingTexts,headings,recordingTasks):
     if os.sep in R.outputFile: Path(R.outputFile[:R.outputFile.rindex(os.sep)]).mkdir(parents=True,exist_ok=True)
     z = ZipFile(R.outputFile,"w",ZIP_DEFLATED,True)
+    R.dataSectors = R.catalogueEntries = 0
+    def writestr(n,s):
+        if type(s)==bytes: l = len(s)
+        else: l = len(s.encode('utf-8'))
+        R.dataSectors += (l+2047)//2048 # ISO 9660 sectors on a CD-ROM
+        R.catalogueEntries += 1
+        # Assume roughly 64 entries per catalogue sector (TODO check), *3 for RockRidge/Joliet
+        # Also 16 sectors are unused before start
+        # 333,000 sectors on original 650M CD-ROM, TODO: we can probably increase that if 650M CDs are not in use, but some non-CD readers can still go wrong when files greatly exceed this size
+        if 3*((R.catalogueEntries+63)//64) + R.dataSectors + 16 > 333000 and not hasattr(R,"warnedFull"):
+            R.warnedFull = True
+            R.warning(f"{R.outputFile} is too big for some DAISY readers")
+        z.writestr(n,s)
     def D(s): return s.replace("\n","\r\n") # in case old readers require DOS line endings
     hasFullText = any(type(t)==TextsAndTimesWithPages for t in recordingTexts)
-    if hasFullText: z.writestr("0000.txt",D(f"""
+    if hasFullText: writestr("0000.txt",D(f"""
     If you're reading this, it likely means your
     operating system has unpacked the ZIP file
     and is showing you its contents.  While it
@@ -400,21 +413,21 @@ def _write0(R,recordingTexts,headings,recordingTasks):
         if secsThisRecording > 3600: R.warning(f"Recording {recNo} is long enough to cause ~{secsThisRecording*.0001:.1f}sec synchronisation error on some readers") # seems lame v3.100 can result in timestamps being effectively multiplied by ~1.0001 on some players but not all, causing slight de-sync on 1h+ recordings (bladeenc may avoid this but be lower quality overall; better to keep the recordings shorter if possible)
         durations.append(secsThisRecording)
         if not recordingTasks==None: sys.stderr.write(f"Adding {recNo:04d}.mp3..."),sys.stderr.flush()
-        z.writestr(f"{recNo:04d}.mp3",audioData[recNo-1] if recordingTasks==None else recordingTasks[recNo-1].result())
+        writestr(f"{recNo:04d}.mp3",R.audioData[recNo-1] if recordingTasks==None else recordingTasks[recNo-1].result())
         if not recordingTasks==None: sys.stderr.write(" done\n")
-        z.writestr(f'{recNo:04d}.smil',D(section_smil(R,recNo,secsSoFar,secsThisRecording,curP,rTxt.textsAndTimes if type(rTxt)==TextsAndTimesWithPages else rTxt)))
-        z.writestr(f'{recNo:04d}.{"xml" if R.daisy3 else "htm"}',D(text_htm(R,(rTxt.textsAndTimes[(1 if type(rTxt.textsAndTimes[0])==float else 0)::2] if type(rTxt)==TextsAndTimesWithPages else [TagAndText('h1',rTxt)]),curP)))
+        writestr(f'{recNo:04d}.smil',D(section_smil(R,recNo,secsSoFar,secsThisRecording,curP,rTxt.textsAndTimes if type(rTxt)==TextsAndTimesWithPages else rTxt)))
+        writestr(f'{recNo:04d}.{"xml" if R.daisy3 else "htm"}',D(text_htm(R,(rTxt.textsAndTimes[(1 if type(rTxt.textsAndTimes[0])==float else 0)::2] if type(rTxt)==TextsAndTimesWithPages else [TagAndText('h1',rTxt)]),curP)))
         secsSoFar += secsThisRecording
         curP += (1+len(rTxt.textsAndTimes)//2 if type(rTxt)==TextsAndTimesWithPages else 1)
-    for n,u in enumerate(R.imageFiles): z.writestr(f'{n+1}{u[u.rindex("."):]}',fetch(u,R.cache,R.refresh,R.refetch,R.delay,R.user_agent) if re.match("https?://",u) else open(u,'rb').read())
+    for n,u in enumerate(R.imageFiles): writestr(f'{n+1}{u[u.rindex("."):]}',fetch(u,R.cache,R.refresh,R.refetch,R.delay,R.user_agent) if re.match("https?://",u) else open(u,'rb').read())
     if not R.date: R.date = "%d-%02d-%02d" % time.localtime()[:3]
     if R.daisy3:
-        z.writestr('dtbook.2005.basic.css',D(d3css))
-        z.writestr('package.opf',D(package_opf(R,hasFullText,len(recordingTexts),secsSoFar)))
-        z.writestr('text.res',D(textres))
-    else: z.writestr('master.smil',D(master_smil(R,headings,secsSoFar)))
-    z.writestr('navigation.ncx' if R.daisy3 else 'ncc.html',D(ncc_html(R,headings,hasFullText,secsSoFar,[timeAdjust(t.textsAndTimes if type(t)==TextsAndTimesWithPages else t, durations[i]) for i,t in enumerate(recordingTexts)],[(t.pageInfos if type(t)==TextsAndTimesWithPages else []) for t in recordingTexts])))
-    if not R.daisy3: z.writestr('er_book_info.xml',D(er_book_info(durations))) # not DAISY standard but EasyReader can use this
+        writestr('dtbook.2005.basic.css',D(d3css))
+        writestr('package.opf',D(package_opf(R,hasFullText,len(recordingTexts),secsSoFar)))
+        writestr('text.res',D(textres))
+    else: writestr('master.smil',D(master_smil(R,headings,secsSoFar)))
+    writestr('navigation.ncx' if R.daisy3 else 'ncc.html',D(ncc_html(R,headings,hasFullText,secsSoFar,[timeAdjust(t.textsAndTimes if type(t)==TextsAndTimesWithPages else t, durations[i]) for i,t in enumerate(recordingTexts)],[(t.pageInfos if type(t)==TextsAndTimesWithPages else []) for t in recordingTexts])))
+    if not R.daisy3: writestr('er_book_info.xml',D(er_book_info(durations))) # not DAISY standard but EasyReader can use this
     z.close()
     sys.stderr.write(f"Wrote {R.outputFile}\n")
 
