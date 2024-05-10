@@ -1,6 +1,6 @@
 #!/usr/bin/env python3
 """
-Anemone 1.53 (http://ssb22.user.srcf.net/anemone)
+Anemone 1.54 (http://ssb22.user.srcf.net/anemone)
 (c) 2023-24 Silas S. Brown.  License: Apache 2
 
 To use this module, either run it from the command
@@ -688,6 +688,32 @@ def ncc_html(R, headings = [],
   </body>
 </html>"""))
 
+def addPbeforeTag(tag,num,paras):
+    "Decides whether a <p> should be added before the current tag"
+    return tag=='span' and (num==0 or not paras[num-1].tag=="span" or paras[num-1].text.endswith("<br />"))
+def closePafterTag(tag,text,num,paras):
+    "Decides whether a </p> should be added after closing the current tag"
+    return tag=='span' and (text.endswith("<br />") or num+1==len(paras) or not paras[num+1].tag=='span')
+
+def removeImages(text):
+    "Removes our normalised <img> markup from text"
+    return re.sub('<img src="[^"]*" [^/]*/>','',text)
+def imageParagraph(R,text):
+    "Pulls out our normalised <img> markup for use after the paragraph"
+    return f"""{'<p><imggroup>' if R.daisy3 and re.search('<img src="',text) else ''}{''.join(re.findall('<img src="[^"]*" [^/]*/>',text))}{'</imggroup></p>' if R.daisy3 and re.search('<img src="',text) else ''}"""
+
+def daisy3OpenLevelTags(R,tag,num,paras):
+    "Gives the <levelN> tags that should be placed before the current point in the DAISY 3 format"
+    if not R.daisy3: return ''
+    elif not tag.startswith('h'):
+        if num: return '' # will have been started
+        else: return '<level1>'
+    return ''.join(f'<level{n}>' for n in range(min(int(tag[1:]),next(int(paras[p].tag[1:]) for p in range(num-1,-1,-1) if paras[p].tag.startswith('h'))+1) if any(paras[P].tag.startswith('h') for P in range(num-1,-1,-1)) else 1,int(tag[1:])+1))
+def daisy3CloseLevelTags(R,tag,num,paras):
+    "Gives the </levelN> tags that should be placed before the current point in the DAISY 3 format"
+    if not R.daisy3 or not num+1==len(paras) and not paras[num+1].tag.startswith('h'): return ''
+    return ''.join(f'</level{n}>' for n in range(next(int(paras[p].tag[1:]) for p in range(num,-1,-1) if paras[p].tag.startswith('h')) if any(paras[P].tag.startswith('h') for P in range(num,-1,-1)) else 1,0 if num+1==len(paras) else int(paras[num+1].tag[1:])-1,-1))
+
 def numDaisy3NavpointsToClose(s,headingsR):
     """Calculates the number of DAISY 3 navigation
     points that need closing after index s"""
@@ -885,7 +911,7 @@ def text_htm(R,paras,offset=0):
     </head>
     <{'book' if R.daisy3 else 'body'}>
         {f'<frontmatter><doctitle>{R.title}</doctitle><docauthor>{R.creator}</docauthor></frontmatter><bodymatter>' if R.daisy3 else ''}
-"""+"\n".join(f"""{''.join(f'<level{n}>' for n in range(min(int(tag[1:]),next(int(paras[p].tag[1:]) for p in range(num-1,-1,-1) if paras[p].tag.startswith('h'))+1) if any(paras[P].tag.startswith('h') for P in range(num-1,-1,-1)) else 1,int(tag[1:])+1)) if R.daisy3 and tag.startswith('h') else ''}{'<level1>' if R.daisy3 and not num and not tag.startswith('h') else ''}{'<p>' if tag=='span' and (num==0 or not paras[num-1].tag=="span" or paras[num-1].text.endswith("<br />")) else ''}<{tag} id=\"p{num+offset}\"{(' class="word"' if len(text.split())==1 else ' class="sentence"') if tag=='span' else ''}>{re.sub(" *<br />$","",re.sub('<img src="[^"]*" [^/]*/>','',text))}</{tag}>{'</p>' if tag=='span' and (text.endswith("<br />") or num+1==len(paras) or not paras[num+1].tag=='span') else ''}{'<p><imggroup>' if R.daisy3 and re.search('<img src="',text) else ''}{''.join(re.findall('<img src="[^"]*" [^/]*/>',text))}{'</imggroup></p>' if R.daisy3 and re.search('<img src="',text) else ''}{''.join(f'</level{n}>' for n in range(next(int(paras[p].tag[1:]) for p in range(num,-1,-1) if paras[p].tag.startswith('h')) if any(paras[P].tag.startswith('h') for P in range(num,-1,-1)) else 1,0 if num+1==len(paras) else int(paras[num+1].tag[1:])-1,-1)) if R.daisy3 and (num+1==len(paras) or paras[num+1].tag.startswith('h')) else ''}""" for num,(tag,text) in enumerate(normaliseDepth(R,paras)))+f"""
+"""+"\n".join(f"""{daisy3OpenLevelTags(R,tag,num,paras)}{'<p>' if addPbeforeTag(tag,num,paras) else ''}<{tag} id=\"p{num+offset}\"{(' class="word"' if len(text.split())==1 else ' class="sentence"') if tag=='span' else ''}>{re.sub(" *<br />$","",removeImages(text))}</{tag}>{'</p>' if closePafterTag(tag,text,num,paras) else ''}{imageParagraph(R,text)}{daisy3CloseLevelTags(R,tag,num,paras)}""" for num,(tag,text) in enumerate(normaliseDepth(R,paras)))+f"""
     </{'bodymatter></book' if R.daisy3 else 'body'}>
 </{'dtbook' if R.daisy3 else 'html'}>
 """)

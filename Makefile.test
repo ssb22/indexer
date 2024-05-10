@@ -9,4 +9,6 @@ test_anemone:
 	sox -n test.wav synth 3 sine 300-3300
 	./anemone.py test.wav # title from filename
 	unzip -c output_daisy.zip ncc.html|grep '>test<' >/dev/null
+	./anemone.py --daisy3 test.wav
+	unzip -c output_daisy.zip navigation.ncx|grep '>test<' >/dev/null
 .PHONY: test test_ohi_latex test_anemone
