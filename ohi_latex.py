@@ -2,7 +2,7 @@
 # (works on both Python 2 and Python 3)
 
 # ohi_latex: Offline HTML Indexer for LaTeX
-# v1.397 (c) 2014-20,2023-24 Silas S. Brown
+# v1.398 (c) 2014-20,2023-24 Silas S. Brown
 
 # Licensed under the Apache License, Version 2.0 (the "License");
 # you may not use this file except in compliance with the License.
@@ -465,7 +465,7 @@ def makeLatex(unistr):
   ret += r'\IfFileExists{microtype.sty}{\usepackage{microtype}}{\pdfadjustspacing=2\pdfprotrudechars=2}' # nicer line breaking (but the PDFs may be larger)
   ret += r'\raggedbottom'
   global geometry
-  if a5 and r"\chapter{" in unistr: geometry=geometry.replace("lmargin=3mm,rmargin=3mm,tmargin=3mm,bmargin=3mm","lmargin=5mm,rmargin=5mm,tmargin=4mm,bmargin=4mm")
+  if a5 and r"\chapter" in unistr: geometry=geometry.replace("lmargin=3mm,rmargin=3mm,tmargin=3mm,bmargin=3mm","lmargin=5mm,rmargin=5mm,tmargin=4mm,bmargin=4mm")
   ret += r'\usepackage['+geometry+']{geometry}'
   ret += '\n'.join(set(v for (k,v) in latex_preamble.items() if k in unistr))+'\n'
   if r'\title{' in unistr:
@@ -474,10 +474,11 @@ def makeLatex(unistr):
     unistr = unistr.replace(title+'\n',"",1)
   else: title = None
   ret += r'\begin{document}'
-  if r"\chapter{" in unistr: ret += r'\pagestyle{fancy}\fancyhf{}\renewcommand{\headrulewidth}{0pt}\fancyfoot[LE,RO]{\thepage}\fancypagestyle{plain}{\fancyhf{}\renewcommand{\headrulewidth}{0pt}\fancyhf[lef,rof]{\thepage}}'
+  if r"\chapter" in unistr: ret += r'\pagestyle{fancy}\fancyhf{}\renewcommand{\headrulewidth}{0pt}\fancyfoot[LE,RO]{\thepage}\fancypagestyle{plain}{\fancyhf{}\renewcommand{\headrulewidth}{0pt}\fancyhf[lef,rof]{\thepage}}'
   if title: ret += r'\maketitle\renewcommand{\cftchapleader}{\cftdotfill{\cftdotsep}}\tableofcontents\renewcommand{\baselinestretch}{1.1}\selectfont'
   if page_headings: ret += r'\pagestyle{fancy}\fancyhead{}\fancyfoot{}\fancyhead[LE]{\rightmark}\fancyhead[RO]{\leftmark}\thispagestyle{empty}'
-  elif not r"\chapter{" in unistr: ret += r'\pagestyle{empty}'
+  elif not r"\chapter" in unistr: ret += r'\pagestyle{empty}'
+  # else: ret += r'\pagestyle{plain}'
   if used_cjk: ret += r"\begin{CJK}{UTF8}{}"
   if whole_doc_in_footnotesize: ret += r'\footnotesize'
   if not ret[-1]=='}': ret += '{}'
