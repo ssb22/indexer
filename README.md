@@ -32,7 +32,7 @@ The script `ohi_latex.py` works from the same input as `ohi.py` and can be used 
 Anemone DAISY maker
 -------------------
 from http://ssb22.user.srcf.net/indexer/anemone.html
-(also mirrored at http://ssb22.gitlab.io/indexer/anemone.html just in case)
+(also mirrored at http://ssb22.gitlab.io/indexer/anemone.html just in case, plus you can access Anemone via `pip install anemone-daisy-maker` or `pipx run anemone-daisy-maker`)
 
 `anemone.py` is a Python 3 script to put together a DAISY digital talking book, from HTML text, MP3 audio recordings and time index data.  It produces DAISY 2.02 files by default, or DAISY 3 (i.e. ANSI/NISO Z39.86) if an option is set.  It currently can produce one of two different types of digital talking book:
 
@@ -58,7 +58,7 @@ The daisy anemone is a sea creature on the rocky Western shores of Britain and I
 
 * Pronto Notetaker: ZIP needs to be unpacked to a “Daisy” folder on SD or USB, and the device just plays the audio; tested only with Daisy 2
 
-* US Library of Congress NLS Player: unpack the ZIP onto a blank USB stick of capacity 4 GB or less—plays; navigation works if you use --mp3-recode; tested only with Daisy 2 but the documentation says Daisy 3 should work
+* US Library of Congress NLS Player: unpack the ZIP onto a blank USB stick of capacity 4 GB or less—plays; navigation works if you use `--mp3-recode`; tested only with Daisy 2 but the documentation says Daisy 3 should work
 
 * HumanWare Victor Reader Stream: ZIP needs to be unpacked, either to the top level of a USB device, or into a subfolder of a `$VRDTB` folder on the SD card (different books will be listed alphabetically).  If it's unpacked at the top level of the SD card, the device can still play the MP3s and allow track or time based navigation but not section navigation, so you should use either the folder structure of the SD card or else a USB device.  If correctly set up then audio plays and device can navigate by section.  Tested with both Daisy 2 and Daisy 3.
 

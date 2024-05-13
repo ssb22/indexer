@@ -1,6 +1,6 @@
 #!/usr/bin/env python3
 """
-Anemone 1.54 (http://ssb22.user.srcf.net/anemone)
+Anemone 1.55 (http://ssb22.user.srcf.net/anemone)
 (c) 2023-24 Silas S. Brown.  License: Apache 2
 
 To use this module, either run it from the command
@@ -44,8 +44,8 @@ def anemone(*files,**options):
     want to maintain Anemone, although you might
     find {fetch(), deBlank(), version} useful."""
     
-    R=Run(*[(json.dumps(f) if type(f)==dict else f) for f in files],**options)
-    if R.mp3_recode or any(f.strip().lower().endswith(f"{os.extsep}wav") for f in files if type(f)==str): check_we_got_LAME()
+    R=Run(*[(json.dumps(f) if isinstance(f,dict) else f) for f in files],**options)
+    if R.mp3_recode or any(f.strip().lower().endswith(f"{os.extsep}wav") for f in files if isinstance(f,str)): check_we_got_LAME()
     write_all(R,get_texts(R))
     return R.warnings
 
@@ -55,28 +55,124 @@ def populate_argument_parser(args):
     also options for anemone(), and help text.
     This is also used for runtime module help."""
     
-    args.add_argument("files",metavar="file",nargs="+",help="file name of: an MP3 or WAV recording, a text file containing its title (if no full text), an XHTML file containing its full text, a JSON file containing its time markers (or text plus time in JSON transcript format), or the output ZIP file.  Only one output file may be specified, but any number of the other files can be included; URLs may be given if they are to be fetched.  If only sound files are given then titles are taken from their filenames.  You may also specify @filename where filename contains a list of files one per line.")
-    args.add_argument("--lang",default="en",help="the ISO 639 language code of the publication (defaults to en for English)")
+    args.add_argument("files",metavar="file",
+                      nargs="+",help="""
+file name of: an MP3 or WAV recording, a text file
+containing its title (if no full text), an XHTML
+file containing its full text, a JSON file
+containing its time markers (or text plus time in
+JSON transcript format), or the output ZIP file. 
+Only one output file may be specified, but any
+number of the other files can be included; URLs
+may be given if they are to be fetched.  If only
+sound files are given then titles are taken from
+their filenames.  You may also specify @filename
+where filename contains a list of files one per
+line.""")
+    args.add_argument("--lang",default="en",
+                      help="""
+the ISO 639 language code of the publication (defaults to en for English)""")
     args.add_argument("--title",default="",help="the title of the publication")
     args.add_argument("--url",default="",help="the URL or ISBN of the publication")
     args.add_argument("--creator",default="",help="the creator name, if known")
     args.add_argument("--publisher",default="",help="the publisher name, if known")
-    args.add_argument("--reader",default="",help="the name of the reader who voiced the recordings, if known")
+    args.add_argument("--reader",default="",
+                      help="""
+the name of the reader who voiced the recordings, if known""")
     args.add_argument("--date",help="the publication date as YYYY-MM-DD, default is current date")
-    args.add_argument("--marker-attribute",default="data-pid",help="the attribute used in the HTML to indicate a segment number corresponding to a JSON time marker entry, default is data-pid")
-    args.add_argument("--page-attribute",default="data-no",help="the attribute used in the HTML to indicate a page number, default is data-no")
-    args.add_argument("--image-attribute",default="data-zoom",help="the attribute used in the HTML to indicate an absolute image URL to be included in the DAISY file, default is data-zoom")
-    args.add_argument("--refresh",action="store_true",help="if images etc have already been fetched from URLs, ask the server if they should be fetched again (use If-Modified-Since)")
-    args.add_argument("--cache",default="cache",help="path name for the URL-fetching cache (default 'cache' in the current directory; set to empty string if you don't want to save anything); when using anemone as a module, you can instead pass in a requests_cache session object if you want that to do it instead, although the delay option is ignored when you do this")
-    args.add_argument("--reload",dest="refetch",action="store_true",help="if images etc have already been fetched from URLs, fetch them again without If-Modified-Since")
-    args.add_argument("--delay",default=0,help="minimum number of seconds between URL fetches (default none)")
+    args.add_argument("--marker-attribute",
+                      default="data-pid",help="""
+the attribute used in the HTML to indicate a
+segment number corresponding to a JSON time marker
+entry, default is data-pid""")
+    args.add_argument("--page-attribute",
+                      default="data-no",help="""
+the attribute used in the HTML to indicate a page number, default is data-no""")
+    args.add_argument("--image-attribute",
+                      default="data-zoom",help="""
+the attribute used in the HTML to indicate an
+absolute image URL to be included in the DAISY
+file, default is data-zoom""")
+    args.add_argument("--refresh",
+                      action="store_true",help="""
+if images etc have already been fetched from URLs, ask the server if they should be fetched again (use If-Modified-Since)""")
+    args.add_argument("--cache",
+                      default="cache",help="""
+path name for the URL-fetching cache (default
+'cache' in the current directory; set to empty
+string if you don't want to save anything); when
+using anemone as a module, you can instead pass in
+a requests_cache session object if you want that
+to do it instead, although the delay option is
+ignored when you do this""")
+    args.add_argument("--reload",dest="refetch",
+                      action="store_true",help="""
+if images etc have already been fetched from URLs,
+fetch them again without If-Modified-Since""")
+    args.add_argument("--delay",default=0,help="""
+minimum number of seconds between URL fetches (default none)""")
     args.add_argument("--user-agent",default=f"Mozilla/5.0 (compatible, {' '.join(generator.split()[:2])})",help="User-Agent string to send for URL fetches")
-    args.add_argument("--daisy3",action="store_true",help="Use the Daisy 3 format (ANSI/NISO Z39.86) instead of the Daisy 2.02 format.  This may require more modern reader software, and Anemone does not yet support Daisy 3 only features like tables in the text.")
-    args.add_argument("--mp3-recode",action="store_true",help="re-code the MP3 files to ensure they are constant bitrate and more likely to work with the more limited DAISY-reading programs like FSReader 3 (this option requires LAME)")
-    args.add_argument("--allow-jumps",action="store_true",help="Allow jumps in heading levels e.g. h1 to h3 if the input HTML does it.  This seems OK on modern readers but might cause older reading devices to give an error.  Without this option, headings are promoted where necessary to ensure only incremental depth increase.") # might cause older reading devices to give an error: and is also flagged up by the validator
-    args.add_argument("--strict-ncc-divs",action="store_true",help="When generating Daisy 2, avoid using a heading in the navigation control centre when there isn't a heading in the text.  This currently applies when spans with verse numbering are detected.  Turning on this option will make the DAISY more conformant to the specification, but some readers (EasyReader 10, Thorium) won't show these headings in the navigation in Daisy 2 (but will show them anyway in Daisy 3, so this option is applied automatically in Daisy 3).  On the other hand, when using verse-numbered spans without this option, EasyReader 10 may not show any text at all in Daisy 2 (Anemone will warn if this is the case).  This setting cannot stop EasyReader promoting all verses to headings (losing paragraph formatting) in Daisy 3, which is the least bad option if you want these navigation points to work.")
-    args.add_argument("--merge-books",default="",help="Combine multiple books into one, for saving media on CD-based DAISY players that cannot handle more than one book.  The format of this option is book1/N1,book2/N2,etc where book1 is the book title and N1 is the number of MP3 files to group into it (or if passing the option into the anemone module, you may use a list of tuples).  All headings are pushed down one level and book name headings are added at top level.")
-    args.add_argument("--chapter-titles",default="",help="Comma-separated list of titles to use for chapters that don't have titles, e.g. 'Chapter N' in the language of the book (this can help for search-based navigation).  If passing this option into the anemone module, you may use a list instead of a comma-separated string, which might be useful if there are commas in some chapter titles.")
+    args.add_argument("--daisy3",
+                      action="store_true",help="""
+Use the Daisy 3 format (ANSI/NISO Z39.86) instead
+of the Daisy 2.02 format.  This may require more
+modern reader software, and Anemone does not yet
+support Daisy 3 only features like tables.""")
+    args.add_argument("--mp3-recode",
+                      action="store_true",help="""
+re-code the MP3 files to ensure they are constant
+bitrate and more likely to work with the more
+limited DAISY-reading programs like FSReader 3
+(this option requires LAME)""")
+    args.add_argument("--allow-jumps",
+                      action="store_true",help="""
+Allow jumps in heading levels e.g. h1 to h3 if the
+input HTML does it.  This seems OK on modern
+readers but might cause older reading devices to
+give an error.  Without this option, headings are
+promoted where necessary to ensure only
+incremental depth increase.""") # might cause older reading devices to give an error: and is also flagged up by the validator
+    args.add_argument("--strict-ncc-divs",
+                      action="store_true",help="""
+When generating Daisy 2, avoid using a heading in
+the navigation control centre when there isn't a
+heading in the text.  This currently applies when
+spans with verse numbering are detected.  Turning
+on this option will make the DAISY more conformant
+to the specification, but some readers (EasyReader
+10, Thorium) won't show these headings in the
+navigation in Daisy 2 (but will show them anyway
+in Daisy 3, so this option is applied
+automatically in Daisy 3).  On the other hand,
+when using verse-numbered spans without this
+option, EasyReader 10 may not show any text at all
+in Daisy 2 (Anemone will warn if this is the
+case).  This setting cannot stop EasyReader
+promoting all verses to headings (losing paragraph
+formatting) in Daisy 3, which is the least bad
+option if you want these navigation points to
+work.""")
+    args.add_argument("--merge-books",
+                      default="",help="""
+Combine multiple books into one, for saving media
+on CD-based DAISY players that cannot handle more
+than one book.  The format of this option is
+book1/N1,book2/N2,etc where book1 is the book
+title and N1 is the number of MP3 files to group
+into it (or if passing the option into the anemone
+module, you may use a list of tuples).  All
+headings are pushed down one level and book name
+headings are added at top level.""")
+    args.add_argument("--chapter-titles",
+                      default="",help="""
+Comma-separated list of titles to use for chapters
+that don't have titles, e.g. 'Chapter N' in the
+language of the book (this can help for
+search-based navigation).  If passing this option
+into the anemone module, you may use a list
+instead of a comma-separated string, which might
+be useful if there are commas in some chapter
+titles.""")
     args.add_argument("--chapter-heading-level",default=1,help="Heading level to use for chapters that don't have titles")
     args.add_argument("--dry-run",action="store_true",help="Don't actually output DAISY, just check the input and parameters")
 
@@ -90,7 +186,7 @@ def get_argument_parser():
     populate_argument_parser(args)
     return args
 
-import time, sys, os, re, json, math
+import time, sys, os, re, json
 import textwrap
 from collections import namedtuple as NT
 from functools import reduce
@@ -109,7 +205,7 @@ class DocUpdater:
     def __init__(self,p):
         self.p = p
         self.p.__doc__ += "\nOptions when run as a command-line utility:\n"
-    def add_argument(self,*args,**kwargs): self.p.__doc__ += f"\n* {(chr(10)+'  ').join(textwrap.wrap((args[0]+': ' if args[0].startswith('--') else '')+kwargs['help'],50))}\n"
+    def add_argument(self,*args,**kwargs): self.p.__doc__ += f"\n* {(chr(10)+'  ').join(textwrap.wrap((args[0]+': ' if args[0].startswith('--') else '')+re.sub(chr(10)+' *',' ',kwargs['help']).strip(),50))}\n"
 populate_argument_parser(DocUpdater(sys.modules[__name__])) ; del DocUpdater
 
 def error(m):
@@ -142,7 +238,7 @@ class Run():
     else: R.__dict__.update(get_argument_parser().parse_args().__dict__) # command line
     R.__dict__.update((k,v) for k,v in kwargs.items() if type(v) not in [str,int,type(None)]) # (None means keep the default from parse_args; boolean and bytes we might as well handle directly; list e.g. merge_books should bypass parser; ditto session object for cache, a type we can't even name here if requests_cache is not installed)
     for k in ['merge_books','chapter_titles']:
-        if not type(R.__dict__[k])==list: R.__dict__[k]=R.__dict__[k].split(',') # comma-separate if coming from the command line, but allow lists to be passed in to the module
+        if not isinstance(R.__dict__[k],list): R.__dict__[k]=R.__dict__[k].split(',') # comma-separate if coming from the command line, but allow lists to be passed in to the module
     for f in R.files:
         fOrig = f
         if f.lower().endswith(f"{os.extsep}zip"):
@@ -181,7 +277,7 @@ def delimited(s,start,end):
     """Checks to see if a string or binary data
     is delimited by start and end, converting as
     needed, after stripping"""
-    if type(s)==bytes:
+    if isinstance(s,bytes):
         s = s.replace(b"\xEF\xBB\xBF",b"").strip() # just in case somebody's using UTF-8 BOMs
         return s.startswith(start.encode('latin1')) and s.endswith(end.encode('latin1'))
     else: # string; assume no BOM to skip
@@ -193,7 +289,7 @@ def check_for_JSON_transcript(R):
     the Run object is a JSON podcast transcript,
     and converts it to HTML + time markers"""
     
-    if type(R.jsonData[-1].get("segments",None))==list and all(type(s)==dict and "startTime" in s and "body" in s for s in R.jsonData[-1]["segments"]): # looks like JSON transcript format instead of markers format
+    if isinstance(R.jsonData[-1].get("segments",None),list) and all(isinstance(s,dict) and "startTime" in s and "body" in s for s in R.jsonData[-1]["segments"]): # looks like JSON transcript format instead of markers format
         curSpeaker=None ; bodyList = []
         for s in R.jsonData[-1]["segments"]:
             bodyList.append(s["body"])
@@ -236,7 +332,7 @@ def get_texts(R):
         id_to_content = {}
         pageNos = []
         allowedInlineTags={'br':'br','strong':'strong','em':'em','b':'strong','i':'em'}
-        assert not 'rt' in allowedInlineTags, "if allowing this, need to revise rt suppression logic" # and would have to rely on rp parens for most readers, so if a text has a LOT of ruby it could get quite unreadable
+        assert 'rt' not in allowedInlineTags, "if allowing this, need to revise rt suppression logic" # and would have to rely on rp parens for most readers, so if a text has a LOT of ruby it could get quite unreadable
         class PidsExtractor(HTMLParser):
             def __init__(self):
                 HTMLParser.__init__(self)
@@ -250,12 +346,12 @@ def get_texts(R):
                 tag = tagRewrite.get(tag,tag)
                 attrs = dict(attrs)
                 imgURL = attrs.get(R.image_attribute,None)
-                if imgURL and (re.match("https?://.*[.][^/]*$",imgURL) or os.path.isfile(imgURL)) and not (self.addTo==None and self.imgsMaybeAdd==None):
+                if imgURL and (re.match("https?://.*[.][^/]*$",imgURL) or os.path.isfile(imgURL)) and not (self.addTo is None and self.imgsMaybeAdd is None):
                     # TODO: might want to check attrs.get("alt",""), but DAISY3 standard does not list alt as a valid attribute for img, so we'd have to put it after with br etc (changing text_htm) and we don't know if it's in the audio or not: probably best just to leave it and rely on there being a separate caption with ID if it's in the audio
                     img = f'<img src="{(R.imageFiles.index(imgURL) if imgURL in R.imageFiles else len(R.imageFiles))+1}{imgURL[imgURL.rindex("."):]}" {f"""id="i{R.imageFiles.index(imgURL) if imgURL in R.imageFiles else len(R.imageFiles)}" """ if R.daisy3 else ""}/>' # will be moved after paragraph by text_htm
-                    if not imgURL in R.imageFiles:
+                    if imgURL not in R.imageFiles:
                         R.imageFiles.append(imgURL)
-                    if self.addTo==None: self.imgsMaybeAdd.append(img)
+                    if self.addTo is None: self.imgsMaybeAdd.append(img)
                     else: self.addTo.append(img)
                 if attrs.get(R.marker_attribute,None) in want_pids:
                     self.theStartTag = tag
@@ -267,15 +363,15 @@ def get_texts(R):
                     self.addTo = id_to_content[a][1]
                 elif tag==self.theStartTag and not tag=="p": # can nest
                     self.tagDepth += 1
-                elif not self.addTo==None and tag in allowedInlineTags: self.addTo.append(f'<{allowedInlineTags[tag]}>')
-                elif not self.addTo==None and tag=='a': self.lastAStart = len(self.addTo)
+                elif self.addTo is not None and tag in allowedInlineTags: self.addTo.append(f'<{allowedInlineTags[tag]}>')
+                elif self.addTo is not None and tag=='a': self.lastAStart = len(self.addTo)
                 elif tag=='rt': self.suppress += 1
                 pageNo = attrs.get(R.page_attribute,None)
                 if pageNo: pageNos.append(PageInfo(self.pageNoGoesAfter,pageNo))
             def handle_endtag(self,tag):
                 tag = tagRewrite.get(tag,tag)
                 if self.suppress and tag=='rt': self.suppress -= 1
-                elif not self.addTo==None:
+                elif self.addTo is not None:
                     if tag==self.theStartTag and self.tagDepth == 0:
                         self.highestImage,self.imgsMaybeAddTo, self.imgsMaybeAdd = len(R.imageFiles),self.addTo,[] # if we find any images (not in an id'd element) after the end of the id'd element, we might want to add them in with any inside it, but only if there's another id'd element after them i.e. not if they're just random decoration at the bottom of the page
                         self.addTo = None
@@ -285,9 +381,10 @@ def get_texts(R):
                 elif tag=='p' and self.imgsMaybeAddTo and self.theStartTag=='span': self.imgsMaybeAddTo.append("<br>") # if paragraphs contain spans and it's the spans that are identified, ensure we keep this break in the surrounding structure
                 if tag=='html' and self.imgsMaybeAdd and hasattr(self,'highestImage'): del R.imageFiles[self.highestImage:] # do not include ones that were only in imgsMaybeAdd at the end of the page (and not also elsewhere)
             def handle_data(self,data):
-                if not self.addTo==None and not self.suppress:
+                if self.addTo is not None and not self.suppress:
                     self.addTo.append(data.replace('&','&amp;').replace('<','&lt;'))
-        if type(h)==bytes: h = h.decode('utf-8')
+        if isinstance(h,bytes):
+            h = h.decode('utf-8')
         PidsExtractor().feed(h)
         rTxt = []
         for i in range(len(markers)):
@@ -359,26 +456,26 @@ def write_all(R,recordingTexts):
     headings = getHeadings(R,recordingTexts)
     if R.dry_run: return sys.stderr.write(f"Dry run: {len(R.warnings) if R.warnings else 'no'} warning{'' if len(R.warnings)==1 else 's'} for {R.outputFile}\n")
     merge0lenSpans(recordingTexts,headings)
-    if R.mp3_recode or any(not 'audio/mp3' in mutagen.File(BytesIO(dat)).mime for dat in R.audioData): # parallelise lame if possible
+    if R.mp3_recode or any('audio/mp3' not in mutagen.File(BytesIO(dat)).mime for dat in R.audioData): # parallelise lame if possible
         if not __name__=="__main__": sys.stderr.write(f"Making {R.outputFile}...\n"),sys.stderr.flush() # especially if repeatedly called, print which outputFile we're working on BEFORE the mp3s also
         executor = ThreadPoolExecutor(max_workers=cpu_count())
-        recordingTasks=[executor.submit((recodeMP3 if R.mp3_recode or not 'audio/mp3' in mutagen.File(BytesIO(dat)).mime else lambda x:x),dat) for dat in R.audioData]
+        recordingTasks=[executor.submit((recodeMP3 if R.mp3_recode or 'audio/mp3' not in mutagen.File(BytesIO(dat)).mime else lambda x:x),dat) for dat in R.audioData]
     else: executor,recordingTasks = None,None
     try: _write0(R,recordingTexts,headings,recordingTasks)
     except: # unhandled exception: clean up
         try: executor.shutdown(wait=False,cancel_futures=False) # (cancel_futures is Python 3.9+)
-        except: pass # (no executor / can't do it)
+        except: pass # (no executor / can't do it) # noqa: E722
         try: os.remove(R.outputFile) # incomplete
-        except: pass
+        except: pass # noqa: E722
         raise
 def _write0(R,recordingTexts,headings,recordingTasks):
     if os.sep in R.outputFile: Path(R.outputFile[:R.outputFile.rindex(os.sep)]).mkdir(parents=True,exist_ok=True)
     z = ZipFile(R.outputFile,"w",ZIP_DEFLATED,True)
     R.dataSectors = R.catalogueEntries = 0
     def writestr(n,s):
-        if type(s)==bytes: l = len(s)
-        else: l = len(s.encode('utf-8'))
-        R.dataSectors += (l+2047)//2048 # ISO 9660 sectors on a CD-ROM
+        if isinstance(s,bytes): L = len(s)
+        else: L = len(s.encode('utf-8'))
+        R.dataSectors += (L+2047)//2048 # ISO 9660 sectors on a CD-ROM
         R.catalogueEntries += 1
         # Assume roughly 64 entries per catalogue sector (TODO check), *3 for RockRidge/Joliet
         # Also 16 sectors are unused before start
@@ -388,7 +485,7 @@ def _write0(R,recordingTexts,headings,recordingTasks):
             R.warning(f"{R.outputFile} is too big for some DAISY readers")
         z.writestr(n,s)
     def D(s): return s.replace("\n","\r\n") # in case old readers require DOS line endings
-    hasFullText = any(type(t)==TextsAndTimesWithPages for t in recordingTexts)
+    hasFullText = any(isinstance(t,TextsAndTimesWithPages) for t in recordingTexts)
     if hasFullText: writestr("0000.txt",D(f"""
     If you're reading this, it likely means your
     operating system has unpacked the ZIP file
@@ -412,13 +509,13 @@ def _write0(R,recordingTexts,headings,recordingTasks):
         secsThisRecording = mutagen.File(BytesIO(R.audioData[recNo-1])).info.length
         if secsThisRecording > 3600: R.warning(f"Recording {recNo} is long enough to cause ~{secsThisRecording*.0001:.1f}sec synchronisation error on some readers") # seems lame v3.100 can result in timestamps being effectively multiplied by ~1.0001 on some players but not all, causing slight de-sync on 1h+ recordings (bladeenc may avoid this but be lower quality overall; better to keep the recordings shorter if possible)
         durations.append(secsThisRecording)
-        if not recordingTasks==None: sys.stderr.write(f"Adding {recNo:04d}.mp3..."),sys.stderr.flush()
-        writestr(f"{recNo:04d}.mp3",R.audioData[recNo-1] if recordingTasks==None else recordingTasks[recNo-1].result())
-        if not recordingTasks==None: sys.stderr.write(" done\n")
-        writestr(f'{recNo:04d}.smil',D(section_smil(R,recNo,secsSoFar,secsThisRecording,curP,rTxt.textsAndTimes if type(rTxt)==TextsAndTimesWithPages else rTxt)))
-        writestr(f'{recNo:04d}.{"xml" if R.daisy3 else "htm"}',D(text_htm(R,(rTxt.textsAndTimes[(1 if type(rTxt.textsAndTimes[0])==float else 0)::2] if type(rTxt)==TextsAndTimesWithPages else [TagAndText('h1',rTxt)]),curP)))
+        if recordingTasks is not None: sys.stderr.write(f"Adding {recNo:04d}.mp3..."),sys.stderr.flush()
+        writestr(f"{recNo:04d}.mp3",R.audioData[recNo-1] if recordingTasks is None else recordingTasks[recNo-1].result())
+        if recordingTasks is not None: sys.stderr.write(" done\n")
+        writestr(f'{recNo:04d}.smil',D(section_smil(R,recNo,secsSoFar,secsThisRecording,curP,rTxt.textsAndTimes if isinstance(rTxt,TextsAndTimesWithPages) else rTxt)))
+        writestr(f'{recNo:04d}.{"xml" if R.daisy3 else "htm"}',D(text_htm(R,(rTxt.textsAndTimes[(1 if isinstance(rTxt.textsAndTimes[0],float) else 0)::2] if isinstance(rTxt,TextsAndTimesWithPages) else [TagAndText('h1',rTxt)]),curP)))
         secsSoFar += secsThisRecording
-        curP += (1+len(rTxt.textsAndTimes)//2 if type(rTxt)==TextsAndTimesWithPages else 1)
+        curP += (1+len(rTxt.textsAndTimes)//2 if isinstance(rTxt,TextsAndTimesWithPages) else 1)
     for n,u in enumerate(R.imageFiles): writestr(f'{n+1}{u[u.rindex("."):]}',fetch(u,R.cache,R.refresh,R.refetch,R.delay,R.user_agent) if re.match("https?://",u) else open(u,'rb').read())
     if not R.date: R.date = "%d-%02d-%02d" % time.localtime()[:3]
     if R.daisy3:
@@ -426,7 +523,7 @@ def _write0(R,recordingTexts,headings,recordingTasks):
         writestr('package.opf',D(package_opf(R,hasFullText,len(recordingTexts),secsSoFar)))
         writestr('text.res',D(textres))
     else: writestr('master.smil',D(master_smil(R,headings,secsSoFar)))
-    writestr('navigation.ncx' if R.daisy3 else 'ncc.html',D(ncc_html(R,headings,hasFullText,secsSoFar,[timeAdjust(t.textsAndTimes if type(t)==TextsAndTimesWithPages else t, durations[i]) for i,t in enumerate(recordingTexts)],[(t.pageInfos if type(t)==TextsAndTimesWithPages else []) for t in recordingTexts])))
+    writestr('navigation.ncx' if R.daisy3 else 'ncc.html',D(ncc_html(R,headings,hasFullText,secsSoFar,[timeAdjust(t.textsAndTimes if isinstance(t,TextsAndTimesWithPages) else t, durations[i]) for i,t in enumerate(recordingTexts)],[(t.pageInfos if isinstance(t,TextsAndTimesWithPages) else []) for t in recordingTexts])))
     if not R.daisy3: writestr('er_book_info.xml',D(er_book_info(durations))) # not DAISY standard but EasyReader can use this
     z.close()
     sys.stderr.write(f"Wrote {R.outputFile}\n")
@@ -436,23 +533,23 @@ def getHeadings(R,recordingTexts):
     DAISY's NCC / OPF data"""
     
     ret = [] ; cvChaps = [] ; chapNo = 0
-    try: bookTitlesAndNumChaps = [(n,int(v)) for n,v in [(b if type(b)==tuple else b.split('/')) for b in R.merge_books if b]]
-    except: error(f"Unable to parse merge-books={R.merge_books}")
+    try: bookTitlesAndNumChaps = [(n,int(v)) for n,v in [(b if isinstance(b,tuple) else b.split('/')) for b in R.merge_books if b]]
+    except: error(f"Unable to parse merge-books={R.merge_books}") # noqa: E722
     for t in recordingTexts:
         chapNo += 1
         if bookTitlesAndNumChaps and chapNo==bookTitlesAndNumChaps[0][1]+1:
             del bookTitlesAndNumChaps[0]
             if not bookTitlesAndNumChaps: error("merge-books did not account for all files (check the counts)")
             chapNo = 1
-        if not type(t)==TextsAndTimesWithPages:
+        if not isinstance(t,TextsAndTimesWithPages):
             if bookTitlesAndNumChaps and chapNo==1: error("merge-books with non-HTML not yet implemented")
             ret.append(t) ; continue # title only
         textsAndTimes,pages = t ; first = None
         chapHeadings = []
         for v,u in enumerate(textsAndTimes):
-            if type(u)==float: continue # time
+            if isinstance(u,float): continue #time
             tag,text = u
-            if first==None: first = v
+            if first is None: first = v
             if not tag.startswith('h'):
                 continue
             if v//2 - 1 == first//2 and not textsAndTimes[first].tag.startswith('h'): # chapter starts with non-heading followed by heading: check the non-heading for "Chapter N" etc
@@ -464,7 +561,7 @@ def getHeadings(R,recordingTexts):
         if not chapHeadings:
             # This'll be a problem, as master_smil and ncc_html need headings to refer to the chapter at all.  (Well, ncc_html can also do it by page number if we have them, but we haven't tested all DAISY readers with page number only navigation, and what if we don't even have page numbers?)
             # So let's see if we can at least get a chapter number.
-            if not first==None: nums=re.findall("[1-9][0-9]*",textsAndTimes[first].text)
+            if first is not None: nums=re.findall("[1-9][0-9]*",textsAndTimes[first].text)
             else:
                 R.warning(f"Chapter {chapNo} is completely blank!  (Is {'--marker-attribute' if __name__=='__main__' else 'marker_attribute'} set correctly?)")
                 nums = [] ; first = 0 ; textsAndTimes.append(TagAndText('p',''))
@@ -472,7 +569,7 @@ def getHeadings(R,recordingTexts):
             if R.chapter_titles:
                 if len(R.chapter_titles)>1: chapterNumberTextFull,R.chapter_titles = R.chapter_titles[0],R.chapter_titles[1:]
                 else: chapterNumberTextFull,R.chapter_titles = R.chapter_titles[0], []
-                if not chapterNumberText in chapterNumberTextFull: R.warning(f"Title for chapter {chapNo} is '{chapterNumberTextFull}' which does not contain the expected '{chapterNumberText}'")
+                if chapterNumberText not in chapterNumberTextFull: R.warning(f"Title for chapter {chapNo} is '{chapterNumberTextFull}' which does not contain the expected '{chapterNumberText}'")
             # In EasyReader 10 on Android, unless there is at least one HEADING (not just div), navigation display is non-functional.  And every heading must point to a 'real' heading in the text, otherwise EasyReader 10 will delete all the text in Daisy 2, or promote something to a heading in Daisy 3 (this is not done by Thorium Reader)
             # (EasyReader 10 on Android also inserts a newline after every span class=sentence if it's a SMIL item, even if there's no navigation pointing to it)
             # So let's add a "real" start-of-chapter heading before the text, with time 0.001 second if we don't know the time from the first time marker (don't set it to 0 or Thorium can have issues)
@@ -497,7 +594,7 @@ def getHeadings(R,recordingTexts):
             if chapNo==1: chapHeadings.insert(0,ChapterTOCInfo('h1',bookTitlesAndNumChaps[0][0],chapHeadings[0].itemNo)) # the book title (must point to a real heading for similar reason as above, TODO: if there's substantial text before 1st heading, we'll need to insert a heading in the text with 0.001s audio or something instead of doing this; may also need to in-place change recordingTexts adding 1 to all headings: don't do this unless inserting h1)
         ret.append(chapHeadings)
     if len(bookTitlesAndNumChaps)>1 or bookTitlesAndNumChaps and not chapNo==bookTitlesAndNumChaps[0][1]: R.warning("merge-books specified more files than given")
-    if len(cvChaps) not in [0,len(ret)]: R.warning(f"Verse-indexed only {len(cvChaps)} of {len(ret)} chapters.  Missing: {', '.join(str(i) for i in range(1,len(ret)+1) if not i in cvChaps)}")
+    if len(cvChaps) not in [0,len(ret)]: R.warning(f"Verse-indexed only {len(cvChaps)} of {len(ret)} chapters.  Missing: {', '.join(str(i) for i in range(1,len(ret)+1) if i not in cvChaps)}")
     if cvChaps and not R.daisy3 and not R.strict_ncc_divs: R.warning("Verse-indexing in Daisy 2 can prevent EasyReader 10 from displaying the text: try Daisy 3 instead") # (and with strict_ncc_divs, verses are not shown in Book navigation in Daisy 2)
     return ret
 
@@ -514,12 +611,11 @@ def merge0lenSpans(recordingTexts,headings):
     a combined item for both 1 and 2."""
     
     for cT,cH in zip(recordingTexts,headings):
-        if not type(cT)==TextsAndTimesWithPages:
-            continue
+        if not isinstance(cT,TextsAndTimesWithPages): continue
         textsAndTimes,pages = cT
         i=0
         while i < len(textsAndTimes)-2:
-            while i < len(textsAndTimes)-2 and type(textsAndTimes[i])==TagAndText and (0 if i==0 else textsAndTimes[i-1])==textsAndTimes[i+1] and textsAndTimes[i].tag==textsAndTimes[i+2].tag: # tag identical and 0-length
+            while i < len(textsAndTimes)-2 and isinstance(textsAndTimes[i],TagAndText) and (0 if i==0 else textsAndTimes[i-1])==textsAndTimes[i+1] and textsAndTimes[i].tag==textsAndTimes[i+2].tag: # tag identical and 0-length
                 textsAndTimes[i] = TagAndText(textsAndTimes[i].tag, f"{textsAndTimes[i].text}{' ' if textsAndTimes[i].tag=='span' else '<br>'}{textsAndTimes[i+2].text}") # new combined item
                 del textsAndTimes[i+1:i+3] # old
                 for hI,hV in enumerate(cH):
@@ -601,7 +697,7 @@ def fetch(url,
     sys.stderr.flush()
     global _last_urlopen_time
     try: _last_urlopen_time
-    except: _last_urlopen_time = 0
+    except NameError: _last_urlopen_time = 0
     if delay: time.sleep(min(0,_last_urlopen_time+delay-time.time()))
     headers = {"User-Agent":user_agent} if user_agent else {}
     if ifModSince:
@@ -633,7 +729,7 @@ def ncc_html(R, headings = [],
     recTimeTxts includes 0 and total
     pageNos is [[PageInfo,...],...]"""
     
-    numPages = sum(len(l) for l in pageNos)
+    numPages = sum(len(L) for L in pageNos)
     maxPageNo = max((max((int(i.pageNo) for i in PNs),default=0) for PNs in pageNos),default=0)
     # TODO: we assume all pages are 'normal' pages
     # (not 'front' pages in Roman letters etc)
@@ -682,7 +778,7 @@ def ncc_html(R, headings = [],
     <pageTarget class="pagenum" type="normal" value="{N}" id="page{N}" playOrder="{len(headingsR)+sum(len(P) for P in pageNos[:r])+PO+1}">
       <navLabel><text>{N}</text></navLabel>
       <content src="{r+1:04d}.smil#pr{r+1}.{after}"/>
-    </pageTarget>""" for r,PNs in enumerate(pageNos) for (PO,(after,N)) in enumerate(PNs))+f"""
+    </pageTarget>""" for r,PNs in enumerate(pageNos) for (PO,(after,N)) in enumerate(PNs))+"""
   </pageList>
 </ncx>""" if R.daisy3 else """
   </body>
@@ -729,18 +825,18 @@ def numDaisy3NavpointsToClose(s,headingsR):
             nextDepth = int(nextTag.hTag[1])
         else: nextDepth = None # another div
     if thisDepth == nextDepth: return 1 # e.g. this is div and next is div, or same heading level
-    elif nextDepth==None: return 0 # never close if it's heading followed by div
+    elif nextDepth is None: return 0 # never close if it's heading followed by div
     headingNums_closed = ''.join(('' if not i.hTag.startswith('h') else i.hTag[1] if int(i.hTag[1])>=nextDepth else '0') for i in reversed(headingsR[:s+1])).split('0',1)[0]
     if thisDepth: D=thisDepth
     else: D=int(headingNums_closed[0]) # the heading before this div (TODO: this code assumes there will be one, which is currently true as these divs are generated only by verse numbering)
     N = sum(1 for j in range(nextDepth,D+1) if str(j) in headingNums_closed)
-    return N+(1 if thisDepth==None else 0)
+    return N+(1 if thisDepth is None else 0)
 
 def hReduce(headings):
     """convert a list of ChapterTOCInfo lists (or
     text strings for unstructured chapters) into a
     single BookTOCInfo list"""
-    return reduce(lambda a,b:a+b,[([BookTOCInfo(hType,hText,recNo,textNo) for (hType,hText,textNo) in i] if type(i)==list else [BookTOCInfo('h1',i,recNo,0)]) for recNo,i in enumerate(headings)],[])
+    return reduce(lambda a,b:a+b,[([BookTOCInfo(hType,hText,recNo,textNo) for (hType,hText,textNo) in i] if isinstance(i,list) else [BookTOCInfo('h1',i,recNo,0)]) for recNo,i in enumerate(headings)],[])
 
 def normaliseDepth(R,items):
     """Ensure that heading items' depth conforms
@@ -753,7 +849,7 @@ def normaliseDepth(R,items):
       if ii[0].lower().startswith('h'):
         depth = int(ii[0][1:])
         if depth > curDepth+1:
-            if type(ii)==BookTOCInfo: items[i]=BookTOCInfo(f'h{curDepth+1}',ii.hLine,ii.recNo,ii.itemNo)
+            if isinstance(ii,BookTOCInfo): items[i]=BookTOCInfo(f'h{curDepth+1}',ii.hLine,ii.recNo,ii.itemNo)
             else: items[i]=TagAndText(f'h{curDepth+1}',ii.text)
             curDepth += 1
         else: curDepth = depth
@@ -786,8 +882,8 @@ def timeAdjust(textsAndTimes,secsThisRecording):
     beginning of the recording, and ends at the
     end.  Necessary for some players to play all
     of the audio."""
-    if not type(textsAndTimes)==list: textsAndTimes=[textsAndTimes]
-    return [0.0]+textsAndTimes[(1 if type(textsAndTimes[0])==float else 0):(-1 if type(textsAndTimes[-1])==float else len(textsAndTimes))]+[secsThisRecording]
+    if not isinstance(textsAndTimes,list): textsAndTimes=[textsAndTimes]
+    return [0.0]+textsAndTimes[(1 if isinstance(textsAndTimes[0],float) else 0):(-1 if isinstance(textsAndTimes[-1],float) else len(textsAndTimes))]+[secsThisRecording]
 
 def section_smil(R, recNo=1,
                  totalSecsSoFar=0,
@@ -880,7 +976,7 @@ def package_opf(R,hasFullText,numRecs,totalSecs):
       <item href="{i+1}{u[u.rindex("."):]}" id="opf-{i+numRecs+1}" media-type="image/{u[u.rindex(".")+1:].lower().replace("jpg","jpeg")}"/>""" for i,u in enumerate(R.imageFiles))+f"""
       <item href="dtbook.2005.basic.css" id="opf-{len(R.imageFiles)+numRecs+1}" media-type="text/css"/>"""+''.join(f"""
       <item href="{i:04d}.xml" id="opf-{i+len(R.imageFiles)+numRecs+1}" media-type="application/x-dtbook+xml"/>""" for i in range(1,numRecs+1))+''.join(f"""
-      <item href="{i:04d}.smil" id="{i:04d}" media-type="application/smil+xml"/>""" for i in range(1,numRecs+1))+f"""
+      <item href="{i:04d}.smil" id="{i:04d}" media-type="application/smil+xml"/>""" for i in range(1,numRecs+1))+"""
       <item href="navigation.ncx" id="ncx" media-type="application/x-dtbncx+xml"/>
       <item href="text.res" id="resource" media-type="application/x-dtbresource+xml"/>
    </manifest>
@@ -966,4 +1062,13 @@ if __name__ == "__main__": anemone()
 version = float(__doc__.split()[1]) # for code importing the module to check
 
 # __all__ cuts down what's listed in help(anemone), w/out stopping other things being available via dir() and help(symbol).  Might be useful especially because the default help() lists all classes, including namedtuple classes, with all default methods, before even getting to the anemone() function.  They can have other things *after* anemone(), but we want them to see anemone() as near to the top of the documentation as possible.  So let's take out the classes.
-__all__ = sorted(n for n,s in globals().items() if (type(s)==type(anemone) or n=='version') and not n in ['run','unquote','urlopen','which'])
+__all__ = sorted(n for n,s in globals().items() if (isinstance(s,type(anemone)) or n=='version') and n not in ['run','unquote','urlopen','which'])
+
+# ruff check anemone.py
+# ruff: noqa: E401 # multiple imports on one line
+# - sorry, I can't see what's wrong with that
+# ruff: noqa: E402 # import not at top of file
+# - sorry but I like having the docs first...
+# ruff: noqa: E701 # colon without newline
+# - sorry, coding in large print with wraparound on means newlines are more of an overhead
+# ruff: noqa: E702 # semicolon statements - ditto

@@ -6,6 +6,7 @@ test_ohi_latex:
 	echo kǎoyàn|python3 ohi_latex.py --dry-run
 	grep '\\kao3\\yan4' index.tex >/dev/null
 test_anemone:
+	ruff check anemone.py
 	sox -n test.wav synth 3 sine 300-3300
 	./anemone.py test.wav # title from filename
 	unzip -c output_daisy.zip ncc.html|grep '>test<' >/dev/null
