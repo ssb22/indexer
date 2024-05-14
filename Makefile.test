@@ -12,4 +12,7 @@ test_anemone:
 	unzip -c output_daisy.zip ncc.html|grep '>test<' >/dev/null
 	./anemone.py --daisy3 test.wav
 	unzip -c output_daisy.zip navigation.ncx|grep '>test<' >/dev/null
+	./anemone.py --daisy3 test.wav '<h1 data-pid="T">heading</h1><p data-pid="U">para</p>' '{"markers":[{"id":"T","time":"1"},{"id":"U","time":"2"}]}'
+	unzip -c output_daisy.zip navigation.ncx|grep '<navLabel><text>heading</text><audio src="0001.mp3" clipBegin="0:00:00.000" clipEnd="0:00:02.000"/></navLabel>' >/dev/null
+	unzip -c output_daisy.zip 0001.smil|grep '<audio src="0001.mp3" clipBegin="0:00:02.000" clipEnd="0:00:03.000" id="aud1.1" />' >/dev/null
 .PHONY: test test_ohi_latex test_anemone
