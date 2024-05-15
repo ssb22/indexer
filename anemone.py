@@ -1,6 +1,6 @@
 #!/usr/bin/env python3
 """
-Anemone 1.56 (http://ssb22.user.srcf.net/anemone)
+Anemone 1.57 (http://ssb22.user.srcf.net/anemone)
 (c) 2023-24 Silas S. Brown.  License: Apache 2
 
 To use this module, either run it from the command
@@ -37,22 +37,17 @@ def anemone(*files,**options) -> list[str]:
     with careful quoting).
     If you do not give this function any arguments
     it will look at the system command line.
-    Return value is a list of warnings, if any.
-
-    Other functions below are generally for
-    internal use and are of interest only if you
-    want to maintain Anemone, although you might
-    find {fetch(), deBlank(), version} useful."""
+    Return value is a list of warnings, if any."""
     
-    R=Run(*[(json.dumps(f) if isinstance(f,dict)
-             else f) for f in files],**options)
+    R=Run(*files,**options)
+    R.check()
     if R.mp3_recode or any(f.strip().lower().
                            endswith(
                                f"{os.extsep}wav")
                            for f in files
                            if isinstance(f,str)):
         check_we_got_LAME()
-    write_all(R,get_texts(R))
+    R.write_all(R.get_texts())
     return R.warnings
 
 def populate_argument_parser(args) -> None:
@@ -180,6 +175,7 @@ instead of a comma-separated string, which might
 be useful if there are commas in some chapter
 titles.""")
     args.add_argument("--chapter-heading-level",default=1,help="Heading level to use for chapters that don't have titles")
+    args.add_argument("--warnings-are-errors",action="store_true",help="Treat warnings as errors")
     args.add_argument("--dry-run",action="store_true",help="Don't actually output DAISY, just check the input and parameters")
 
 generator=__doc__.strip().split('\n')[0] # string we use to identify ourselves in HTTP requests and in Daisy files
@@ -232,6 +228,14 @@ try: import mutagen
 except ImportError: error("Anemone needs the Mutagen library to determine play lengths.\nPlease do: pip install mutagen")
 from io import BytesIO
 
+# These must be defined before Run for type hints:
+PageInfo = NT('PageInfo',['duringId','pageNo'])
+TagAndText = NT('TagAndText',['tag','text'])
+TextsAndTimesWithPages = NT('TextsAndTimesWithPages',['textsAndTimes','pageInfos'])
+ChapterTOCInfo = NT('ChapterTOCInfo',['hTag','hLine','itemNo'])
+BookTOCInfo = NT('BookTOCInfo',['hTag','hLine','recNo','itemNo'])
+del NT
+
 class Run():
   """The parameters we need for an Anemone run.
   Constructor can either parse args from the
@@ -244,27 +248,38 @@ class Run():
     R.imageFiles,R.outputFile = [],None
     R.warnings = []
     if inFiles: # being called as a module
+        inFiles2 = [f for f in inFiles if isinstance(f,str)]
         R.__dict__.update(
             get_argument_parser().parse_args(
-                list(inFiles)+
+                (inFiles2 if inFiles2 else ["placeholder"]) +
                 [a for k,v in kwargs.items()
                  for a in
                  ['--'+k.replace('_','-'),str(v)]
                  if type(v) in [str,int]])
             .__dict__)
+        if not inFiles2: del R.files[0] # placeholder
+        R.files += [f for f in inFiles if not isinstance(f,str)] # in case passing bytes or JSON directly
     else: # being called from the command line
         R.__dict__.update(get_argument_parser().parse_args().__dict__)
     R.__dict__.update((k,v)
                       for k,v in kwargs.items()
                       if type(v) not in [str,int,type(None)]) # (None means keep the default from parse_args; boolean and bytes we might as well handle directly; list e.g. merge_books should bypass parser; ditto session object for cache, a type we can't even name here if requests_cache is not installed)
     for k in ['merge_books','chapter_titles']:
-        if not isinstance(R.__dict__[k],list): R.__dict__[k]=R.__dict__[k].split(',') # comma-separate if coming from the command line, but allow lists to be passed in to the module
+        if not isinstance(R.__dict__[k],list):
+            R.__dict__[k]=R.__dict__[k].split(',') # comma-separate if coming from the command line, but allow lists to be passed in to the module
+            if R.__dict__[k]==['']:
+                R.__dict__[k] = []
     for f in R.files:
         fOrig = f
-        if f.lower().endswith(f"{os.extsep}zip"):
+        if isinstance(f,dict):
+            # support direct JSON pass-in as dict
+            R.jsonData.append(f)
+            R.check_for_JSON_transcript()
+            continue
+        if isinstance(f,str) and f.lower().endswith(f"{os.extsep}zip"):
             if R.outputFile: error(f"Only one {os.extsep}zip output file may be specified")
             R.outputFile = f ; continue
-        if re.match("https?://",f):
+        elif isinstance(f,str) and re.match("https?://",f):
             f=fetch(f,R.cache,R.refresh,R.refetch,R.delay,R.user_agent)
         elif delimited(f,'{','}'): pass
         elif delimited(f,'<','>'): pass
@@ -272,7 +287,7 @@ class Run():
         else: f = open(f,"rb").read()
         if delimited(f,'{','}'):
             R.jsonData.append(json.loads(f))
-            check_for_JSON_transcript(R)
+            R.check_for_JSON_transcript()
         elif delimited(f,'<','>'):
             R.htmlData.append(f)
         elif fOrig.lower().endswith(f"{os.extsep}mp3") or fOrig.lower().endswith(f"{os.extsep}wav"):
@@ -281,6 +296,12 @@ class Run():
         elif fOrig.lower().endswith(f"{os.extsep}txt"):
             R.textData.append(f.decode('utf-8').strip())
         else: error(f"Format of '{fOrig}' has not been recognised")
+  def check(self) -> None:
+    "Checks we've got everything"
+    # You may omit calling this if you're creating
+    # a temporary Run just to call something like
+    # check_for_JSON_transcript and get its HTML
+    R = self
     if not R.audioData: error("Creating DAISY files without audio is not yet implemented")
     if R.htmlData and not R.jsonData: error("Full text without time markers is not yet implemented")
     if R.jsonData and not R.htmlData: error("Time markers without full text is not implemented")
@@ -291,26 +312,15 @@ class Run():
     if not R.outputFile:
         R.outputFile=f"output_daisy{os.extsep}zip"
     if not R.title: R.title=R.outputFile.replace(f"{os.extsep}zip","").replace("_daisy","")
-  def warning(self,warningText):
+  def warning(self,warningText) -> None:
+    if self.warnings_are_errors:error(warningText)
     self.warnings.append(warningText)
     sys.stderr.write(f"WARNING: {warningText}\n")
-
-def delimited(s,start:int,end:int) -> bool:
-    """Checks to see if a string or binary data
-    is delimited by start and end, converting as
-    needed, after stripping"""
-    if isinstance(s,bytes):
-        s = s.replace(b"\xEF\xBB\xBF",b"").strip() # just in case somebody's using UTF-8 BOMs
-        return s.startswith(start.encode('latin1')) and s.endswith(end.encode('latin1'))
-    else: # string; assume no BOM to skip
-        s = s.strip()
-        return s.startswith(start) and s.endswith(end)
-
-def check_for_JSON_transcript(R) -> None:
+  def check_for_JSON_transcript(self) -> None:
     """Checks to see if the last thing added to
     the Run object is a JSON podcast transcript,
     and converts it to HTML + time markers"""
-    
+    R = self
     if isinstance(R.jsonData[-1].get(
             "segments",None),list) and all(
                 isinstance(s,dict) and
@@ -331,30 +341,11 @@ def check_for_JSON_transcript(R) -> None:
             for i,t in enumerate(
                     s["startTime"] for s in R.jsonData[-1]["segments"])
             if bodyList[i]]}
-
-def check_we_got_LAME() -> None:
-    """Complains if a LAME binary is not
-    available on this system.  Makes a little
-    extra effort to find one on Windows."""
-    
-    if which('lame'): return
-    if sys.platform=='win32':
-        os.environ["PATH"] += r";C:\Program Files (x86)\Lame for Audacity;C:\Program Files\Lame for Audacity"
-        if which('lame'): return
-    error(f"Anemone requires the LAME program to encode/recode MP3s.\nPlease {'run the exe installer from lame.buanzo.org' if sys.platform=='win32' else 'install lame'} and try again.")
-
-PageInfo = NT('PageInfo',['duringId','pageNo'])
-TagAndText = NT('TagAndText',['tag','text'])
-TextsAndTimesWithPages = NT('TextsAndTimesWithPages',['textsAndTimes','pageInfos'])
-ChapterTOCInfo = NT('ChapterTOCInfo',['hTag','hLine','itemNo'])
-BookTOCInfo = NT('BookTOCInfo',['hTag','hLine','recNo','itemNo'])
-del NT
-
-def get_texts(R) -> list:
+  def get_texts(self) -> list:
     """Gets the text markup required for the run,
     extracting it from HTML (guided by JSON IDs)
     if we need to do that."""
-    
+    R = self
     if R.textData: return R.textData # section titles only, from text files
     elif not R.htmlData: return R.filenameTitles # section titles only, from sound filenames
     recordingTexts = []
@@ -437,70 +428,15 @@ def get_texts(R) -> list:
         recordingTexts.append(
             TextsAndTimesWithPages(rTxt,pageNos))
     return recordingTexts
-
-tagRewrite = { # used by get_texts
-    'legend':'h3', # used in fieldset
-}
-
-def content_fixes(content:str) -> str:
-    """Miscellaneous fixes for final XML/XHTML
-    to work around some issues with readers"""
-    content = easyReader_em_fix(content)
-    content = re.sub('( *</?br> *)+',' <br />',content) # allow line breaks inside paragraphs, in case any in mid-"sentence", but collapse them because readers typically add extra space to each, plus add a space beforehand in case any reader doesn't render the linebreak (e.g. EasyReader 10 in a sentence span)
-    return content
-
-def easyReader_em_fix(content:str) -> str:
-    """EasyReader 10 workaround: it does not show
-    strong or em, which is OK but it puts space
-    around it: no good if it happened after a "("
-    or similar, so delete those occurrences"""
-    while True:
-        c2 = re.sub(
-            r"<(?P<tag>(strong|em))>(.*?)</(?P=tag)>",
-            lambda m:easyReader_em_fix(m.group(3))
-            if m.start() and
-            content[m.start()-1] not in ' >'
-            or m.end()<len(content) and
-            content[m.end()] not in ' <'
-            else f"<{m.group(1)}>{easyReader_em_fix(m.group(3))}</{m.group(1)}>",
-            string = content)
-        if c2==content: break
-        content = c2 # and re-check
-    return content
-
-def jsonAttr(d:dict,suffix:str) -> str:
-    """Returns the value of a dictionary key whose
-    name ends with the given lower-case suffix
-    (after converting names to lower case), after
-    checking exactly one key does this.  Used for
-    checking JSON for things like paragraphId if
-    you know only that it ends with 'Id'"""
-    
-    keys = [k for k in d.keys() if k.lower().endswith(suffix)]
-    if not keys: error(f"No *{suffix} in {repr(keys)}")
-    if len(keys)>1: error(f"More than one *{suffix} in {repr(keys)}")
-    return str(d[keys[0]])
-
-def parseTime(t:str) -> float:
-    """Parses a string containing seconds,
-    minutes:seconds or hours:minutes:seconds
-    (decimal fractions of seconds allowed),
-    and returns floating-point seconds"""
-    
-    tot = 0.0 ; mul = 1
-    for u in reversed(t.split(':')):
-        tot += float(u)*mul ; mul *= 60
-    return tot
-
-def write_all(R:Run,recordingTexts) -> None:
+  def write_all(self,recordingTexts) -> None:
     """Writes the DAISY zip and everything in it.
     Each item of recordingTexts is either 1 text
     for section title of whole recording, or a
     TextsAndTimesWithPages i.e. ([TagAndText,time,
     TagAndText,time,TagAndText],[PageInfo,...])"""
-    
+    R = self
     assert len(R.audioData) == len(recordingTexts)
-    headings = getHeadings(R,recordingTexts)
+    headings = R.getHeadings(recordingTexts)
     if R.dry_run: return sys.stderr.write(f"Dry run: {len(R.warnings) if R.warnings else 'no'} warning{'' if len(R.warnings)==1 else 's'} for {R.outputFile}\n")
     merge0lenSpans(recordingTexts,headings)
     if R.mp3_recode or any(
@@ -516,15 +452,16 @@ def write_all(R:Run,recordingTexts) -> None:
              else lambda x:x),
             dat) for dat in R.audioData]
     else: executor,recordingTasks = None,None
-    try: write_all0(R,recordingTexts,headings,recordingTasks)
+    try: R.write_all0(recordingTexts,headings,recordingTasks)
     except: # unhandled exception: clean up
         try: executor.shutdown(wait=False,cancel_futures=False) # (cancel_futures is Python 3.9+)
         except: pass # (no executor / can't do it) # noqa: E722
         try: os.remove(R.outputFile) # incomplete
         except: pass # noqa: E722
         raise
-def write_all0(R:Run,recordingTexts,headings,recordingTasks) -> None:
-    "Service function for write_all"
+  def write_all0(self,recordingTexts,headings,recordingTasks) -> None:
+    "Service method for write_all"
+    R = self
     if os.sep in R.outputFile:
         Path(R.outputFile[:R.outputFile.rindex(os.sep)]).mkdir(parents=True,exist_ok=True)
     z = ZipFile(R.outputFile,"w",ZIP_DEFLATED,True)
@@ -579,12 +516,11 @@ def write_all0(R:Run,recordingTexts,headings,recordingTasks) -> None:
         if recordingTasks is not None:
             sys.stderr.write(" done\n")
         writestr(f'{recNo:04d}.smil',D(
-            section_smil(R,recNo,secsSoFar,
+            R.section_smil(recNo,secsSoFar,
                          secsThisRecording,curP,
                          rTxt.textsAndTimes if isinstance(rTxt,TextsAndTimesWithPages) else rTxt)))
         writestr(f'{recNo:04d}.{"xml" if R.daisy3 else "htm"}',
-                 D(text_htm(
-                     R,
+                 D(R.text_htm(
                      (rTxt.textsAndTimes[
                          (1 if isinstance(rTxt.textsAndTimes[0],float) else 0)
                          ::2]
@@ -599,16 +535,16 @@ def write_all0(R:Run,recordingTexts,headings,recordingTasks) -> None:
     if not R.date: R.date = "%d-%02d-%02d" % time.localtime()[:3]
     if R.daisy3:
         writestr('dtbook.2005.basic.css',D(d3css))
-        writestr('package.opf',D(package_opf(
-            R, hasFullText, len(recordingTexts),
+        writestr('package.opf',D(R.package_opf(
+            hasFullText, len(recordingTexts),
             secsSoFar)))
         writestr('text.res',D(textres))
-    else: writestr('master.smil',D(master_smil(R,headings,secsSoFar)))
+    else: writestr('master.smil',D(R.master_smil(headings,secsSoFar)))
     writestr(
         'navigation.ncx' if R.daisy3
         else 'ncc.html',
-        D(ncc_html(
-            R,headings,hasFullText,secsSoFar,
+        D(R.ncc_html(
+            headings,hasFullText,secsSoFar,
             [timeAdjust(
                 t.textsAndTimes if isinstance(t,TextsAndTimesWithPages) else t,
                 durations[i])
@@ -618,11 +554,10 @@ def write_all0(R:Run,recordingTexts,headings,recordingTasks) -> None:
     if not R.daisy3: writestr('er_book_info.xml',D(er_book_info(durations))) # not DAISY standard but EasyReader can use this
     z.close()
     sys.stderr.write(f"Wrote {R.outputFile}\n")
-
-def getHeadings(R:Run,recordingTexts) -> list:
+  def getHeadings(self,recordingTexts) -> list:
     """Gets headings from recordingTexts for the
     DAISY's NCC / OPF data"""
-    
+    R = self
     ret = [] ; cvChaps = [] ; chapNo = 0
     try: bookTitlesAndNumChaps = [
             (n,int(v))
@@ -741,8 +676,414 @@ def getHeadings(R:Run,recordingTexts) -> list:
     if len(cvChaps) not in [0,len(ret)]: R.warning(f"Verse-indexed only {len(cvChaps)} of {len(ret)} chapters.  Missing: {', '.join(str(i) for i in range(1,len(ret)+1) if i not in cvChaps)}")
     if cvChaps and not R.daisy3 and not R.strict_ncc_divs: R.warning("Verse-indexing in Daisy 2 can prevent EasyReader 10 from displaying the text: try Daisy 3 instead") # (and with strict_ncc_divs, verses are not shown in Book navigation in Daisy 2)
     return ret
+  def ncc_html(self, headings = [],
+             hasFullText:bool = False,
+             totalSecs = 0,
+             recTimeTxts = [],
+             pageNos=[]) -> str:
+    """Returns the Navigation Control Centre (NCC)
+    recTimeTxts includes 0 and total
+    pageNos is [[PageInfo,...],...]"""
+    R = self
+    numPages = sum(len(L) for L in pageNos)
+    maxPageNo = max((
+        max(
+            (int(i.pageNo) for i in PNs),
+            default=0)
+        for PNs in pageNos),default=0)
+    # TODO: we assume all pages are 'normal' pages
+    # (not 'front' pages in Roman letters etc)
+    headingsR = R.normaliseDepth(hReduce(headings)) # (hType,hText,recNo,textNo)
+    return deBlank(f"""<?xml version="1.0" encoding="utf-8"?>
+{'<!DOCTYPE ncx PUBLIC "-//NISO//DTD ncx 2005-1//EN" "http://www.daisy.org/z3986/2005/ncx-2005-1.dtd">' if R.daisy3 else '<!DOCTYPE html PUBLIC "-//W3C//DTD XHTML 1.0 Transitional//EN" "http://www.w3.org/TR/xhtml1/DTD/xhtml1-transitional.dtd">'}
+<{'ncx xmlns="http://www.daisy.org/z3986/2005/ncx/" version="2005-1"'
+    if R.daisy3
+    else f'html lang="{R.lang}" xmlns="http://www.w3.org/1999/xhtml"'} xml:lang="{R.lang}">
+  <head>
+    {'<meta name="dtb:uid" content=""/>' if R.daisy3 else '<meta content="text/html; charset=utf-8" http-equiv="Content-type" />'}
+    {f'<meta name="dtb:totalPageCount" content="{numPages}" />' if R.daisy3 else ''}
+    {f'<meta name="dtb:maxPageNumber" content="{maxPageNo}" />' if R.daisy3 else ''}
+    {'' if R.daisy3 else f'<title>{R.title}</title>'}
+    <meta name="dc:creator" content="{R.creator}" />
+    <meta name="dc:date" content="{R.date}" scheme="yyyy-mm-dd" />
+    <meta name="dc:language" content="{R.lang}" scheme="ISO 639" />
+    <meta name="dc:publisher" content="{deHTML(R.publisher)}" />
+    <meta name="dc:title" content="{deHTML(R.title)}" />
+    <meta name="dc:type" content="text" />
+    <meta name="dc:identifier" content="{R.url}" />
+    <meta name="dc:format" content="{'ANSI/NISO Z39.86-2005' if R.daisy3 else 'Daisy 2.02'}" />
+    <meta name="ncc:narrator" content="{R.reader}" />
+    <meta name="ncc:producedDate" content="{R.date}" />
+    <meta name="{'dtb' if R.daisy3 else 'ncc'}:generator" content="{generator}" />
+    <meta name="ncc:charset" content="utf-8" />
+    <meta name="ncc:pageFront" content="0" />
+    <meta name="ncc:maxPageNormal" content="{maxPageNo}" />
+    <meta name="ncc:pageNormal" content="{numPages}" />
+    <meta name="ncc:pageSpecial" content="0" />
+    <meta name="ncc:tocItems" content="{len(headingsR)+sum(len(PNs) for PNs in pageNos)}" />
+    <meta name="ncc:totalTime" content="{hmsTime(totalSecs)}" />
+    <meta name="ncc:multimediaType" content="{"audioFullText" if hasFullText else "audioNcc"}" />
+    <meta name="{'dtb' if R.daisy3 else 'ncc'}:depth" content="{max(int(h.hTag[1:]) for h in headingsR if h.hTag.startswith('h'))+(1 if any(h.hTag=='div' for h in headingsR) else 0)}" />
+    <meta name="ncc:files" content="{2+len(headings)*(3 if hasFullText else 2)+len(R.imageFiles)}" />
+  </head>
+  {f'<docTitle><text>{R.title}</text></docTitle>'
+    if R.daisy3 else ''}
+  {f'<docAuthor><text>{R.creator}</text></docAuthor>'
+    if R.daisy3 else ''}
+  <{'navMap id="navMap"' if R.daisy3 else 'body'}>"""+''.join((f"""
+    <navPoint id="s{s+1}" class="{t.hTag}" playOrder="{s+1}">
+      <navLabel><text>{t.hLine}</text>{'' if recTimeTxts[t.recNo][2*t.itemNo]==recTimeTxts[t.recNo][2*t.itemNo+2] else f'''<audio src="{t.recNo+1:04d}.mp3" clipBegin="{hmsTime(recTimeTxts[t.recNo][2*t.itemNo])}" clipEnd="{hmsTime(recTimeTxts[t.recNo][2*t.itemNo+2])}"/>'''}</navLabel>
+      <content src="{t.recNo+1:04d}.smil#pr{t.recNo+1}.{t.itemNo}"/>
+    {'</navPoint>'*numDaisy3NavpointsToClose(s,headingsR)}""" if R.daisy3 else ''.join(f"""
+    <span class="page-normal" id="page{N}"><a href="{r+1:04d}.smil#t{r+1}.{after}">{N}</a></span>""" for r,PNs in enumerate(pageNos) for (PO,(after,N)) in enumerate(PNs) if (r,after)<=t[2:4] and (not s or (r,after)>headingsR[s-1][2:4]))+f"""
+    <{t.hTag} class="{'section' if s or R.allow_jumps else 'title'}" id="s{s+1}">
+      <a href="{t.recNo+1:04d}.smil#t{t.recNo+1}.{t.itemNo}">{t.hLine}</a>
+    </{t.hTag}>""") for s,t in enumerate(headingsR))+('</navMap><pageList id="page">'+''.join(f"""
+    <pageTarget class="pagenum" type="normal" value="{N}" id="page{N}" playOrder="{len(headingsR)+sum(len(P) for P in pageNos[:r])+PO+1}">
+      <navLabel><text>{N}</text></navLabel>
+      <content src="{r+1:04d}.smil#pr{r+1}.{after}"/>
+    </pageTarget>""" for r,PNs in enumerate(pageNos) for (PO,(after,N)) in enumerate(PNs))+"""
+  </pageList>
+</ncx>""" if R.daisy3 else """
+  </body>
+</html>"""))
+  def imageParagraph(self,text:str) -> str:
+    "Pulls out our normalised <img> markup for use after the paragraph"
+    R = self
+    return f"""{'<p><imggroup>' if R.daisy3 and re.search('<img src="',text) else ''}{''.join(re.findall('<img src="[^"]*" [^/]*/>',text))}{'</imggroup></p>' if R.daisy3 and re.search('<img src="',text) else ''}"""
+  def daisy3OpenLevelTags(self, tag:str, num:int, paras:list[TagAndText]) -> str:
+    "Gives the <levelN> tags that should be placed before the current point in the DAISY 3 format"
+    if not self.daisy3: return ''
+    elif not tag.startswith('h'):
+        if num: return '' # will have been started
+        else: return '<level1>'
+    return ''.join(
+        f'<level{n}>'
+        for n in range(
+                min(
+                    int(tag[1:]),
+                    1+next(
+                        int(paras[p].tag[1:])
+                        for p in range(
+                                num-1,-1,-1)
+                        if paras[p].tag
+                        .startswith('h')))
+                if any(
+                        paras[p].tag
+                        .startswith('h')
+                        for p in range(
+                                num-1,-1,-1))
+                else 1,
+                int(tag[1:])+1))
+  def daisy3CloseLevelTags(self, tag:str, num:int, paras:list[TagAndText]) -> str:
+    "Gives the </levelN> tags that should be placed before the current point in the DAISY 3 format"
+    if not self.daisy3 or not num+1==len(paras) \
+       and not paras[num+1].tag.startswith('h'):
+        return ''
+    return ''.join(
+        f'</level{n}>'
+        for n in range(
+                next(
+                    int(paras[p].tag[1:])
+                    for p in range(num,-1,-1)
+                    if paras[p].tag
+                    .startswith('h')
+                ) if any(
+                    paras[p].tag.startswith('h')
+                    for p in range(num,-1,-1)
+                ) else 1,
+                0 if num+1==len(paras)
+                else int(paras[num+1].tag[1:])-1,
+                -1))
+  def normaliseDepth(self, items:list) -> list:
+    """Ensure that heading items' depth conforms
+    to DAISY standard, in a BookTOCInfo list"""
+    
+    if self.allow_jumps: return items
+    curDepth = 0
+    for i in range(len(items)):
+      ii = items[i] # TagAndText or BookTOCInfo
+      if ii[0].lower().startswith('h'):
+        depth = int(ii[0][1:])
+        if depth > curDepth+1:
+            if isinstance(ii,BookTOCInfo):
+                items[i]=BookTOCInfo(
+                    f'h{curDepth+1}',ii.hLine,
+                    ii.recNo,ii.itemNo)
+            else: items[i]=TagAndText(
+                    f'h{curDepth+1}',ii.text)
+            curDepth += 1
+        else: curDepth = depth
+    return items
+  def master_smil(self,headings = [],
+                totalSecs = 0):
+    "Compile the master smil for a DAISY file"
+    R = self
+    headings = hReduce(headings)
+    return f"""<?xml version="1.0"?>
+<!DOCTYPE smil PUBLIC "-//W3C//DTD SMIL 1.0//EN" "http://www.w3.org/TR/REC-smil/SMIL10.dtd">
+<smil>
+  <head>
+    <meta name="dc:title" content="{deHTML(R.title)}" />
+    <meta name="dc:format" content="Daisy 2.02" />
+    <meta name="ncc:generator" content="{generator}" />
+    <meta name="ncc:timeInThisSmil" content="{hmsTime(totalSecs)}" />
+    <layout>
+      <region id="textView" />
+    </layout>
+  </head>
+  <body>"""+''.join(f"""
+    <ref title="{deHTML(t.hLine)}" src="{
+  t.recNo+1:04d}.smil#t{t.recNo+1}.{t.itemNo
+  }" id="ms_{s+1:04d}" />"""
+                    for s,t in
+                    enumerate(headings))+"""
+  </body>
+</smil>
+"""
+  def section_smil(self, recNo:int = 1,
+                 totalSecsSoFar:float = 0,
+                 secsThisRecording:float = 0,
+                 startP:int = 0,
+                 textsAndTimes = []) -> str:
+    "Compile a section SMIL for a DAISY file"
+    R = self
+    textsAndTimes = timeAdjust(textsAndTimes,
+                               secsThisRecording)
+    return deBlank(f"""<?xml version="1.0" encoding="utf-8"?>
+{'<!DOCTYPE smil PUBLIC "-//NISO//DTD dtbsmil 2005-2//EN" "http://www.daisy.org/z3986/2005/dtbsmil-2005-2.dtd">'
+    if R.daisy3
+    else '<!DOCTYPE smil PUBLIC "-//W3C//DTD SMIL 1.0//EN" "http://www.w3.org/TR/REC-smil/SMIL10.dtd">'}
+{'<smil xmlns="http://www.w3.org/2001/SMIL20/">'
+    if R.daisy3
+    else '<smil>'}
+  <head>
+    {'<meta name="dtb:uid" content=""/>'
+    if R.daisy3
+    else '<meta name="dc:format" content="Daisy 2.02" />'}
+    <meta name="{'dtb' if R.daisy3
+    else 'ncc'}:generator" content="{generator}" />
+    <meta name="{'dtb' if R.daisy3
+    else 'ncc'}:totalElapsedTime" content="{
+    hmsTime(totalSecsSoFar)}" />""" + (
+        "" if R.daisy3 else f"""
+    <meta name="ncc:timeInThisSmil" content="{
+        hmsTime(secsThisRecording)}" />
+    <meta name="title" content="{
+        deHTML(textsAndTimes[1][1])}" />
+    <meta name="dc:title" content="{
+        deHTML(textsAndTimes[1][1])}" />
+    <layout>
+      <region id="textView" />
+    </layout>""")+f"""
+  </head>
+  <body>
+    <seq id="sq{recNo}" dur="{
+    hmsTime(secsThisRecording) if R.daisy3
+    else f'{secsThisRecording:.3f}s'}" fill="remove">"""+"".join(f"""
+      <par {'' if R.daisy3
+    else 'endsync="last" '}id="pr{recNo}.{i//2}">
+        <text id="t{recNo}.{i//2}" src="{
+    recNo:04d}.{'xml' if R.daisy3 else 'htm'
+    }#p{startP+i//2}" />
+        {'' if R.daisy3
+    or textsAndTimes[i-1]==textsAndTimes[i+1]
+    else f'<seq id="sq{recNo}.{i//2}a">'}
+          {'' if
+    textsAndTimes[i-1]==textsAndTimes[i+1]
+    else f'''<audio src="{recNo:04d}.mp3" clip{
+    'B' if R.daisy3 else '-b'}egin="{
+    hmsTime(textsAndTimes[i-1]) if R.daisy3 else
+    f'npt={textsAndTimes[i-1]:.3f}s'}" clip{
+    'E' if R.daisy3 else '-e'}nd="{
+    hmsTime(textsAndTimes[i+1]) if R.daisy3 else
+    f'npt={textsAndTimes[i+1]:.3f}s'}" id="aud{
+    recNo}.{i//2}" />'''}
+        {'' if R.daisy3 or
+    textsAndTimes[i-1]==textsAndTimes[i+1]
+    else '</seq>'}
+      </par>{''.join(f'<par><text id="t{recNo}.{i//2}.{j}" src="{recNo:04d}.xml#{re.sub(".*"+chr(34)+" id=.","",imageID)}"/></par>'
+    for j,imageID in enumerate(re.findall(
+    '<img src="[^"]*" id="[^"]*',
+    textsAndTimes[i][1]))) if R.daisy3 else ''
+    }""" for i in range(1,len(textsAndTimes),2))+"""
+    </seq>
+  </body>
+</smil>
+""") # (do not omit text with 0-length audio altogether, even in Daisy 2: unlike image tags after paragraphs, it might end up not being displayed by EasyReader etc.  Omitting audio does NOT save being stopped at the beginning of the chapter when rewinding by paragraph: is this a bug or a feature?)
+  def package_opf(self, hasFullText:bool,
+                numRecs:int,
+                totalSecs:float) -> str:
+    "Make the package OPF for a DAISY 3 file"
+    R = self
+    return f"""<?xml version="1.0" encoding="utf-8"?>
+<!DOCTYPE package
+  PUBLIC "+//ISBN 0-9673008-1-9//DTD OEB 1.2 Package//EN" "http://openebook.org/dtds/oeb-1.2/oebpkg12.dtd">
+<package xmlns="http://openebook.org/namespaces/oeb-package/1.0/" unique-identifier="{R.url}">
+   <metadata>
+      <dc-metadata xmlns:dc="http://purl.org/dc/elements/1.1/">
+         <dc:Format>ANSI/NISO Z39.86-2005</dc:Format>
+         <dc:Language>{R.lang}</dc:Language>
+         <dc:Date>{R.date}</dc:Date>
+         <dc:Publisher>{R.publisher}</dc:Publisher>
+         <dc:Title>{R.title}</dc:Title>
+         <dc:Identifier id="{R.url}"/>
+         <dc:Creator>{R.creator}</dc:Creator>
+         <dc:Type>text</dc:Type>
+      </dc-metadata>
+      <x-metadata>
+         <meta name="dtb:multimediaType" content="{"audioFullText" if hasFullText else "audioNcc"}"/>
+         <meta name="dtb:totalTime" content="{hmsTime(totalSecs)}"/>
+         <meta name="dtb:multimediaContent" content="audio,text{',image' if R.imageFiles else ''}"/>
+         <meta name="dtb:narrator" content="{deHTML(R.reader)}"/>
+         <meta name="dtb:producedDate" content="{R.date}"/>
+      </x-metadata>
+   </metadata>
+   <manifest>
+      <item href="package.opf" id="opf" media-type="text/xml"/>"""+''.join(f"""
+      <item href="{i:04d}.mp3" id="opf-{i
+      }" media-type="audio/mpeg"/>""" for i in range(1,numRecs+1))+''.join(f"""
+      <item href="{i+1}{u[u.rindex("."):]
+      }" id="opf-{i+numRecs+1
+      }" media-type="image/{u[u.rindex(".")+1:]
+      .lower().replace("jpg","jpeg")}"/>""" for i,u in enumerate(R.imageFiles))+f"""
+      <item href="dtbook.2005.basic.css" id="opf-{
+      len(R.imageFiles)+numRecs+1}" media-type="text/css"/>"""+''.join(f"""
+      <item href="{i:04d}.xml" id="opf-{i+len(
+      R.imageFiles)+numRecs+1}" media-type="application/x-dtbook+xml"/>""" for i in range(1,numRecs+1))+''.join(f"""
+      <item href="{i:04d}.smil" id="{i
+      :04d}" media-type="application/smil+xml"/>""" for i in range(1,numRecs+1))+"""
+      <item href="navigation.ncx" id="ncx" media-type="application/x-dtbncx+xml"/>
+      <item href="text.res" id="resource" media-type="application/x-dtbresource+xml"/>
+   </manifest>
+   <spine>"""+"".join(f"""
+      <itemref idref="{i:04d}"/>""" for i in range(1,numRecs+1))+"""
+   </spine>
+</package>
+"""
+  def text_htm(self, paras:list[TagAndText], offset:int=0) -> str:
+    """Format the text, as htm for DAISY 2 or xml
+    for DAISY 3.
+    paras = TagAndText list, text is xhtml i.e. & use &amp; etc."""
+    R = self
+    return deBlank(f"""<?xml version="1.0"{
+    ' encoding="utf-8"' if R.daisy3 else ''
+    }?>{'<?xml-stylesheet type="text/css" href="dtbook.2005.basic.css"?>' if R.daisy3 else ''}
+{'<!DOCTYPE dtbook PUBLIC "-//NISO//DTD dtbook 2005-3//EN" "http://www.daisy.org/z3986/2005/dtbook-2005-3.dtd">'
+    if R.daisy3
+    else '<!DOCTYPE html PUBLIC "-//W3C//DTD XHTML 1.0 Transitional//EN" "http://www.w3.org/TR/xhtml1/DTD/xhtml1-transitional.dtd">'}
+<{'dtbook xmlns="http://www.daisy.org/z3986/2005/dtbook/" version="2005-2"'
+    if R.daisy3
+    else f'html lang="{R.lang}" xmlns="http://www.w3.org/1999/xhtml"'} xml:lang="{R.lang}">
+    <head>
+        {'<meta name="dt:version" content="1.0" />' if R.daisy3 else ''}
+        {f'<meta name="dc:Title" content="{deHTML(R.title)}"/>'
+    if R.daisy3 else f'<title>{R.title}</title>'}
+        {f'<meta name="dc:Creator" content="{deHTML(R.creator)}"/>' if R.daisy3 else ''}
+        {f'<meta name="dc:Publisher" content="{deHTML(R.publisher)}"/>' if R.daisy3 else ''}
+        {f'<meta name="dc:Date" content="{R.date}"/>' if R.daisy3 else ''}
+        {f'<meta name="dc:Language" content="{R.lang}" />' if R.daisy3 else ''}
+        {f'<meta name="dc:identifier" content="{R.url}" />' if R.daisy3 else ''}
+        {f'<meta name="dtb:uid" content="{R.url}"/>' if R.daisy3 else '<meta content="text/html; charset=utf-8" http-equiv="content-type"/>'}
+        <meta name="generator" content="{generator}"/>
+    </head>
+    <{'book' if R.daisy3 else 'body'}>
+        {f'<frontmatter><doctitle>{R.title}</doctitle><docauthor>{R.creator}</docauthor></frontmatter><bodymatter>' if R.daisy3 else ''}
+"""+"\n".join(f"""{
+R.daisy3OpenLevelTags(tag,num,paras)}{
+'<p>' if addPbeforeTag(tag,num,paras) else ''
+}<{tag} id=\"p{num+offset}\"{
+(' class="word"' if len(text.split())==1 else
+' class="sentence"') if tag=='span' else ''}>{
+re.sub(" *<br />$","",removeImages(text))}</{tag
+}>{'</p>' if closePafterTag(tag,text,num,paras)
+else ''}{R.imageParagraph(text)}{
+R.daisy3CloseLevelTags(tag,num,paras)}""" for num,(tag,text) in enumerate(R.normaliseDepth(paras)))+f"""
+    </{'bodymatter></book' if R.daisy3 else 'body'}>
+</{'dtbook' if R.daisy3 else 'html'}>
+""")
 
-def merge0lenSpans(recordingTexts,headings)->None:
+# -----------------------------------------------
+# Supporting functions that don't have to be in the Run class
+# -----------------------------------------------
+
+def delimited(s,start:int,end:int) -> bool:
+    """Checks to see if a string or binary data
+    is delimited by start and end, converting as
+    needed, after stripping"""
+    if isinstance(s,bytes):
+        s = s.replace(b"\xEF\xBB\xBF",b"").strip() # just in case somebody's using UTF-8 BOMs
+        return s.startswith(start.encode('latin1')) and s.endswith(end.encode('latin1'))
+    else: # string; assume no BOM to skip
+        s = s.strip()
+        return s.startswith(start) and s.endswith(end)
+
+def check_we_got_LAME() -> None:
+    """Complains if a LAME binary is not
+    available on this system.  Makes a little
+    extra effort to find one on Windows."""
+    
+    if which('lame'): return
+    if sys.platform=='win32':
+        os.environ["PATH"] += r";C:\Program Files (x86)\Lame for Audacity;C:\Program Files\Lame for Audacity"
+        if which('lame'): return
+    error(f"Anemone requires the LAME program to encode/recode MP3s.\nPlease {'run the exe installer from lame.buanzo.org' if sys.platform=='win32' else 'install lame'} and try again.")
+
+tagRewrite = { # used by get_texts
+    'legend':'h3', # used in fieldset
+}
+
+def content_fixes(content:str) -> str:
+    """Miscellaneous fixes for final XML/XHTML
+    to work around some issues with readers"""
+    content = easyReader_em_fix(content)
+    content = re.sub('( *</?br> *)+',' <br />',content) # allow line breaks inside paragraphs, in case any in mid-"sentence", but collapse them because readers typically add extra space to each, plus add a space beforehand in case any reader doesn't render the linebreak (e.g. EasyReader 10 in a sentence span)
+    return content
+
+def easyReader_em_fix(content:str) -> str:
+    """EasyReader 10 workaround: it does not show
+    strong or em, which is OK but it puts space
+    around it: no good if it happened after a "("
+    or similar, so delete those occurrences"""
+    while True:
+        c2 = re.sub(
+            r"<(?P<tag>(strong|em))>(.*?)</(?P=tag)>",
+            lambda m:easyReader_em_fix(m.group(3))
+            if m.start() and
+            content[m.start()-1] not in ' >'
+            or m.end()<len(content) and
+            content[m.end()] not in ' <'
+            else f"<{m.group(1)}>{easyReader_em_fix(m.group(3))}</{m.group(1)}>",
+            string = content)
+        if c2==content: break
+        content = c2 # and re-check
+    return content
+
+def jsonAttr(d:dict,suffix:str) -> str:
+    """Returns the value of a dictionary key whose
+    name ends with the given lower-case suffix
+    (after converting names to lower case), after
+    checking exactly one key does this.  Used for
+    checking JSON for things like paragraphId if
+    you know only that it ends with 'Id'"""
+    
+    keys = [k for k in d.keys() if k.lower().endswith(suffix)]
+    if not keys: error(f"No *{suffix} in {repr(keys)}")
+    if len(keys)>1: error(f"More than one *{suffix} in {repr(keys)}")
+    return str(d[keys[0]])
+
+def parseTime(t:str) -> float:
+    """Parses a string containing seconds,
+    minutes:seconds or hours:minutes:seconds
+    (decimal fractions of seconds allowed),
+    and returns floating-point seconds"""
+    
+    tot = 0.0 ; mul = 1
+    for u in reversed(t.split(':')):
+        tot += float(u)*mul ; mul *= 60
+    return tot
+
+def merge0lenSpans(recordingTexts:list, headings:list) -> None:
     """Finds spans in the text that are marked as
     zero length in the audio, and merges them into
     their neighbours if possible.  This is so that
@@ -879,78 +1220,6 @@ def fetch(url:str,
     else: sys.stderr.write(" fetched\n")
     return dat
 
-def ncc_html(R:Run, headings = [],
-             hasFullText:bool = False,
-             totalSecs = 0,
-             recTimeTxts = [],
-             pageNos=[]) -> str:
-    """Returns the Navigation Control Centre (NCC)
-    recTimeTxts includes 0 and total
-    pageNos is [[PageInfo,...],...]"""
-    
-    numPages = sum(len(L) for L in pageNos)
-    maxPageNo = max((
-        max(
-            (int(i.pageNo) for i in PNs),
-            default=0)
-        for PNs in pageNos),default=0)
-    # TODO: we assume all pages are 'normal' pages
-    # (not 'front' pages in Roman letters etc)
-    headingsR = normaliseDepth(R,hReduce(headings)) # (hType,hText,recNo,textNo)
-    return deBlank(f"""<?xml version="1.0" encoding="utf-8"?>
-{'<!DOCTYPE ncx PUBLIC "-//NISO//DTD ncx 2005-1//EN" "http://www.daisy.org/z3986/2005/ncx-2005-1.dtd">' if R.daisy3 else '<!DOCTYPE html PUBLIC "-//W3C//DTD XHTML 1.0 Transitional//EN" "http://www.w3.org/TR/xhtml1/DTD/xhtml1-transitional.dtd">'}
-<{'ncx xmlns="http://www.daisy.org/z3986/2005/ncx/" version="2005-1"'
-    if R.daisy3
-    else f'html lang="{R.lang}" xmlns="http://www.w3.org/1999/xhtml"'} xml:lang="{R.lang}">
-  <head>
-    {'<meta name="dtb:uid" content=""/>' if R.daisy3 else '<meta content="text/html; charset=utf-8" http-equiv="Content-type" />'}
-    {f'<meta name="dtb:totalPageCount" content="{numPages}" />' if R.daisy3 else ''}
-    {f'<meta name="dtb:maxPageNumber" content="{maxPageNo}" />' if R.daisy3 else ''}
-    {'' if R.daisy3 else f'<title>{R.title}</title>'}
-    <meta name="dc:creator" content="{R.creator}" />
-    <meta name="dc:date" content="{R.date}" scheme="yyyy-mm-dd" />
-    <meta name="dc:language" content="{R.lang}" scheme="ISO 639" />
-    <meta name="dc:publisher" content="{deHTML(R.publisher)}" />
-    <meta name="dc:title" content="{deHTML(R.title)}" />
-    <meta name="dc:type" content="text" />
-    <meta name="dc:identifier" content="{R.url}" />
-    <meta name="dc:format" content="{'ANSI/NISO Z39.86-2005' if R.daisy3 else 'Daisy 2.02'}" />
-    <meta name="ncc:narrator" content="{R.reader}" />
-    <meta name="ncc:producedDate" content="{R.date}" />
-    <meta name="{'dtb' if R.daisy3 else 'ncc'}:generator" content="{generator}" />
-    <meta name="ncc:charset" content="utf-8" />
-    <meta name="ncc:pageFront" content="0" />
-    <meta name="ncc:maxPageNormal" content="{maxPageNo}" />
-    <meta name="ncc:pageNormal" content="{numPages}" />
-    <meta name="ncc:pageSpecial" content="0" />
-    <meta name="ncc:tocItems" content="{len(headingsR)+sum(len(PNs) for PNs in pageNos)}" />
-    <meta name="ncc:totalTime" content="{hmsTime(totalSecs)}" />
-    <meta name="ncc:multimediaType" content="{"audioFullText" if hasFullText else "audioNcc"}" />
-    <meta name="{'dtb' if R.daisy3 else 'ncc'}:depth" content="{max(int(h.hTag[1:]) for h in headingsR if h.hTag.startswith('h'))+(1 if any(h.hTag=='div' for h in headingsR) else 0)}" />
-    <meta name="ncc:files" content="{2+len(headings)*(3 if hasFullText else 2)+len(R.imageFiles)}" />
-  </head>
-  {f'<docTitle><text>{R.title}</text></docTitle>'
-    if R.daisy3 else ''}
-  {f'<docAuthor><text>{R.creator}</text></docAuthor>'
-    if R.daisy3 else ''}
-  <{'navMap id="navMap"' if R.daisy3 else 'body'}>"""+''.join((f"""
-    <navPoint id="s{s+1}" class="{t.hTag}" playOrder="{s+1}">
-      <navLabel><text>{t.hLine}</text>{'' if recTimeTxts[t.recNo][2*t.itemNo]==recTimeTxts[t.recNo][2*t.itemNo+2] else f'''<audio src="{t.recNo+1:04d}.mp3" clipBegin="{hmsTime(recTimeTxts[t.recNo][2*t.itemNo])}" clipEnd="{hmsTime(recTimeTxts[t.recNo][2*t.itemNo+2])}"/>'''}</navLabel>
-      <content src="{t.recNo+1:04d}.smil#pr{t.recNo+1}.{t.itemNo}"/>
-    {'</navPoint>'*numDaisy3NavpointsToClose(s,headingsR)}""" if R.daisy3 else ''.join(f"""
-    <span class="page-normal" id="page{N}"><a href="{r+1:04d}.smil#t{r+1}.{after}">{N}</a></span>""" for r,PNs in enumerate(pageNos) for (PO,(after,N)) in enumerate(PNs) if (r,after)<=t[2:4] and (not s or (r,after)>headingsR[s-1][2:4]))+f"""
-    <{t.hTag} class="{'section' if s or R.allow_jumps else 'title'}" id="s{s+1}">
-      <a href="{t.recNo+1:04d}.smil#t{t.recNo+1}.{t.itemNo}">{t.hLine}</a>
-    </{t.hTag}>""") for s,t in enumerate(headingsR))+('</navMap><pageList id="page">'+''.join(f"""
-    <pageTarget class="pagenum" type="normal" value="{N}" id="page{N}" playOrder="{len(headingsR)+sum(len(P) for P in pageNos[:r])+PO+1}">
-      <navLabel><text>{N}</text></navLabel>
-      <content src="{r+1:04d}.smil#pr{r+1}.{after}"/>
-    </pageTarget>""" for r,PNs in enumerate(pageNos) for (PO,(after,N)) in enumerate(PNs))+"""
-  </pageList>
-</ncx>""" if R.daisy3 else """
-  </body>
-</html>"""))
-
 def addPbeforeTag(tag:str, num:int, paras:list) -> bool:
     "Decides whether a <p> should be added before the current tag"
     return tag=='span' and (
@@ -967,54 +1236,6 @@ def closePafterTag(tag:str, text:str, num:int, paras:list) -> bool:
 def removeImages(text:str) -> str:
     "Removes our normalised <img> markup from text"
     return re.sub('<img src="[^"]*" [^/]*/>','',text)
-def imageParagraph(R:Run,text:str) -> str:
-    "Pulls out our normalised <img> markup for use after the paragraph"
-    return f"""{'<p><imggroup>' if R.daisy3 and re.search('<img src="',text) else ''}{''.join(re.findall('<img src="[^"]*" [^/]*/>',text))}{'</imggroup></p>' if R.daisy3 and re.search('<img src="',text) else ''}"""
-
-def daisy3OpenLevelTags(R:Run, tag:str, num:int, paras:list[TagAndText]) -> str:
-    "Gives the <levelN> tags that should be placed before the current point in the DAISY 3 format"
-    if not R.daisy3: return ''
-    elif not tag.startswith('h'):
-        if num: return '' # will have been started
-        else: return '<level1>'
-    return ''.join(
-        f'<level{n}>'
-        for n in range(
-                min(
-                    int(tag[1:]),
-                    1+next(
-                        int(paras[p].tag[1:])
-                        for p in range(
-                                num-1,-1,-1)
-                        if paras[p].tag
-                        .startswith('h')))
-                if any(
-                        paras[p].tag
-                        .startswith('h')
-                        for p in range(
-                                num-1,-1,-1))
-                else 1,
-                int(tag[1:])+1))
-def daisy3CloseLevelTags(R:Run, tag:str, num:int, paras:list[TagAndText]) -> str:
-    "Gives the </levelN> tags that should be placed before the current point in the DAISY 3 format"
-    if not R.daisy3 or not num+1==len(paras) \
-       and not paras[num+1].tag.startswith('h'):
-        return ''
-    return ''.join(
-        f'</level{n}>'
-        for n in range(
-                next(
-                    int(paras[p].tag[1:])
-                    for p in range(num,-1,-1)
-                    if paras[p].tag
-                    .startswith('h')
-                ) if any(
-                    paras[p].tag.startswith('h')
-                    for p in range(num,-1,-1)
-                ) else 1,
-                0 if num+1==len(paras)
-                else int(paras[num+1].tag[1:])-1,
-                -1))
 
 def numDaisy3NavpointsToClose(s:int, headingsR:list[BookTOCInfo]) -> int:
     """Calculates the number of DAISY 3 navigation
@@ -1056,53 +1277,6 @@ def hReduce(headings:list) -> list[BookTOCInfo]:
          [BookTOCInfo('h1',i,recNo,0)])
         for recNo,i in enumerate(headings)],[])
 
-def normaliseDepth(R:Run, items:list) -> list:
-    """Ensure that heading items' depth conforms
-    to DAISY standard, in a BookTOCInfo list"""
-    
-    if R.allow_jumps: return items
-    curDepth = 0
-    for i in range(len(items)):
-      ii = items[i] # TagAndText or BookTOCInfo
-      if ii[0].lower().startswith('h'):
-        depth = int(ii[0][1:])
-        if depth > curDepth+1:
-            if isinstance(ii,BookTOCInfo):
-                items[i]=BookTOCInfo(
-                    f'h{curDepth+1}',ii.hLine,
-                    ii.recNo,ii.itemNo)
-            else: items[i]=TagAndText(
-                    f'h{curDepth+1}',ii.text)
-            curDepth += 1
-        else: curDepth = depth
-    return items
-
-def master_smil(R:Run,headings = [],
-                totalSecs = 0):
-    "Compile the master smil for a DAISY file"
-    headings = hReduce(headings)
-    return f"""<?xml version="1.0"?>
-<!DOCTYPE smil PUBLIC "-//W3C//DTD SMIL 1.0//EN" "http://www.w3.org/TR/REC-smil/SMIL10.dtd">
-<smil>
-  <head>
-    <meta name="dc:title" content="{deHTML(R.title)}" />
-    <meta name="dc:format" content="Daisy 2.02" />
-    <meta name="ncc:generator" content="{generator}" />
-    <meta name="ncc:timeInThisSmil" content="{hmsTime(totalSecs)}" />
-    <layout>
-      <region id="textView" />
-    </layout>
-  </head>
-  <body>"""+''.join(f"""
-    <ref title="{deHTML(t.hLine)}" src="{
-  t.recNo+1:04d}.smil#t{t.recNo+1}.{t.itemNo
-  }" id="ms_{s+1:04d}" />"""
-                    for s,t in
-                    enumerate(headings))+"""
-  </body>
-</smil>
-"""
-
 def timeAdjust(textsAndTimes,secsThisRecording:float) -> None:
     """Ensure textsAndTimes starts at the
     beginning of the recording, and ends at the
@@ -1116,77 +1290,6 @@ def timeAdjust(textsAndTimes,secsThisRecording:float) -> None:
         (-1 if isinstance(textsAndTimes[-1],float)
          else len(textsAndTimes))
     ] + [secsThisRecording]
-
-def section_smil(R:Run, recNo:int = 1,
-                 totalSecsSoFar:float = 0,
-                 secsThisRecording:float = 0,
-                 startP:int = 0,
-                 textsAndTimes = []) -> str:
-    "Compile a section SMIL for a DAISY file"
-    textsAndTimes = timeAdjust(textsAndTimes,
-                               secsThisRecording)
-    return deBlank(f"""<?xml version="1.0" encoding="utf-8"?>
-{'<!DOCTYPE smil PUBLIC "-//NISO//DTD dtbsmil 2005-2//EN" "http://www.daisy.org/z3986/2005/dtbsmil-2005-2.dtd">'
-    if R.daisy3
-    else '<!DOCTYPE smil PUBLIC "-//W3C//DTD SMIL 1.0//EN" "http://www.w3.org/TR/REC-smil/SMIL10.dtd">'}
-{'<smil xmlns="http://www.w3.org/2001/SMIL20/">'
-    if R.daisy3
-    else '<smil>'}
-  <head>
-    {'<meta name="dtb:uid" content=""/>'
-    if R.daisy3
-    else '<meta name="dc:format" content="Daisy 2.02" />'}
-    <meta name="{'dtb' if R.daisy3
-    else 'ncc'}:generator" content="{generator}" />
-    <meta name="{'dtb' if R.daisy3
-    else 'ncc'}:totalElapsedTime" content="{
-    hmsTime(totalSecsSoFar)}" />""" + (
-        "" if R.daisy3 else f"""
-    <meta name="ncc:timeInThisSmil" content="{
-        hmsTime(secsThisRecording)}" />
-    <meta name="title" content="{
-        deHTML(textsAndTimes[1][1])}" />
-    <meta name="dc:title" content="{
-        deHTML(textsAndTimes[1][1])}" />
-    <layout>
-      <region id="textView" />
-    </layout>""")+f"""
-  </head>
-  <body>
-    <seq id="sq{recNo}" dur="{
-    hmsTime(secsThisRecording) if R.daisy3
-    else f'{secsThisRecording:.3f}s'}" fill="remove">"""+"".join(f"""
-      <par {'' if R.daisy3
-    else 'endsync="last" '}id="pr{recNo}.{i//2}">
-        <text id="t{recNo}.{i//2}" src="{
-    recNo:04d}.{'xml' if R.daisy3 else 'htm'
-    }#p{startP+i//2}" />
-        {'' if R.daisy3
-    or textsAndTimes[i-1]==textsAndTimes[i+1]
-    else f'<seq id="sq{recNo}.{i//2}a">'}
-          {'' if
-    textsAndTimes[i-1]==textsAndTimes[i+1]
-    else f'''<audio src="{recNo:04d}.mp3" clip{
-    'B' if R.daisy3 else '-b'}egin="{
-    hmsTime(textsAndTimes[i-1]) if R.daisy3 else
-    f'npt={textsAndTimes[i-1]:.3f}s'}" clip{
-    'E' if R.daisy3 else '-e'}nd="{
-    hmsTime(textsAndTimes[i+1]) if R.daisy3 else
-    f'npt={textsAndTimes[i+1]:.3f}s'}" id="aud{
-    recNo}.{i//2}" />'''}
-        {'' if R.daisy3 or
-    textsAndTimes[i-1]==textsAndTimes[i+1]
-    else '</seq>'}
-      </par>{''.join(f'<par><text id="t{recNo}.{i//2}.{j}" src="{recNo:04d}.xml#{re.sub(".*"+chr(34)+" id=.","",imageID)}"/></par>'
-    for j,imageID in enumerate(re.findall(
-    '<img src="[^"]*" id="[^"]*',
-    textsAndTimes[i][1]))) if R.daisy3 else ''
-    }""" for i in range(1,len(textsAndTimes),2))+"""
-    </seq>
-  </body>
-</smil>
-""")
-# (do not omit text with 0-length audio altogether, even in Daisy 2: unlike image tags after paragraphs, it might end up not being displayed by EasyReader etc.  Omitting audio does NOT save being stopped at the beginning of the chapter when rewinding by paragraph: is this a bug or a feature?)
 
 def deBlank(s:str) -> str:
     """Remove blank lines from s
@@ -1212,98 +1315,6 @@ def deHTML(t:str) -> str:
     included in an XML attribute"""
     
     return re.sub(r'\s+',' ',re.sub('<[^>]*>','',t)).replace('"','&quot;').strip()
-
-def package_opf(R:Run, hasFullText:bool,
-                numRecs:int,
-                totalSecs:float) -> str:
-    "Make the package OPF for a DAISY 3 file"
-    return f"""<?xml version="1.0" encoding="utf-8"?>
-<!DOCTYPE package
-  PUBLIC "+//ISBN 0-9673008-1-9//DTD OEB 1.2 Package//EN" "http://openebook.org/dtds/oeb-1.2/oebpkg12.dtd">
-<package xmlns="http://openebook.org/namespaces/oeb-package/1.0/" unique-identifier="{R.url}">
-   <metadata>
-      <dc-metadata xmlns:dc="http://purl.org/dc/elements/1.1/">
-         <dc:Format>ANSI/NISO Z39.86-2005</dc:Format>
-         <dc:Language>{R.lang}</dc:Language>
-         <dc:Date>{R.date}</dc:Date>
-         <dc:Publisher>{R.publisher}</dc:Publisher>
-         <dc:Title>{R.title}</dc:Title>
-         <dc:Identifier id="{R.url}"/>
-         <dc:Creator>{R.creator}</dc:Creator>
-         <dc:Type>text</dc:Type>
-      </dc-metadata>
-      <x-metadata>
-         <meta name="dtb:multimediaType" content="{"audioFullText" if hasFullText else "audioNcc"}"/>
-         <meta name="dtb:totalTime" content="{hmsTime(totalSecs)}"/>
-         <meta name="dtb:multimediaContent" content="audio,text{',image' if R.imageFiles else ''}"/>
-         <meta name="dtb:narrator" content="{deHTML(R.reader)}"/>
-         <meta name="dtb:producedDate" content="{R.date}"/>
-      </x-metadata>
-   </metadata>
-   <manifest>
-      <item href="package.opf" id="opf" media-type="text/xml"/>"""+''.join(f"""
-      <item href="{i:04d}.mp3" id="opf-{i
-      }" media-type="audio/mpeg"/>""" for i in range(1,numRecs+1))+''.join(f"""
-      <item href="{i+1}{u[u.rindex("."):]
-      }" id="opf-{i+numRecs+1
-      }" media-type="image/{u[u.rindex(".")+1:]
-      .lower().replace("jpg","jpeg")}"/>""" for i,u in enumerate(R.imageFiles))+f"""
-      <item href="dtbook.2005.basic.css" id="opf-{
-      len(R.imageFiles)+numRecs+1}" media-type="text/css"/>"""+''.join(f"""
-      <item href="{i:04d}.xml" id="opf-{i+len(
-      R.imageFiles)+numRecs+1}" media-type="application/x-dtbook+xml"/>""" for i in range(1,numRecs+1))+''.join(f"""
-      <item href="{i:04d}.smil" id="{i
-      :04d}" media-type="application/smil+xml"/>""" for i in range(1,numRecs+1))+"""
-      <item href="navigation.ncx" id="ncx" media-type="application/x-dtbncx+xml"/>
-      <item href="text.res" id="resource" media-type="application/x-dtbresource+xml"/>
-   </manifest>
-   <spine>"""+"".join(f"""
-      <itemref idref="{i:04d}"/>""" for i in range(1,numRecs+1))+"""
-   </spine>
-</package>
-"""
-
-def text_htm(R:Run, paras:list[TagAndText], offset:int=0) -> str:
-    """Format the text, as htm for DAISY 2 or xml
-    for DAISY 3.
-    paras = TagAndText list, text is xhtml i.e. & use &amp; etc."""
-    
-    return deBlank(f"""<?xml version="1.0"{
-    ' encoding="utf-8"' if R.daisy3 else ''
-    }?>{'<?xml-stylesheet type="text/css" href="dtbook.2005.basic.css"?>' if R.daisy3 else ''}
-{'<!DOCTYPE dtbook PUBLIC "-//NISO//DTD dtbook 2005-3//EN" "http://www.daisy.org/z3986/2005/dtbook-2005-3.dtd">'
-    if R.daisy3
-    else '<!DOCTYPE html PUBLIC "-//W3C//DTD XHTML 1.0 Transitional//EN" "http://www.w3.org/TR/xhtml1/DTD/xhtml1-transitional.dtd">'}
-<{'dtbook xmlns="http://www.daisy.org/z3986/2005/dtbook/" version="2005-2"'
-    if R.daisy3
-    else f'html lang="{R.lang}" xmlns="http://www.w3.org/1999/xhtml"'} xml:lang="{R.lang}">
-    <head>
-        {'<meta name="dt:version" content="1.0" />' if R.daisy3 else ''}
-        {f'<meta name="dc:Title" content="{deHTML(R.title)}"/>'
-    if R.daisy3 else f'<title>{R.title}</title>'}
-        {f'<meta name="dc:Creator" content="{deHTML(R.creator)}"/>' if R.daisy3 else ''}
-        {f'<meta name="dc:Publisher" content="{deHTML(R.publisher)}"/>' if R.daisy3 else ''}
-        {f'<meta name="dc:Date" content="{R.date}"/>' if R.daisy3 else ''}
-        {f'<meta name="dc:Language" content="{R.lang}" />' if R.daisy3 else ''}
-        {f'<meta name="dc:identifier" content="{R.url}" />' if R.daisy3 else ''}
-        {f'<meta name="dtb:uid" content="{R.url}"/>' if R.daisy3 else '<meta content="text/html; charset=utf-8" http-equiv="content-type"/>'}
-        <meta name="generator" content="{generator}"/>
-    </head>
-    <{'book' if R.daisy3 else 'body'}>
-        {f'<frontmatter><doctitle>{R.title}</doctitle><docauthor>{R.creator}</docauthor></frontmatter><bodymatter>' if R.daisy3 else ''}
-"""+"\n".join(f"""{
-daisy3OpenLevelTags(R,tag,num,paras)}{
-'<p>' if addPbeforeTag(tag,num,paras) else ''
-}<{tag} id=\"p{num+offset}\"{
-(' class="word"' if len(text.split())==1 else
-' class="sentence"') if tag=='span' else ''}>{
-re.sub(" *<br />$","",removeImages(text))}</{tag
-}>{'</p>' if closePafterTag(tag,text,num,paras)
-else ''}{imageParagraph(R,text)}{
-daisy3CloseLevelTags(R,tag,num,paras)}""" for num,(tag,text) in enumerate(normaliseDepth(R,paras)))+f"""
-    </{'bodymatter></book' if R.daisy3 else 'body'}>
-</{'dtbook' if R.daisy3 else 'html'}>
-""")
 
 def er_book_info(durations:list[float]) -> str:
     """Return the EasyReader book info.

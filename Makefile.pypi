@@ -1,13 +1,15 @@
 # -*- mode: Makefile -*-
 check-if-anemone-version-is-changing:
-	if git diff|grep '^[+]Anemone [0-9]' >/dev/null; then make update-anemone-pypi; else true; fi
+	if (git diff;git diff --staged)|grep '^[+]Anemone [0-9]'; then make -f Makefile.pypi update-anemone-pypi; else true; fi
 update-anemone-pypi:
 	mkdir anemone
-	cp ../anemone.py anemone/__init__.py
+	cp anemone.py anemone/__init__.py
 	echo "import anemone;anemone.anemone()" > anemone/__main__.py
-	echo "from setuptools import setup, find_packages;setup(name='anemone_daisy_maker',version='$$(grep ^Anemone anemone.py|sed -e 's/[^ ]* //' -e 's/ .*//')',entry_points={'console_scripts':['anemone=anemone.__init__:anemone']},author='Silas S. Brown',author_email='ssb$$(echo 22@ca)m.ac.uk',description='Create DAISY digital talking books from HTML text, MP3 audio and JSON time index data',long_description='''$$(python3 -c 'import re;d=open("README.md").read();print(re.sub("[(]also mirrored.*[)]","",re.sub("--(?!help|-)","",chr(10).join(L for L in d[d.index(chr(10)+"Anemone"):].split(chr(10)) if not L.startswith("* Android") and not L.startswith("* Javascript") and not L.startswith("* Unicode")).replace("Python 3 script","module").replace("mp3-recode","mp3_recode"))).replace(chr(10)*3,chr(10)*2).strip())')''',long_description_content_type='text/markdown',packages=find_packages(),classifiers=['Programming Language :: Python :: 3','License :: OSI Approved :: Apache Software License','Operating System :: OS Independent'],python_requires='>=3.7',install_requires=['mutagen'])" > setup.py
+	echo "from setuptools import setup, find_packages;setup(name='anemone_daisy_maker',version='$$(grep ^Anemone anemone.py|sed -e 's/[^ ]* //' -e 's/ .*//')',entry_points={'console_scripts':['anemone=anemone.__init__:anemone']},license='Apache 2',platforms='all',url='http://ssb22.user.srcf.net/indexer/anemone.html',author='Silas S. Brown',author_email='ssb$$(echo 22@ca)m.ac.uk',description='Create DAISY digital talking books from HTML text, MP3 audio and JSON time index data',long_description='''$$(python3 -c 'import re;d=open("README.md").read();print(re.sub("[(]also mirrored.*[)]","",re.sub("--(?!help|-)","",chr(10).join(L for L in d[d.index(chr(10)+"Anemone"):].split(chr(10)) if not L.startswith("* Android") and not L.startswith("* Javascript") and not L.startswith("* Unicode")).replace("Python 3 script","module").replace("mp3-recode","mp3_recode"))).replace(chr(10)*3,chr(10)*2).strip())')''',long_description_content_type='text/markdown',packages=find_packages(),classifiers=['Programming Language :: Python :: 3','License :: OSI Approved :: Apache Software License','Operating System :: OS Independent'],python_requires='>=3.7',install_requires=['mutagen'])" > setup.py
+	mv README.md .. # or it'll override what's in the package
 	python3 setup.py sdist
 	twine upload dist/*
+	mv ../README.md .
 	rm -r anemone_daisy_maker.egg-info dist anemone setup.py
 .PHONY: check-if-anemone-version-is-changing
 .PHONY: update-anemone-pypi
