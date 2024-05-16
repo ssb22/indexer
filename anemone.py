@@ -1,6 +1,6 @@
 #!/usr/bin/env python3
 """
-Anemone 1.57 (http://ssb22.user.srcf.net/anemone)
+Anemone 1.58 (http://ssb22.user.srcf.net/anemone)
 (c) 2023-24 Silas S. Brown.  License: Apache 2
 
 To use this module, either run it from the command
@@ -197,7 +197,7 @@ from collections import namedtuple as NT
 from functools import reduce
 from subprocess import run, PIPE
 from zipfile import ZipFile, ZIP_DEFLATED
-from html.parser import HTMLParser
+from bs4 import BeautifulSoup
 from concurrent.futures import ThreadPoolExecutor
 from multiprocessing import cpu_count
 from urllib.request import urlopen,Request
@@ -352,81 +352,21 @@ class Run():
     for h,j in zip(R.htmlData,R.jsonData):
         markers = j['markers']
         want_pids = [jsonAttr(m,"id") for m in markers]
-        id_to_content = {}
-        pageNos = []
-        allowedInlineTags={'br':'br','strong':'strong','em':'em','b':'strong','i':'em'}
-        assert 'rt' not in allowedInlineTags, "if allowing this, need to revise rt suppression logic" # and would have to rely on rp parens for most readers, so if a text has a LOT of ruby it could get quite unreadable
-        class PidsExtractor(HTMLParser):
-            def __init__(self):
-                HTMLParser.__init__(self)
-                self.addTo = None
-                self.suppress = 0
-                self.imgsMaybeAdd = None
-                self.imgsMaybeAddTo = None
-                self.pageNoGoesAfter = 0
-                self.theStartTag = None
-            def handle_starttag(self,tag,attrs):
-                tag = tagRewrite.get(tag,tag)
-                attrs = dict(attrs)
-                imgURL = attrs.get(R.image_attribute,None)
-                if imgURL and (re.match(
-                        "https?://.*[.][^/]*$",
-                        imgURL) or os.path.isfile(
-                            imgURL)) and not (
-                                self.addTo is None
-                                and self.imgsMaybeAdd is None):
-                    # TODO: might want to check attrs.get("alt",""), but DAISY3 standard does not list alt as a valid attribute for img, so we'd have to put it after with br etc (changing text_htm) and we don't know if it's in the audio or not: probably best just to leave it and rely on there being a separate caption with ID if it's in the audio
-                    img = f'<img src="{(R.imageFiles.index(imgURL) if imgURL in R.imageFiles else len(R.imageFiles))+1}{imgURL[imgURL.rindex("."):]}" {f"""id="i{R.imageFiles.index(imgURL) if imgURL in R.imageFiles else len(R.imageFiles)}" """ if R.daisy3 else ""}/>' # will be moved after paragraph by text_htm
-                    if imgURL not in R.imageFiles:
-                        R.imageFiles.append(imgURL)
-                    if self.addTo is None: self.imgsMaybeAdd.append(img)
-                    else: self.addTo.append(img)
-                if attrs.get(R.marker_attribute,None) in want_pids:
-                    self.theStartTag = tag
-                    self.tagDepth = 0
-                    a = attrs[R.marker_attribute]
-                    self.pageNoGoesAfter = want_pids.index(a)
-                    id_to_content[a] = ((tag if re.match('h[1-6]$',tag) or tag=='span' else 'p'),[])
-                    if self.imgsMaybeAdd: self.imgsMaybeAddTo += self.imgsMaybeAdd # and imgsMaybeAdd will be reset to [] when this element is closed
-                    self.addTo = id_to_content[a][1]
-                elif tag==self.theStartTag and not tag=="p": # can nest
-                    self.tagDepth += 1
-                elif self.addTo is not None and tag in allowedInlineTags: self.addTo.append(f'<{allowedInlineTags[tag]}>')
-                elif self.addTo is not None and tag=='a': self.lastAStart = len(self.addTo)
-                elif tag=='rt': self.suppress += 1
-                pageNo = attrs.get(R.page_attribute,None)
-                if pageNo: pageNos.append(PageInfo(self.pageNoGoesAfter,pageNo))
-            def handle_endtag(self,tag):
-                tag = tagRewrite.get(tag,tag)
-                if self.suppress and tag=='rt':
-                    self.suppress -= 1
-                elif self.addTo is not None:
-                    if tag==self.theStartTag and self.tagDepth == 0:
-                        self.highestImage,self.imgsMaybeAddTo, self.imgsMaybeAdd = len(R.imageFiles),self.addTo,[] # if we find any images (not in an id'd element) after the end of the id'd element, we might want to add them in with any inside it, but only if there's another id'd element after them i.e. not if they're just random decoration at the bottom of the page
-                        self.addTo = None
-                    elif tag in allowedInlineTags: self.addTo.append(f'</{allowedInlineTags[tag]}>')
-                    elif tag=="a" and re.match('[!-.:-~]$',"".join(self.addTo[self.lastAStart:]).strip()): del self.addTo[self.lastAStart:] # remove single-character link, probably to footnote (we won't know if it's in the audio or not, we're not supporting jumps and the symbols might need normalising) but do allow numbers (might be paragraph numbers etc) and non-ASCII (might be single-character CJK word)
-                    if tag==self.theStartTag and self.tagDepth: self.tagDepth -= 1
-                elif tag=='p' and self.imgsMaybeAddTo and self.theStartTag=='span': self.imgsMaybeAddTo.append("<br>") # if paragraphs contain spans and it's the spans that are identified, ensure we keep this break in the surrounding structure
-                if tag=='html' and self.imgsMaybeAdd and hasattr(self,'highestImage'): del R.imageFiles[self.highestImage:] # do not include ones that were only in imgsMaybeAdd at the end of the page (and not also elsewhere)
-            def handle_data(self,data):
-                if self.addTo is not None and not self.suppress:
-                    self.addTo.append(data.replace('&','&amp;').replace('<','&lt;'))
-        if isinstance(h,bytes):
-            h = h.decode('utf-8')
-        PidsExtractor().feed(h)
+        extractor = PidsExtractor(R,want_pids)
+        extractor.handle_soup(
+            BeautifulSoup(h, 'html.parser'))
         rTxt = []
         for i in range(len(markers)):
             rTxt.append(parseTime(jsonAttr(markers[i],"time")))
-            if want_pids[i] in id_to_content:
-                tag,content = id_to_content[want_pids[i]]
+            if want_pids[i] in extractor.id_to_content:
+                tag,content = extractor.id_to_content[want_pids[i]]
                 content = ''.join(content).strip()
                 rTxt.append(TagAndText(tag,content_fixes(content)))
             else:
                 R.warning(f"JSON {len(recordingTexts)+1} marker {i+1} marks paragraph ID {want_pids[i]} which is not present in HTML {len(recordingTexts)+1}.  Anemone will make this a blank paragraph.")
                 rTxt.append(TagAndText('p',''))
         recordingTexts.append(
-            TextsAndTimesWithPages(rTxt,pageNos))
+            TextsAndTimesWithPages(rTxt,extractor.pageNos))
     return recordingTexts
   def write_all(self,recordingTexts) -> None:
     """Writes the DAISY zip and everything in it.
@@ -1003,9 +943,93 @@ R.daisy3CloseLevelTags(tag,num,paras)}""" for num,(tag,text) in enumerate(R.norm
 </{'dtbook' if R.daisy3 else 'html'}>
 """)
 
-# -----------------------------------------------
-# Supporting functions that don't have to be in the Run class
-# -----------------------------------------------
+class PidsExtractor:
+    """Go through the HTML, extracting the
+    paragraphs whose IDs we want, and moving any
+    images between two ID'd paragraphs to the
+    previously-ID'd paragraph, discarding others
+    (site decoration etc).  Also pick up on any
+    page-number tags and note where they were."""
+    
+    def __init__(self, R:Run, want_pids:list[str]):
+        self.R = R
+        self.want_pids = want_pids # IDs we want
+        self.id_to_content = {} # our main output
+        self.pageNos = [] # secondary output for page-number based navigation
+        self.pageNoGoesAfter = 0 # want_pids index
+        self.previous_pid_tagname = None
+        self.previous_pid_contents = None
+        self.images_since_previous_pid_closed = []
+    
+    def handle_soup(self,t,addTo=None) -> None:
+        """Recursively scan through the HTML.
+        t is a BeautifulSoup tree node.
+        addTo is the list of data for the ID that
+        is currently being extracted, if any: we
+        can append to this."""
+        
+        if not t.name: # data or comment
+            if t.PREFIX: pass # ignore comment, doctype etc
+            elif addTo is not None: # collect text
+                addTo.append(str(t).replace('&','&amp;').replace('<','&lt;'))
+            return
+        # ok, it's a tag:
+        tag=tagRewrite.get(t.name,t.name)
+        attrs = t.attrs
+        imgURL = attrs.get(self.R.image_attribute,None)
+        if imgURL and (re.match(
+                "https?://.*[.][^/]*$",
+                imgURL) or os.path.isfile(
+                    imgURL)) and not (
+                        addTo is None
+                        and self.previous_pid_contents is None):
+            # Write the 'img' markup for the DAISY document.
+            # Will be moved to after the paragraph by text_htm
+            # because DAISY images cannot occur inside paragraphs.
+            # (Might want to check attrs.get("alt",""), but DAISY3 standard does not list alt as a valid attribute for img, so we'd have to put it after with br etc (changing text_htm) and we don't know if it's in the audio or not: probably best just to leave it and rely on there being a separate caption with ID if it's in the audio)
+            image_index = self.R.imageFiles.index(imgURL) if imgURL in self.R.imageFiles else len(self.R.imageFiles)
+            img = f'''<img src="{
+            image_index+1}{
+            imgURL[imgURL.rindex("."):]
+            }" {f'id="i{image_index}"'
+            if self.R.daisy3 else ""} />'''
+            if imgURL not in self.R.imageFiles:
+                self.R.imageFiles.append(imgURL)
+            if addTo is not None:
+                addTo.append(img)
+            else: self.images_since_previous_pid_closed.append(img) # in case we get another paragraph
+        this_tag_has_a_pid_we_want = False
+        if attrs.get(self.R.marker_attribute,None) in self.want_pids:
+            this_tag_has_a_pid_we_want = True
+            self.previous_pid_tagname = tag
+            a = attrs[self.R.marker_attribute]
+            self.pageNoGoesAfter = self.want_pids.index(a)
+            self.id_to_content[a] = ((tag if re.match('h[1-6]$',tag) or tag=='span' else 'p'),[])
+            if self.images_since_previous_pid_closed:
+                self.previous_pid_contents += self.images_since_previous_pid_closed
+                self.images_since_previous_pid_closed = []
+            addTo = self.id_to_content[a][1]
+        elif addTo is not None and tag in allowedInlineTags: addTo.append(f'<{allowedInlineTags[tag]}>')
+        elif addTo is not None and tag=='a': self.lastAStart = len(addTo)
+        pageNo = attrs.get(self.R.page_attribute,None)
+        if pageNo: self.pageNos.append(PageInfo(self.pageNoGoesAfter,pageNo))
+        # Now the recursive call:
+        if not tag=='rt':
+          for c in t.children:
+            self.handle_soup(c,addTo)
+        # And now the end tag:
+        if addTo is not None:
+            if this_tag_has_a_pid_we_want:
+                self.highestImage,self.previous_pid_contents = len(self.R.imageFiles),addTo
+            elif tag in allowedInlineTags: addTo.append(f'</{allowedInlineTags[tag]}>')
+            elif tag=="a" and re.match('[!-.:-~]$',"".join(addTo[self.lastAStart:]).strip()):
+                # remove single-character link, probably to footnote (we won't know if it's in the audio or not, we're not supporting jumps and the symbols might need normalising)
+                # but don't remove numbers (might be paragraph numbers etc) or non-ASCII (might be single-character CJK word)
+                del addTo[self.lastAStart:]
+        elif tag=='p' and self.previous_pid_contents and self.previous_pid_tagname=='span':
+            # if paragraphs contain spans and it's the spans that are identified, ensure we keep this break in the surrounding structure
+            self.previous_pid_contents.append("<br>")
+        if tag=='html' and self.images_since_previous_pid_closed and hasattr(self,'highestImage'): del self.R.imageFiles[self.highestImage:] # do not include ones that are still only in images_since_previous_pid_closed at the end of the page (and not also elsewhere)
 
 def delimited(s,start:int,end:int) -> bool:
     """Checks to see if a string or binary data
@@ -1032,6 +1056,15 @@ def check_we_got_LAME() -> None:
 tagRewrite = { # used by get_texts
     'legend':'h3', # used in fieldset
 }
+allowedInlineTags={
+    # like tagRewrite but allows the tag inline
+    # (rewrite <b> and <i> to <strong> and <em>)
+    # Do not add more tags to this without
+    # carefully checking what DAISY readers do.
+    'br':'br',
+    'strong':'strong', 'b':'strong',
+    'em':'em', 'i':'em'}
+assert 'rt' not in allowedInlineTags, "if allowing this, need to revise rt suppression logic" # and would have to rely on rp parens for most readers, so if a text has a LOT of ruby it could get quite unreadable
 
 def content_fixes(content:str) -> str:
     """Miscellaneous fixes for final XML/XHTML
