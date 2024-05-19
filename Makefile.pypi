@@ -1,15 +1,28 @@
 # -*- mode: Makefile -*-
+all: check-if-anemone-version-is-changing check-if-macvoice-utils-version-is-changing
 check-if-anemone-version-is-changing:
+	@if grep '^Anemone [1-9][^.]*[.][0-9][0-9][0-9]' anemone.py; then echo "3+ decimal digits in anemone version number will now need another -e 's/[.][0-9][0-9]$$/&0/' in Makefile.pypi's sed expression"; false; fi
 	if (git diff;git diff --staged)|grep '^[+]Anemone [0-9]'; then make -f Makefile.pypi update-anemone-pypi; else true; fi
+check-if-macvoice-utils-version-is-changing:
+	@if grep '^v[0-9][^.]*[.][0-9][0-9]' macvoice_utils.py; then echo "2+ decimal digits in macvoice_utils version number will need another -e 's/[.][1-9]$$/&0/' in Makefile.pypi's sed expression"; false; fi
+	if (git diff;git diff --staged)|grep '^[+]v[0-9]'; then make -f Makefile.pypi update-macvoice-utils-pypi; else true; fi
 update-anemone-pypi:
 	mkdir anemone
 	cp anemone.py anemone/__init__.py
 	echo "import anemone;anemone.anemone()" > anemone/__main__.py
-	echo "from setuptools import setup, find_packages;setup(name='anemone_daisy_maker',version='$$(grep ^Anemone anemone.py|sed -e 's/[^ ]* //' -e 's/ .*//')',entry_points={'console_scripts':['anemone=anemone.__init__:anemone']},license='Apache 2',platforms='all',url='http://ssb22.user.srcf.net/indexer/anemone.html',author='Silas S. Brown',author_email='ssb$$(echo 22@ca)m.ac.uk',description='Create DAISY digital talking books from HTML text, MP3 audio and JSON time index data',long_description='''$$(python3 -c 'import re;d=open("README.md").read();print(re.sub("[(]also mirrored.*[)]","",re.sub("--(?!help|-)","",chr(10).join(L for L in d[d.index(chr(10)+"Anemone"):].split(chr(10)) if not L.startswith("* Android") and not L.startswith("* Javascript") and not L.startswith("* Unicode")).replace("Python 3 script","module").replace("mp3-recode","mp3_recode"))).replace(chr(10)*3,chr(10)*2).strip())')''',long_description_content_type='text/markdown',packages=find_packages(),classifiers=['Programming Language :: Python :: 3','License :: OSI Approved :: Apache Software License','Operating System :: OS Independent'],python_requires='>=3.7',install_requires=['mutagen','beautifulsoup4'])" > setup.py
+	echo "from setuptools import setup, find_packages;setup(name='anemone_daisy_maker',version='$$(grep ^Anemone anemone.py|sed -e 's/[^ ]* //' -e 's/ .*//' -e 's/[.][1-9]$$/&0/')',entry_points={'console_scripts':['anemone=anemone.__init__:anemone']},license='Apache 2',platforms='any',url='http://ssb22.user.srcf.net/indexer/anemone.html',author='Silas S. Brown',author_email='ssb$$(echo 22@ca)m.ac.uk',description='Create DAISY digital talking books from HTML text, MP3 audio and JSON time index data',long_description='''$$(python3 -c 'import re;d=open("README.md").read();print(re.sub("[(]also mirrored.*[)]","",re.sub("--(?!help|-)","",chr(10).join(L for L in d[d.index(chr(10)+"Anemone"):].split(chr(10)) if not L.startswith("* Android") and not L.startswith("* Javascript") and not L.startswith("* Unicode")).replace("Python 3 script","module").replace("mp3-recode","mp3_recode"))).replace(chr(10)*3,chr(10)*2).strip())')''',long_description_content_type='text/markdown',packages=find_packages(),classifiers=['Programming Language :: Python :: 3','License :: OSI Approved :: Apache Software License','Operating System :: OS Independent'],python_requires='>=3.7',install_requires=['mutagen','beautifulsoup4'])" > setup.py
 	mv README.md .. # or it'll override what's in the package
 	python3 setup.py sdist
 	twine upload dist/*
 	mv ../README.md .
 	rm -r anemone_daisy_maker.egg-info dist anemone setup.py
-.PHONY: check-if-anemone-version-is-changing
-.PHONY: update-anemone-pypi
+update-macvoice-utils-pypi:
+	mkdir macvoice_utils
+	cp macvoice_utils.py macvoice_utils/__init__.py
+	echo "from setuptools import setup, find_packages;setup(name='macvoice_utils',version='$$(grep ^v[0-9] macvoice_utils.py|sed -e 's/ .*//')',license='Apache 2',platforms='macosx',author='Silas S. Brown',author_email='ssb$$(echo 22@ca)m.ac.uk',description='Python 3 utilities for reading literature with macOS voices, using different voices for different characters in the dialogue',long_description='You can use this to help synthesise narration of audio books if live readers are not available.  As the synthesised audio is likely to have pronunciation glitches, some custom programming specific to your book will almost certainly be required.',long_description_content_type='text/markdown',packages=find_packages(),classifiers=['Programming Language :: Python :: 3','License :: OSI Approved :: Apache Software License','Operating System :: MacOS'],python_requires='>=3.8')" > setup.py
+	mv README.md ..
+	python3 setup.py sdist
+	twine upload dist/*
+	mv ../README.md .
+	rm -r macvoice_utils.egg-info dist macvoice_utils setup.py
+.PHONY: check-if-anemone-version-is-changing check-if-macvoice-utils-version-is-changing update-anemone-pypi update-macvoice-utils-pypi all
