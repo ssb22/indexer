@@ -2,7 +2,7 @@
 # (works on both Python 2 and Python 3)
 
 # ohi_latex: Offline HTML Indexer for LaTeX
-# v1.398 (c) 2014-20,2023-24 Silas S. Brown
+# v1.399 (c) 2014-20,2023-24 Silas S. Brown
 
 # Licensed under the Apache License, Version 2.0 (the "License");
 # you may not use this file except in compliance with the License.
@@ -469,6 +469,7 @@ def makeLatex(unistr):
   ret += r'\usepackage['+geometry+']{geometry}'
   ret += '\n'.join(set(v for (k,v) in latex_preamble.items() if k in unistr))+'\n'
   if r'\title{' in unistr:
+    if 'pdftitle' in os.environ: ret = ret.replace("hyperfootnotes=false]{hyperref}",("pdfauthor={"+os.environ['pdfauthor']+"}," if 'pdfauthor' in os.environ else '')+"pdftitle={"+os.environ['pdftitle']+"},hyperfootnotes=false]{hyperref}") # TODO: document that you can set pdfauthor and pdftitle in environment
     title = re.findall(r'\\title{.*?}%title',unistr,flags=re.DOTALL)[0] # might have <br>s in it
     ret += title[:title.rindex('%')]+r"\date{}\usepackage{tocloft}\usepackage{fancyhdr}\clubpenalty1000\widowpenalty1000\advance\cftchapnumwidth 0.5em\hypersetup{pdfborder={0 0 0},linktoc=all}"
     unistr = unistr.replace(title+'\n',"",1)
