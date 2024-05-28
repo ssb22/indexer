@@ -1,6 +1,6 @@
 #!/usr/bin/env python3
 """
-Anemone 1.58 (http://ssb22.user.srcf.net/anemone)
+Anemone 1.59 (http://ssb22.user.srcf.net/anemone)
 (c) 2023-24 Silas S. Brown.  License: Apache 2
 
 To use this module, either run it from the command
@@ -302,13 +302,12 @@ class Run():
     # a temporary Run just to call something like
     # check_for_JSON_transcript and get its HTML
     R = self
-    if not R.audioData: error("Creating DAISY files without audio is not yet implemented")
-    if R.htmlData and not R.jsonData: error("Full text without time markers is not yet implemented")
+    if R.htmlData and R.audioData and not R.jsonData: error("Full text and audio without time markers is not yet implemented")
     if R.jsonData and not R.htmlData: error("Time markers without full text is not implemented")
     if R.htmlData and R.textData: error("Combining full text with title-only text files is not yet implemented.  Please specify full text for everything or just titles for everything, not both.")
     if R.jsonData and not len(R.audioData)==len(R.jsonData): error(f"If JSON marker files are specified, there must be exactly one JSON file for each recording file.  We got f{len(R.jsonData)} JSON files and f{len(R.audioData)} recording files.")
     if R.textData and not len(R.audioData)==len(R.textData): error(f"If text files are specified, there must be exactly one text file for each recording file.  We got f{len(R.textData)} text files and f{len(R.audioData)} recording files.")
-    if R.htmlData and not len(R.audioData)==len(R.htmlData): error(f"If HTML documents are specified, there must be exactly one HTML document for each recording.  We got f{len(R.htmlData)} HTML documents and f{len(R.audioData)} recordings.")
+    if R.htmlData and R.audioData and not len(R.audioData)==len(R.htmlData): error(f"If HTML documents with audio are specified, there must be exactly one HTML document for each recording.  We got f{len(R.htmlData)} HTML documents and f{len(R.audioData)} recordings.")
     if not R.outputFile:
         R.outputFile=f"output_daisy{os.extsep}zip"
     if not R.title: R.title=R.outputFile.replace(f"{os.extsep}zip","").replace("_daisy","")
@@ -341,6 +340,18 @@ class Run():
             for i,t in enumerate(
                     s["startTime"] for s in R.jsonData[-1]["segments"])
             if bodyList[i]]}
+  def make_null_jsonData(self) -> None:
+    """Generate no-audio JSON for internal use
+    when making text-only DAISY files from HTML.
+    In this case we assume any element with any
+    marker-attribute should be extracted."""
+    self.jsonData = [
+        {'markers':
+         [{'id':i[self.marker_attribute], 'time':0}
+          for i in BeautifulSoup(h,'html.parser')
+          .find_all(**{self.marker_attribute:
+                       True})]}
+        for h in self.htmlData]
   def get_texts(self) -> list:
     """Gets the text markup required for the run,
     extracting it from HTML (guided by JSON IDs)
@@ -348,6 +359,7 @@ class Run():
     R = self
     if R.textData: return R.textData # section titles only, from text files
     elif not R.htmlData: return R.filenameTitles # section titles only, from sound filenames
+    elif not R.jsonData: self.make_null_jsonData()
     recordingTexts = []
     for h,j in zip(R.htmlData,R.jsonData):
         markers = j['markers']
@@ -375,11 +387,11 @@ class Run():
     TextsAndTimesWithPages i.e. ([TagAndText,time,
     TagAndText,time,TagAndText],[PageInfo,...])"""
     R = self
-    assert len(R.audioData) == len(recordingTexts)
+    assert len(R.audioData) == len(recordingTexts) or not R.audioData
     headings = R.getHeadings(recordingTexts)
     if R.dry_run: return sys.stderr.write(f"Dry run: {len(R.warnings) if R.warnings else 'no'} warning{'' if len(R.warnings)==1 else 's'} for {R.outputFile}\n")
-    merge0lenSpans(recordingTexts,headings)
-    if R.mp3_recode or any(
+    if R.audioData: merge0lenSpans(recordingTexts,headings)
+    if R.mp3_recode and R.audioData or any(
             'audio/mp3' not in mutagen.File(BytesIO(dat)).mime for dat in R.audioData): # parallelise lame if possible
         if not __name__=="__main__":
             sys.stderr.write(f"Making {R.outputFile}...\n"),sys.stderr.flush() # especially if repeatedly called, print which outputFile we're working on BEFORE the mp3s also
@@ -444,12 +456,13 @@ class Run():
         rTxt = recordingTexts[recNo-1]
         secsThisRecording = mutagen.File(
             BytesIO(R.audioData[recNo-1])
-        ).info.length
+        ).info.length if R.audioData else 0
         if secsThisRecording > 3600: R.warning(f"Recording {recNo} is long enough to cause ~{secsThisRecording*.0001:.1f}sec synchronisation error on some readers") # seems lame v3.100 can result in timestamps being effectively multiplied by ~1.0001 on some players but not all, causing slight de-sync on 1h+ recordings (bladeenc may avoid this but be lower quality overall; better to keep the recordings shorter if possible)
         durations.append(secsThisRecording)
         if recordingTasks is not None:
             sys.stderr.write(f"Adding {recNo:04d}.mp3..."),sys.stderr.flush()
-        writestr(f"{recNo:04d}.mp3",
+        if R.audioData:
+            writestr(f"{recNo:04d}.mp3",
                  R.audioData[recNo-1]
                  if recordingTasks is None
                  else recordingTasks[recNo-1].result())
@@ -662,9 +675,16 @@ class Run():
     <meta name="ncc:pageSpecial" content="0" />
     <meta name="ncc:tocItems" content="{len(headingsR)+sum(len(PNs) for PNs in pageNos)}" />
     <meta name="ncc:totalTime" content="{hmsTime(totalSecs)}" />
-    <meta name="ncc:multimediaType" content="{"audioFullText" if hasFullText else "audioNcc"}" />
-    <meta name="{'dtb' if R.daisy3 else 'ncc'}:depth" content="{max(int(h.hTag[1:]) for h in headingsR if h.hTag.startswith('h'))+(1 if any(h.hTag=='div' for h in headingsR) else 0)}" />
-    <meta name="ncc:files" content="{2+len(headings)*(3 if hasFullText else 2)+len(R.imageFiles)}" />
+    <meta name="ncc:multimediaType" content="{
+    "textNcc" if not R.audioData else
+    "audioFullText" if hasFullText else "audioNcc" }" />
+    <meta name="{'dtb' if R.daisy3 else 'ncc'
+    }:depth" content="{max(int(h.hTag[1:])
+    for h in headingsR if h.hTag.startswith('h'))
+    +(1 if any(h.hTag=='div' for h in headingsR)
+    else 0)}" />
+    <meta name="ncc:files" content="{2+
+    len(headings)*(3 if hasFullText and R.audioData else 2)+len(R.imageFiles)}" />
   </head>
   {f'<docTitle><text>{R.title}</text></docTitle>'
     if R.daisy3 else ''}
