@@ -1,6 +1,6 @@
 #!/usr/bin/env python3
 """
-Anemone 1.59 (http://ssb22.user.srcf.net/anemone)
+Anemone 1.6 (http://ssb22.user.srcf.net/anemone)
 (c) 2023-24 Silas S. Brown.  License: Apache 2
 
 To use this module, either run it from the command
@@ -38,7 +38,7 @@ def anemone(*files,**options) -> list[str]:
     If you do not give this function any arguments
     it will look at the system command line.
     Return value is a list of warnings, if any."""
-    
+
     R=Run(*files,**options)
     R.check()
     if R.mp3_recode or any(f.strip().lower().
@@ -248,17 +248,15 @@ class Run():
     R.imageFiles,R.outputFile = [],None
     R.warnings = []
     if inFiles: # being called as a module
-        inFiles2 = [f for f in inFiles if isinstance(f,str)]
         R.__dict__.update(
             get_argument_parser().parse_args(
-                (inFiles2 if inFiles2 else ["placeholder"]) +
+                ["placeholder"] +
                 [a for k,v in kwargs.items()
                  for a in
                  ['--'+k.replace('_','-'),str(v)]
                  if type(v) in [str,int]])
             .__dict__)
-        if not inFiles2: del R.files[0] # placeholder
-        R.files += [f for f in inFiles if not isinstance(f,str)] # in case passing bytes or JSON directly
+        R.files = inFiles # may mix dict + string, even in same category especially if using "skip", so don't separate types
     else: # being called from the command line
         R.__dict__.update(get_argument_parser().parse_args().__dict__)
     R.__dict__.update((k,v)
@@ -276,7 +274,9 @@ class Run():
             R.jsonData.append(f)
             R.check_for_JSON_transcript()
             continue
-        if isinstance(f,str) and f.lower().endswith(f"{os.extsep}zip"):
+        elif f=="skip": # we're 'full text some audio' and we're skipping audio for a chapter
+            R.jsonData.append(None) ; continue
+        elif isinstance(f,str) and f.lower().endswith(f"{os.extsep}zip"):
             if R.outputFile: error(f"Only one {os.extsep}zip output file may be specified")
             R.outputFile = f ; continue
         elif isinstance(f,str) and re.match("https?://",f):
@@ -296,21 +296,33 @@ class Run():
         elif fOrig.lower().endswith(f"{os.extsep}txt"):
             R.textData.append(f.decode('utf-8').strip())
         else: error(f"Format of '{fOrig}' has not been recognised")
+    if R.htmlData: # check for text-only DAISY:
+        if not R.jsonData:
+            R.jsonData=[None]*len(R.htmlData)
+        if not R.audioData:
+            R.audioData=[None]*len(R.htmlData)
+    # and check for full-text part-audio DAISY:
+    if len(R.jsonData) > len(R.audioData):
+        for c,i in enumerate(R.jsonData):
+            if i is None:
+                R.audioData.insert(c,None)
+    if not R.outputFile:
+        R.outputFile=f"output_daisy{os.extsep}zip"
+    if not R.title: R.title=R.outputFile.replace(f"{os.extsep}zip","").replace("_daisy","")
   def check(self) -> None:
-    "Checks we've got everything"
-    # You may omit calling this if you're creating
-    # a temporary Run just to call something like
-    # check_for_JSON_transcript and get its HTML
+    """Checks we've got everything.
+    You may omit calling this if you're creating
+    a temporary Run just to call something like
+    check_for_JSON_transcript and get its HTML."""
     R = self
-    if R.htmlData and R.audioData and not R.jsonData: error("Full text and audio without time markers is not yet implemented")
+    if R.htmlData and any(a and not j for a,j in zip(R.audioData,R.jsonData)): error("Full text and audio without time markers is not yet implemented")
     if R.jsonData and not R.htmlData: error("Time markers without full text is not implemented")
     if R.htmlData and R.textData: error("Combining full text with title-only text files is not yet implemented.  Please specify full text for everything or just titles for everything, not both.")
     if R.jsonData and not len(R.audioData)==len(R.jsonData): error(f"If JSON marker files are specified, there must be exactly one JSON file for each recording file.  We got f{len(R.jsonData)} JSON files and f{len(R.audioData)} recording files.")
     if R.textData and not len(R.audioData)==len(R.textData): error(f"If text files are specified, there must be exactly one text file for each recording file.  We got f{len(R.textData)} text files and f{len(R.audioData)} recording files.")
-    if R.htmlData and R.audioData and not len(R.audioData)==len(R.htmlData): error(f"If HTML documents with audio are specified, there must be exactly one HTML document for each recording.  We got f{len(R.htmlData)} HTML documents and f{len(R.audioData)} recordings.")
-    if not R.outputFile:
-        R.outputFile=f"output_daisy{os.extsep}zip"
-    if not R.title: R.title=R.outputFile.replace(f"{os.extsep}zip","").replace("_daisy","")
+    if R.htmlData and not len(R.audioData)==len(R.htmlData): error(f"If HTML documents with audio are specified, there must be exactly one HTML document for each recording.  We got f{len(R.htmlData)} HTML documents and f{len(R.audioData)} recordings.")
+    if R.htmlData and not len(R.htmlData)==len(dict.fromkeys(R.htmlData).keys()): error("Duplicate HTML input documents")
+    if not R.htmlData and not R.textData and not R.audioData: error("No input given")
   def warning(self,warningText) -> None:
     if self.warnings_are_errors:error(warningText)
     self.warnings.append(warningText)
@@ -340,18 +352,16 @@ class Run():
             for i,t in enumerate(
                     s["startTime"] for s in R.jsonData[-1]["segments"])
             if bodyList[i]]}
-  def make_null_jsonData(self) -> None:
+  def get_null_jsonData(self,h) -> dict:
     """Generate no-audio JSON for internal use
     when making text-only DAISY files from HTML.
     In this case we assume any element with any
     marker-attribute should be extracted."""
-    self.jsonData = [
-        {'markers':
-         [{'id':i[self.marker_attribute], 'time':0}
+    return {'markers':
+         [{'id':i[self.marker_attribute],'time':0}
           for i in BeautifulSoup(h,'html.parser')
           .find_all(**{self.marker_attribute:
                        True})]}
-        for h in self.htmlData]
   def get_texts(self) -> list:
     """Gets the text markup required for the run,
     extracting it from HTML (guided by JSON IDs)
@@ -359,14 +369,18 @@ class Run():
     R = self
     if R.textData: return R.textData # section titles only, from text files
     elif not R.htmlData: return R.filenameTitles # section titles only, from sound filenames
-    elif not R.jsonData: self.make_null_jsonData()
     recordingTexts = []
     for h,j in zip(R.htmlData,R.jsonData):
+        if j is None:
+            j = R.get_null_jsonData(h)
+            include_alt_tags_in_text = True
+        else: include_alt_tags_in_text = False # because we won't be able to match it up to the audio
         markers = j['markers']
         want_pids = [jsonAttr(m,"id") for m in markers]
         extractor = PidsExtractor(R,want_pids)
         extractor.handle_soup(
-            BeautifulSoup(h, 'html.parser'))
+            BeautifulSoup(h, 'html.parser'),
+            include_alt=include_alt_tags_in_text)
         rTxt = []
         for i in range(len(markers)):
             rTxt.append(parseTime(jsonAttr(markers[i],"time")))
@@ -387,22 +401,24 @@ class Run():
     TextsAndTimesWithPages i.e. ([TagAndText,time,
     TagAndText,time,TagAndText],[PageInfo,...])"""
     R = self
-    assert len(R.audioData) == len(recordingTexts) or not R.audioData
+    assert len(R.audioData) == len(recordingTexts)
+    assert recordingTexts
     headings = R.getHeadings(recordingTexts)
     if R.dry_run: return sys.stderr.write(f"Dry run: {len(R.warnings) if R.warnings else 'no'} warning{'' if len(R.warnings)==1 else 's'} for {R.outputFile}\n")
-    if R.audioData: merge0lenSpans(recordingTexts,headings)
-    if R.mp3_recode and R.audioData or any(
-            'audio/mp3' not in mutagen.File(BytesIO(dat)).mime for dat in R.audioData): # parallelise lame if possible
+    merge0lenSpans(recordingTexts,headings,R.audioData)
+    if R.mp3_recode and any(R.audioData) or any(
+            'audio/mp3' not in mutagen.File(BytesIO(dat)).mime for dat in R.audioData if dat): # parallelise lame if possible
         if not __name__=="__main__":
             sys.stderr.write(f"Making {R.outputFile}...\n"),sys.stderr.flush() # especially if repeatedly called, print which outputFile we're working on BEFORE the mp3s also
         executor = ThreadPoolExecutor(
             max_workers=cpu_count())
-        recordingTasks=[executor.submit(
+        recordingTasks=[(executor.submit(
             (recodeMP3 if
              R.mp3_recode or
              'audio/mp3' not in mutagen.File(BytesIO(dat)).mime
              else lambda x:x),
-            dat) for dat in R.audioData]
+            dat) if dat else None)
+                        for dat in R.audioData]
     else: executor,recordingTasks = None,None
     try: R.write_all0(recordingTexts,headings,recordingTasks)
     except: # unhandled exception: clean up
@@ -456,18 +472,18 @@ class Run():
         rTxt = recordingTexts[recNo-1]
         secsThisRecording = mutagen.File(
             BytesIO(R.audioData[recNo-1])
-        ).info.length if R.audioData else 0
+        ).info.length if R.audioData[recNo-1] else 0
         if secsThisRecording > 3600: R.warning(f"Recording {recNo} is long enough to cause ~{secsThisRecording*.0001:.1f}sec synchronisation error on some readers") # seems lame v3.100 can result in timestamps being effectively multiplied by ~1.0001 on some players but not all, causing slight de-sync on 1h+ recordings (bladeenc may avoid this but be lower quality overall; better to keep the recordings shorter if possible)
         durations.append(secsThisRecording)
-        if recordingTasks is not None:
-            sys.stderr.write(f"Adding {recNo:04d}.mp3..."),sys.stderr.flush()
-        if R.audioData:
+        if R.audioData[recNo-1]:
+            if recordingTasks is not None:
+                sys.stderr.write(f"Adding {recNo:04d}.mp3..."),sys.stderr.flush()
             writestr(f"{recNo:04d}.mp3",
                  R.audioData[recNo-1]
                  if recordingTasks is None
                  else recordingTasks[recNo-1].result())
-        if recordingTasks is not None:
-            sys.stderr.write(" done\n")
+            if recordingTasks is not None:
+                sys.stderr.write(" done\n")
         writestr(f'{recNo:04d}.smil',D(
             R.section_smil(recNo,secsSoFar,
                          secsThisRecording,curP,
@@ -541,7 +557,7 @@ class Run():
                 if len(nums)==1:
                     text=f"{nums[0]}: {text}" # for TOC
                     textsAndTimes[v-1] = (textsAndTimes[first-1] if first else 0) + 0.001 # for audio jump-navigation to include the "Chapter N" (TODO: option to merge the in-chapter text instead, so "Chapter N" appears as part of the heading, not scrolled past quickly?  merge0lenSpans will now do this if the chapter paragraph is promoted to heading, but beware we might not want the whole of the 'chapter N' text to be part of the TOC, just the number.  Thorium actually stops playing when it hits the 0-length paragraph before the heading, so promoting it might be better; trying the +0.001 for now to make timestamps not exactly equal)
-            chapHeadings.append(ChapterTOCInfo(tag,re.sub('<img src.*?/>','',text),v//2))
+            chapHeadings.append(ChapterTOCInfo(tag,re.sub('<[^>]*>','',text),v//2))
         if not chapHeadings:
             # This'll be a problem, as master_smil and ncc_html need headings to refer to the chapter at all.  (Well, ncc_html can also do it by page number if we have them, but we haven't tested all DAISY readers with page number only navigation, and what if we don't even have page numbers?)
             # So let's see if we can at least get a chapter number.
@@ -676,15 +692,18 @@ class Run():
     <meta name="ncc:tocItems" content="{len(headingsR)+sum(len(PNs) for PNs in pageNos)}" />
     <meta name="ncc:totalTime" content="{hmsTime(totalSecs)}" />
     <meta name="ncc:multimediaType" content="{
-    "textNcc" if not R.audioData else
+    "textNcc" if not any(R.audioData) else
+    "textPartAudio" if hasFullText and not all(R.audioData) else
     "audioFullText" if hasFullText else "audioNcc" }" />
     <meta name="{'dtb' if R.daisy3 else 'ncc'
     }:depth" content="{max(int(h.hTag[1:])
     for h in headingsR if h.hTag.startswith('h'))
     +(1 if any(h.hTag=='div' for h in headingsR)
     else 0)}" />
-    <meta name="ncc:files" content="{2+
-    len(headings)*(3 if hasFullText and R.audioData else 2)+len(R.imageFiles)}" />
+    <meta name="ncc:files" content="{ 2
+    + sum(1 for a in R.audioData if a)
+    + len(headings)*(2 if hasFullText else 1)
+    + len(R.imageFiles)}" />
   </head>
   {f'<docTitle><text>{R.title}</text></docTitle>'
     if R.daisy3 else ''}
@@ -966,10 +985,11 @@ R.daisy3CloseLevelTags(tag,num,paras)}""" for num,(tag,text) in enumerate(R.norm
 class PidsExtractor:
     """Go through the HTML, extracting the
     paragraphs whose IDs we want, and moving any
-    images between two ID'd paragraphs to the
-    previously-ID'd paragraph, discarding others
-    (site decoration etc).  Also pick up on any
-    page-number tags and note where they were."""
+    images to their relevant ID'd paragraph (we
+    assume all images with an image_attribute
+    should be kept, and others are site decoration
+    etc).  Also pick up on any page-number tags
+    and note where they were."""
     
     def __init__(self, R:Run, want_pids:list[str]):
         self.R = R
@@ -979,14 +999,18 @@ class PidsExtractor:
         self.pageNoGoesAfter = 0 # want_pids index
         self.previous_pid_tagname = None
         self.previous_pid_contents = None
-        self.images_since_previous_pid_closed = []
+        self.images_before_first_pid = []
+        self.seen_heading = False
     
-    def handle_soup(self,t,addTo=None) -> None:
+    def handle_soup(self,t,addTo=None,
+                    include_alt=False) -> None:
         """Recursively scan through the HTML.
         t is a BeautifulSoup tree node.
         addTo is the list of data for the ID that
         is currently being extracted, if any: we
-        can append to this."""
+        can append to this.
+        include_alt is True if we want to repeat
+        the ALT tags of included images in text"""
         
         if not t.name: # data or comment
             if t.PREFIX: pass # ignore comment, doctype etc
@@ -999,14 +1023,10 @@ class PidsExtractor:
         imgURL = attrs.get(self.R.image_attribute,None)
         if imgURL and (re.match(
                 "https?://.*[.][^/]*$",
-                imgURL) or os.path.isfile(
-                    imgURL)) and not (
-                        addTo is None
-                        and self.previous_pid_contents is None):
+                imgURL)or os.path.isfile(imgURL)):
             # Write the 'img' markup for the DAISY document.
             # Will be moved to after the paragraph by text_htm
             # because DAISY images cannot occur inside paragraphs.
-            # (Might want to check attrs.get("alt",""), but DAISY3 standard does not list alt as a valid attribute for img, so we'd have to put it after with br etc (changing text_htm) and we don't know if it's in the audio or not: probably best just to leave it and rely on there being a separate caption with ID if it's in the audio)
             image_index = self.R.imageFiles.index(imgURL) if imgURL in self.R.imageFiles else len(self.R.imageFiles)
             img = f'''<img src="{
             image_index+1}{
@@ -1015,9 +1035,17 @@ class PidsExtractor:
             if self.R.daisy3 else ""} />'''
             if imgURL not in self.R.imageFiles:
                 self.R.imageFiles.append(imgURL)
-            if addTo is not None:
-                addTo.append(img)
-            else: self.images_since_previous_pid_closed.append(img) # in case we get another paragraph
+            if "alt" not in attrs:
+                for k in attrs.keys():
+                    if k.endswith("-alt"): # data-img-att-alt or whatever (TODO: customisable?)
+                        attrs["alt"] = attrs[k]
+                        break
+            if include_alt and "alt" in attrs:
+                # DAISY3 standard does not list alt as a valid attribute for img, so we have to put the text in afterwards
+                img += f'<br>{attrs["alt"]}<br>' # images will be moved to *after* these by text_htm; if we want an option for the image *before* the ALT, we'd need to put these in the *next* paragraph or change text_htm
+            if addTo is not None:addTo.append(img)
+            elif self.previous_pid_contents is not None: self.previous_pid_contents.append(img)
+            else: self.images_before_first_pid.append(img)
         this_tag_has_a_pid_we_want = False
         if attrs.get(self.R.marker_attribute,None) in self.want_pids:
             this_tag_has_a_pid_we_want = True
@@ -1025,9 +1053,6 @@ class PidsExtractor:
             a = attrs[self.R.marker_attribute]
             self.pageNoGoesAfter = self.want_pids.index(a)
             self.id_to_content[a] = ((tag if re.match('h[1-6]$',tag) or tag=='span' else 'p'),[])
-            if self.images_since_previous_pid_closed:
-                self.previous_pid_contents += self.images_since_previous_pid_closed
-                self.images_since_previous_pid_closed = []
             addTo = self.id_to_content[a][1]
         elif addTo is not None and tag in allowedInlineTags: addTo.append(f'<{allowedInlineTags[tag]}>')
         elif addTo is not None and tag=='a': self.lastAStart = len(addTo)
@@ -1036,11 +1061,18 @@ class PidsExtractor:
         # Now the recursive call:
         if not tag=='rt':
           for c in t.children:
-            self.handle_soup(c,addTo)
+            self.handle_soup(c,addTo,include_alt)
         # And now the end tag:
         if addTo is not None:
             if this_tag_has_a_pid_we_want:
-                self.highestImage,self.previous_pid_contents = len(self.R.imageFiles),addTo
+                self.seen_heading = tag.startswith("h")
+                if self.images_before_first_pid and self.seen_heading and not (
+                        tag.startswith("h")
+                        and any("<br" in i
+                            for i in self.images_before_first_pid)): # (don't include ALTs as part of the heading, and ALT or otherwise don't risk putting before first heading especially if we'll rewrite number to be part of it)
+                    addTo += self.images_before_first_pid
+                    self.images_before_first_pid=None
+                self.previous_pid_contents = addTo
             elif tag in allowedInlineTags: addTo.append(f'</{allowedInlineTags[tag]}>')
             elif tag=="a" and re.match('[!-.:-~]$',"".join(addTo[self.lastAStart:]).strip()):
                 # remove single-character link, probably to footnote (we won't know if it's in the audio or not, we're not supporting jumps and the symbols might need normalising)
@@ -1049,7 +1081,6 @@ class PidsExtractor:
         elif tag=='p' and self.previous_pid_contents and self.previous_pid_tagname=='span':
             # if paragraphs contain spans and it's the spans that are identified, ensure we keep this break in the surrounding structure
             self.previous_pid_contents.append("<br>")
-        if tag=='html' and self.images_since_previous_pid_closed and hasattr(self,'highestImage'): del self.R.imageFiles[self.highestImage:] # do not include ones that are still only in images_since_previous_pid_closed at the end of the page (and not also elsewhere)
 
 def delimited(s,start:int,end:int) -> bool:
     """Checks to see if a string or binary data
@@ -1136,7 +1167,7 @@ def parseTime(t:str) -> float:
         tot += float(u)*mul ; mul *= 60
     return tot
 
-def merge0lenSpans(recordingTexts:list, headings:list) -> None:
+def merge0lenSpans(recordingTexts:list, headings:list, hasAudio:list) -> None:
     """Finds spans in the text that are marked as
     zero length in the audio, and merges them into
     their neighbours if possible.  This is so that
@@ -1148,8 +1179,8 @@ def merge0lenSpans(recordingTexts:list, headings:list) -> None:
     ends, so can we set the navigation to create
     a combined item for both 1 and 2."""
     
-    for cT,cH in zip(recordingTexts,headings):
-        if not isinstance(cT,TextsAndTimesWithPages): continue
+    for cT,cH,hA in zip(recordingTexts,headings,hasAudio):
+        if not hA or not isinstance(cT,TextsAndTimesWithPages): continue
         textsAndTimes,pages = cT
         i=0
         while i < len(textsAndTimes)-2:
@@ -1255,7 +1286,10 @@ def fetch(url:str,
     if ifModSince:
         t = time.gmtime(ifModSince)
         headers["If-Modified-Since"]=f"{'Mon Tue Wed Thu Fri Sat Sun'.split()[t.tm_wday]}, {t.tm_mday} {'Jan Feb Mar Apr May Jun Jul Aug Sep Oct Nov Dec'.split()[t.tm_mon-1]} {t.tm_year} {t.tm_hour:02d}:{t.tm_min:02d}:{t.tm_sec:02d} GMT"
-    try: dat = urlopen(Request(url,headers=headers)).read()
+    url2 = ''.join(
+        (chr(b) if b < 128 else f"%{b:02x}")
+        for b in url.encode('utf-8'))
+    try: dat = urlopen(Request(url2,headers=headers)).read()
     except HTTPError as e:
         _last_urlopen_time = time.time()
         if e.getcode()==304 and cache:
@@ -1314,7 +1348,7 @@ def numDaisy3NavpointsToClose(s:int, headingsR:list[BookTOCInfo]) -> int:
         for i in reversed(headingsR[:s+1])
     ).split('0',1)[0]
     if thisDepth: D=thisDepth
-    else: D=int(headingNums_closed[0]) # the heading before this div (TODO: this code assumes there will be one, which is currently true as these divs are generated only by verse numbering)
+    else: D=int(headingNums_closed[0]) # the heading before this div (this code assumes there will be one, which is currently true as these divs are generated only by verse numbering)
     N = sum(1 for j in range(nextDepth,D+1)
             if str(j) in headingNums_closed)
     return N+(1 if thisDepth is None else 0)
