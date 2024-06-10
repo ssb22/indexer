@@ -2,7 +2,7 @@
 macOS voices, using different voices for different
 characters in the dialogue
 
-v0.1 (c) 2024 Silas S. Brown.  License: Apache 2
+v0.2 (c) 2024 Silas S. Brown.  License: Apache 2
 """
 
 # Licensed under the Apache License, Version 2.0 (the "License");
@@ -25,6 +25,7 @@ v0.1 (c) 2024 Silas S. Brown.  License: Apache 2
 # and in China: https://gitee.com/ssb22/indexer
 
 import tempfile, re, os, sys
+from mutagen.aiff import AIFF
 
 def getAIFF(voiceParams,text):
     """Clean up text, speak it using given voice
@@ -74,7 +75,7 @@ def mixVoices(voiceParamList,text):
              for p in voiceParamList]
     if len(aiffs) > 1:
         a2 = tempnam("aiff")
-        os.system(f'sox -m {" ".join(aiffs)} {a2}') # TODO: stereo positions? (but final output is currently mono) ; TODO: may need a small volume boost, especially if 3 voices mixed, but depends on the voices (mixing 3 identical copies seems to get the same)
+        cmd(f'sox -m {" ".join(aiffs)} {a2}') # TODO: stereo positions? (but final output is currently mono) ; TODO: may need a small volume boost, especially if 3 voices mixed, but depends on the voices (mixing 3 identical copies seems to get the same)
         for a in aiffs: os.remove(a)
         aiffs = [a2]
     return aiffs[0]
@@ -155,7 +156,8 @@ def voiceParamsAndStrings(paragraph, voiceMap):
     else:r.append(([voiceMap["narrator"]],paragraph)) # all narrator
     return r
 
-def synth_chapter(txt,get_sentence_timings=False,
+def synth_chapter(txt,voiceMap,
+                  get_sentence_timings=False,
                   no_paraBreak_regex_list=[]):
     """Synthesises all the paragraphs one per line
     returning a list suitable for catAndDelete.
@@ -210,7 +212,7 @@ def catAndDelete(output, iterable):
     if not(all(i.endswith(".aiff") for i in l if i)):
         # not all is aiff: standardise on stereo
         for i in l:
-            if i and i.endswith(".aiff"): os.system(f"sox {i} -c 2 -r 44100 {i.replace('.aiff','-2.aiff')} && mv {i.replace('.aiff','-2.aiff')} {i}")
+            if i and i.endswith(".aiff"): cmd(f"sox {i} -c 2 -r 44100 {i.replace('.aiff','-2.aiff')} && mv {i.replace('.aiff','-2.aiff')} {i}")
     toCat = [] ; catted = [] ; cumTime = 0
     timestamps = []
     def flushCat():
@@ -236,6 +238,7 @@ def catAndDelete(output, iterable):
         delAiff(catted[:50])
         catted = [f"{len(catted)}.aiff"]+catted[50:]
     cmd(f"sox {' '.join(catted)} {output}.wav")
+    return timestamps
 
 class SentenceBreakCount:
     r"""Class of objects to be used in
@@ -342,5 +345,5 @@ def delAiff(L):
 
 def cmd(c):
     "Run a command via os.system checking success"
-    if not os.system(c):
+    if os.system(c):
         raise Exception(f"Command failed: {c}")
