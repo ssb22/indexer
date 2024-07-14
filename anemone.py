@@ -1,6 +1,6 @@
 #!/usr/bin/env python3
 """
-Anemone 1.6 (http://ssb22.user.srcf.net/anemone)
+Anemone 1.61 (http://ssb22.user.srcf.net/anemone)
 (c) 2023-24 Silas S. Brown.  License: Apache 2
 
 To use this module, either run it from the command
@@ -1128,7 +1128,10 @@ def easyReader_em_fix(content:str) -> str:
     """EasyReader 10 workaround: it does not show
     strong or em, which is OK but it puts space
     around it: no good if it happened after a "("
-    or similar, so delete those occurrences"""
+    or similar, so delete those occurrences.
+    Also, delete anything like </strong><strong>
+    (off and on again) as this would add space for
+    no good reason."""
     while True:
         c2 = re.sub(
             r"<(?P<tag>(strong|em))>(.*?)</(?P=tag)>",
@@ -1138,7 +1141,10 @@ def easyReader_em_fix(content:str) -> str:
             or m.end()<len(content) and
             content[m.end()] not in ' <'
             else f"<{m.group(1)}>{easyReader_em_fix(m.group(3))}</{m.group(1)}>",
-            string = content)
+            string = content) # rm aftr open paren
+        c2 = re.sub(
+            r"</(?P<tag>(strong|em))><(?P=tag)>",
+            "",c2) # rm e.g. </strong><strong>
         if c2==content: break
         content = c2 # and re-check
     return content
