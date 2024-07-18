@@ -1,6 +1,6 @@
 #!/usr/bin/env python3
 """
-Anemone 1.61 (http://ssb22.user.srcf.net/anemone)
+Anemone 1.62 (http://ssb22.user.srcf.net/anemone)
 (c) 2023-24 Silas S. Brown.  License: Apache 2
 
 To use this module, either run it from the command
@@ -124,7 +124,7 @@ support Daisy 3 only features like tables.""")
 re-code the MP3 files to ensure they are constant
 bitrate and more likely to work with the more
 limited DAISY-reading programs like FSReader 3
-(this option requires LAME)""")
+(this requires LAME or miniaudio/lameenc)""")
     args.add_argument("--allow-jumps",
                       action="store_true",help="""
 Allow jumps in heading levels e.g. h1 to h3 if the
@@ -435,8 +435,9 @@ class Run():
     z = ZipFile(R.outputFile,"w",ZIP_DEFLATED,True)
     R.dataSectors = R.catalogueEntries = 0
     def writestr(n,s):
-        if isinstance(s,bytes): L = len(s)
-        else: L = len(s.encode('utf-8'))
+        if isinstance(s,str):
+            L = len(s.encode('utf-8'))
+        else: L = len(s) # bytes or bytearray
         R.dataSectors += (L+2047)//2048 # ISO 9660 sectors on a CD-ROM
         R.catalogueEntries += 1
         # Assume roughly 64 entries per catalogue sector (TODO check), *3 for RockRidge/Joliet
@@ -1093,16 +1094,34 @@ def delimited(s,start:int,end:int) -> bool:
         s = s.strip()
         return s.startswith(start) and s.endswith(end)
 
+def load_miniaudio_and_lameenc() -> bool:
+    """Tries to load the miniaudio and lameenc
+    libraries.  If this fails (returning False)
+    then we have to use an external binary LAME"""
+    try:
+        import miniaudio as M
+        import lameenc as L
+        global miniaudio, lameenc
+        miniaudio, lameenc = M, L
+        return True
+    except: return False # noqa: E722 (ImportError or anything wrong with those libraries = can't use either)
+    
 def check_we_got_LAME() -> None:
-    """Complains if a LAME binary is not
-    available on this system.  Makes a little
-    extra effort to find one on Windows."""
+    """Complains if LAME is not available on
+    this system, either as miniaudio + lameenc
+    imports, or as a binary.  Makes a little
+    extra effort to find a binary on Windows."""
     
     if which('lame'): return
+    if load_miniaudio_and_lameenc(): return
     if sys.platform=='win32':
         os.environ["PATH"] += r";C:\Program Files (x86)\Lame for Audacity;C:\Program Files\Lame for Audacity"
         if which('lame'): return
-    error(f"Anemone requires the LAME program to encode/recode MP3s.\nPlease {'run the exe installer from lame.buanzo.org' if sys.platform=='win32' else 'install lame'} and try again.")
+    error(f"""Anemone requires the LAME program to encode/recode MP3s.
+Please either install the miniaudio and lameenc pip libraries,
+or {'run the exe installer from lame.buanzo.org'
+    if sys.platform=='win32' else 'install lame'
+}, and then try again.""")
 
 tagRewrite = { # used by get_texts
     'legend':'h3', # used in fieldset
@@ -1208,6 +1227,20 @@ def recodeMP3(dat:bytes) -> bytes:
     as suitable for DAISY, and returns the bytes
     of new MP3 data for putting into DAISY ZIP"""
 
+    if load_miniaudio_and_lameenc():
+        # Preferred method: use these 2 libraries
+        # (works with a range of input file types)
+        pcm = miniaudio.decode(dat,nchannels=1)
+        enc = lameenc.Encoder()
+        enc.set_bit_rate(64)
+        enc.set_channels(1)
+        enc.set_quality(0)
+        enc.set_in_sample_rate(pcm.sample_rate)
+        mp3=enc.encode(pcm.samples.tobytes())
+        return mp3 + enc.flush()
+
+    # Fallback method: use LAME external binary.
+    
     # It seems broken players like FSReader can get timing wrong if mp3 contains
     # too many tags at the start (e.g. images).
     # eyed3 clear() won't help: it zeros out bytes without changing indices.
