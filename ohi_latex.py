@@ -1,8 +1,9 @@
 #!/usr/bin/env python
 # (works on both Python 2 and Python 3)
 
-# ohi_latex: Offline HTML Indexer for LaTeX
-# v1.399 (c) 2014-20,2023-24 Silas S. Brown
+"""ohi_latex: Offline HTML Indexer for LaTeX
+v1.4 (c) 2014-20,2023-24 Silas S. Brown
+License: Apache 2""" # (see below)
 
 # Licensed under the Apache License, Version 2.0 (the "License");
 # you may not use this file except in compliance with the License.
@@ -38,6 +39,7 @@ opts.add_option("--a5",action="store_true",default=False,help="Use page settings
 opts.add_option("--compromise",action="store_true",default=False,help="Use page settings intended for compromise between A4 and Letter, with a more spacious layout")
 opts.add_option("--dry-run",action="store_true",default=False,help="Don't run pdflatex or qpdf")
 opts.add_option("--no-open",action="store_true",default=False,help="Don't open the resulting PDF on Mac")
+opts.add_option("--version",action="store_true",default=False,help="Show version number and exit")
 
 options, args = opts.parse_args()
 assert not args,"Unknown arguments: "+repr(args)
@@ -648,6 +650,8 @@ def subDict(d):
 # -------------------------------------------------
 
 if __name__ == "__main__":
+ if version:
+   print(__doc__) ; sys.exit(0)
  if infile:
     sys.stderr.write("Reading from "+infile+"... ")
     infile = open(infile)
