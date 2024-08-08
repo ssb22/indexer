@@ -1,6 +1,6 @@
 #!/usr/bin/env python3
 """
-Anemone 1.62 (http://ssb22.user.srcf.net/anemone)
+Anemone 1.63 (http://ssb22.user.srcf.net/anemone)
 (c) 2023-24 Silas S. Brown.  License: Apache 2
 
 To use this module, either run it from the command
@@ -177,6 +177,7 @@ titles.""")
     args.add_argument("--chapter-heading-level",default=1,help="Heading level to use for chapters that don't have titles")
     args.add_argument("--warnings-are-errors",action="store_true",help="Treat warnings as errors")
     args.add_argument("--dry-run",action="store_true",help="Don't actually output DAISY, just check the input and parameters")
+    args.add_argument("--version",action="store_true",help="Just print version number and exit (takes effect only if called from the command line)")
 
 generator=__doc__.strip().split('\n')[0] # string we use to identify ourselves in HTTP requests and in Daisy files
 
@@ -184,7 +185,13 @@ def get_argument_parser():
     "populates an ArgumentParser for Anemone"
     
     from argparse import ArgumentParser
-    args = ArgumentParser(
+    if __name__=="__main__": AP=ArgumentParser
+    else:
+        # module: wrap it so errors don't exit
+        class AP(ArgumentParser):
+            def error(self, message):
+                raise AnemoneError(message)
+    args = AP(
         prog="anemone",
         description=generator,
         fromfile_prefix_chars='@')
@@ -258,12 +265,16 @@ class Run():
             .__dict__)
         R.files = inFiles # may mix dict + string, even in same category especially if using "skip", so don't separate types
     else: # being called from the command line
+        if "--version" in sys.argv: # (bypass parser, as no files is OK for this)
+            print (generator)
+            raise SystemExit
         R.__dict__.update(get_argument_parser().parse_args().__dict__)
     R.__dict__.update((k,v)
                       for k,v in kwargs.items()
                       if type(v) not in [str,int,type(None)]) # (None means keep the default from parse_args; boolean and bytes we might as well handle directly; list e.g. merge_books should bypass parser; ditto session object for cache, a type we can't even name here if requests_cache is not installed)
     for k in ['merge_books','chapter_titles']:
         if not isinstance(R.__dict__[k],list):
+            if not isinstance(R.__dict__[k],str): error(f"{k} must be Python list or comma-separated string")
             R.__dict__[k]=R.__dict__[k].split(',') # comma-separate if coming from the command line, but allow lists to be passed in to the module
             if R.__dict__[k]==['']:
                 R.__dict__[k] = []
@@ -280,13 +291,17 @@ class Run():
             if R.outputFile: error(f"Only one {os.extsep}zip output file may be specified")
             R.outputFile = f ; continue
         elif isinstance(f,str) and re.match("https?://",f):
-            f=fetch(f,R.cache,R.refresh,R.refetch,R.delay,R.user_agent)
+            try: f=fetch(f,R.cache,R.refresh,R.refetch,R.delay,R.user_agent)
+            except HTTPError as e:
+                error(f"Unable to fetch {f}: {e}")
         elif delimited(f,'{','}'): pass
         elif delimited(f,'<','>'): pass
         elif not os.path.isfile(f): error(f"File not found: {f}")
         else: f = open(f,"rb").read()
         if delimited(f,'{','}'):
-            R.jsonData.append(json.loads(f))
+            try: f = json.loads(f)
+            except: error(f"Could not parse JSON {fOrig}") # noqa: E722
+            R.jsonData.append(f)
             R.check_for_JSON_transcript()
         elif delimited(f,'<','>'):
             R.htmlData.append(f)
@@ -294,7 +309,9 @@ class Run():
             R.audioData.append(f)
             R.filenameTitles.append(fOrig[:fOrig.rindex(os.extsep)])
         elif fOrig.lower().endswith(f"{os.extsep}txt"):
-            R.textData.append(f.decode('utf-8').strip())
+            try: f = f.decode('utf-8').strip()
+            except: error(f"Couldn't decode {fOrig} as UTF-8") # noqa: E722
+            R.textData.append(f)
         else: error(f"Format of '{fOrig}' has not been recognised")
     if R.htmlData: # check for text-only DAISY:
         if not R.jsonData:
@@ -1285,15 +1302,30 @@ def fetch(url:str,
     if hasattr(cache,"get"):
         # if we're given a requests_cache session,
         # use that instead of our own caching code
-        r = cache.request('GET',url,
+        if not refresh and not refetch:
+            r = cache.request('GET',url,
+                              only_if_cached=True)
+            if r.status_code == 200:
+                return r.content
+        sys.stderr.write(f"Fetching {url}...")
+        sys.stderr.flush()
+        try: r = cache.request('GET',url,
                           headers = {
                               "User-Agent":
                               user_agent}
                           if user_agent else {},
+                          timeout=20,
                           refresh=refresh,
                           force_refresh=refetch)
-        if r.status_code == 200: return r.content
-        else: raise HTTPError("",r.status_code,"unexpected HTTP code",{},None)
+        except Exception as e:
+            sys.stderr.write(" error\n")
+            raise HTTPError("",500,f"{e}",{},None)
+        if r.status_code == 200:
+            sys.stderr.write(" fetched\n")
+            return r.content
+        else:
+            sys.stderr.write(" bad status\n")
+            raise HTTPError("",r.status_code,"unexpected HTTP code",{},None)
 
     # Fallback to our own filesystem-based code
     # for quick command-line use if you want to
@@ -1315,7 +1347,7 @@ def fetch(url:str,
         else: return open(fn,'rb').read()
       elif os.path.exists(fnExc) and not refetch and not refresh: raise HTTPError("",int(open(fnExc).read()),"HTTP error on last fetch",{},None) # useful especially if a wrapper script is using our fetch() for multiple chapters and stopping on a 404
       Path(fn[:fn.rindex(os.sep)]).mkdir(parents=True,exist_ok=True)
-    sys.stderr.write("Fetching "+url+"...")
+    sys.stderr.write(f"Fetching {url}...")
     sys.stderr.flush()
     global _last_urlopen_time
     try: _last_urlopen_time
@@ -1329,7 +1361,9 @@ def fetch(url:str,
         (chr(b) if b < 128 else f"%{b:02x}")
         for b in url.encode('utf-8'))
     try: dat = urlopen(Request(url2,headers=headers)).read()
-    except HTTPError as e:
+    except Exception as e:
+        if not isinstance(e,HTTPError):
+            e = HTTPError("",500,f"{e}",{},None)
         _last_urlopen_time = time.time()
         if e.getcode()==304 and cache:
             sys.stderr.write(" no new data\n")
