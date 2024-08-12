@@ -25,4 +25,13 @@ update-macvoice-utils-pypi:
 	twine upload dist/*
 	mv ../README.md .
 	rm -r macvoice_utils.egg-info dist macvoice_utils setup.py
-.PHONY: check-if-anemone-version-is-changing check-if-macvoice-utils-version-is-changing update-anemone-pypi update-macvoice-utils-pypi all
+update-rtfuc-pypi:
+	mkdir rtfuc
+	cp rtfuc.py rtfuc/__init__.py
+	echo "from setuptools import setup, find_packages;setup(name='rtfuc',version='$$(grep ^rtfuc.v[0-9] rtfuc.py|sed -e 's/rtfuc v//' -e 's/ .*//')',license='Apache 2',platforms='any',author='Silas S. Brown',author_email='ssb$$(echo 22@ca)m.ac.uk',description='Improves RTF files for catdoc and unrtf',long_description='Removes unnecessary uc1 codes from RTF files (to work around catdoc issue described by Ubuntu bug 2076244) and provides better ASCII fallback characters when possible (e.g. for unrtf --text)',long_description_content_type='text/markdown',packages=find_packages(),classifiers=['Programming Language :: Python :: 3','License :: OSI Approved :: Apache Software License','Operating System :: OS Independent'],python_requires='>=3.8')" > setup.py
+	mv README.md ..
+	python3 setup.py sdist
+	twine upload dist/*
+	mv ../README.md .
+	rm -r rtfuc.egg-info dist rtfuc setup.py
+.PHONY: check-if-anemone-version-is-changing check-if-macvoice-utils-version-is-changing update-anemone-pypi update-macvoice-utils-pypi update-rtfuc-pypi all
