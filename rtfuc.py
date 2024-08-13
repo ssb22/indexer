@@ -1,6 +1,6 @@
 #!/usr/bin/env python3
 r"""
-rtfuc v1.0
+rtfuc v1.1
 (c) 2024 Silas S. Brown.  License: Apache 2
 
 Removes unnecessary \uc1 codes from RTF files
@@ -9,7 +9,7 @@ and provides better ASCII fallback characters when possible
 (e.g. for unrtf --text)
 
 Also available on PyPI:
-https://pypi.org/project/rtfuc/1.0/
+https://pypi.org/project/rtfuc/
 """
 
 def rtfuc(in_rtf: bytes) -> bytes:
@@ -66,7 +66,8 @@ def ascii_ok(codepoint):
     return 32 <= codepoint < 127 and not chr(codepoint) in "\\{}"
 
 import re, sys, unicodedata
-if __name__ == "__main__":
+def main():
     if sys.stdin.isatty() or sys.stdout.isatty():
         print ("Syntax: rtfuc < in.rtf > out.rtf")
     else: sys.stdout.buffer.write(rtfuc(sys.stdin.buffer.read()))
+if __name__ == "__main__": main()

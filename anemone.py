@@ -1,6 +1,6 @@
 #!/usr/bin/env python3
 """
-Anemone 1.63 (http://ssb22.user.srcf.net/anemone)
+Anemone 1.64 (http://ssb22.user.srcf.net/anemone)
 (c) 2023-24 Silas S. Brown.  License: Apache 2
 
 To use this module, either run it from the command
@@ -199,6 +199,14 @@ def get_argument_parser():
     return args
 
 import time, sys, os, re, json
+
+if __name__ == "__main__" and "--version" in sys.argv:
+    # Here, BEFORE extra imports, so you can run
+    # with --version just to get a version number
+    # without needing to set up dependencies
+    print (generator)
+    raise SystemExit
+
 import textwrap
 from collections import namedtuple as NT
 from functools import reduce
@@ -265,9 +273,6 @@ class Run():
             .__dict__)
         R.files = inFiles # may mix dict + string, even in same category especially if using "skip", so don't separate types
     else: # being called from the command line
-        if "--version" in sys.argv: # (bypass parser, as no files is OK for this)
-            print (generator)
-            raise SystemExit
         R.__dict__.update(get_argument_parser().parse_args().__dict__)
     R.__dict__.update((k,v)
                       for k,v in kwargs.items()
