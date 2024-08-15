@@ -1,6 +1,6 @@
 #!/usr/bin/env python3
 """
-Anemone 1.65 (http://ssb22.user.srcf.net/anemone)
+Anemone 1.66 (http://ssb22.user.srcf.net/anemone)
 (c) 2023-24 Silas S. Brown.  License: Apache 2
 
 To use this module, either run it from the command
@@ -40,13 +40,7 @@ def anemone(*files,**options) -> list[str]:
     Return value is a list of warnings, if any."""
 
     R=Run(*files,**options)
-    R.check()
-    if R.mp3_recode or any(f.strip().lower().
-                           endswith(
-                               f"{os.extsep}wav")
-                           for f in files
-                           if isinstance(f,str)):
-        check_we_got_LAME()
+    R.check() ; R.import_libs(files)
     R.write_all(R.get_texts())
     return R.warnings
 
@@ -201,9 +195,6 @@ def get_argument_parser():
 import time, sys, os, re, json
 
 if __name__ == "__main__" and "--version" in sys.argv:
-    # Here, BEFORE extra imports, so you can run
-    # with --version just to get a version number
-    # without needing to set up dependencies
     print (generator)
     raise SystemExit
 
@@ -246,11 +237,6 @@ class AnemoneError(Exception):
     """This exception type is used by Anemone to
     signal parameter errors etc to its caller when
     it is being called as a module."""
-
-try: import mutagen
-except ImportError: error("Anemone needs the Mutagen library to determine play lengths.\nPlease do: pip install mutagen")
-try: from bs4 import BeautifulSoup
-except ImportError: error("Anemone needs the beautifulsoup4 library to parse HTML.\nPlease do: pip install beautifulsoup4")
 
 # These must be defined before Run for type hints:
 PageInfo = NT('PageInfo',['duringId','pageNo'])
@@ -346,7 +332,7 @@ class Run():
                 R.audioData.insert(c,None)
     if not R.outputFile:
         R.outputFile=f"output_daisy{os.extsep}zip"
-    if not R.title: R.title=R.outputFile.replace(f"{os.extsep}zip","").replace("_daisy","")
+    if not R.title: R.title=re.sub("(?i)[ _-]daisy[0-9]?$","",R.outputFile.replace(f"{os.extsep}zip",""))
   def check(self) -> None:
     """Checks we've got everything.
     You may omit calling this if you're creating
@@ -373,7 +359,37 @@ class Run():
                 t="--"+t.replace("_","-")
             error(f"{t} must be a valid HTML attribute name")
     if not len(s)==3: error("marker_attribute, page_attribute and image_attribute must be different")
+    # R.outputFile won't have been set unless it ends with ".zip"
+    if os.extsep in R.outputFile[:-4]: R.warning(f"More than one dot in output filename has not been tested with all DAISY readers: {repr(R.outputFile)}")
+    if "daisy" not in R.outputFile[:-4]: R.warning(f"Output filename {repr(R.outputFile)} does not contain 'daisy'")
+    if R.outputFile==f"output_daisy{os.extsep}zip": R.warning(f"Outputting to default filename {repr(R.outputFile)}.  It's better to set an output filename that identifies the publication.")
+    if not re.sub("[_-]","",R.outputFile[:-4].replace("daisy","")): R.warning(f"Output filename {repr(R.outputFile)} does not seem to contain any meaningful publication identifier")
+    if re.search('[%&?@*#{}<>!:+`=|$]',R.outputFile): R.warning(f"Output filename {repr(R.outputFile)} contains characters not allowed on Microsoft Windows")
+    if re.search('[ "'+"']",R.outputFile): R.warning(f"Space or quote in output filename may complicate things for command-line users: {repr(R.outputFile)}")
+    if re.search("[^ -~]",R.outputFile): R.warning(f"Non-ASCII characters in output filename has not been tested with all DAISY readers: {repr(R.outputFile)}")
+  def import_libs(self,files) -> None:
+    """Checks availability of, and imports, the
+       libraries necessary for our run.  Not all
+       of them are needed on every run: for
+       example, if we're making a DAISY book with
+       no audio, we won't need Mutagen."""
+    R = self
+    global mutagen, BeautifulSoup
+    if R.audioData and any(R.audioData):
+        try: import mutagen
+        except ImportError: error("Anemone needs the Mutagen library to determine play lengths.\nPlease do: pip install mutagen")
+    if R.htmlData:
+        try: from bs4 import BeautifulSoup
+        except ImportError: error("Anemone needs the beautifulsoup4 library to parse HTML.\nPlease do: pip install beautifulsoup4")
+    if R.mp3_recode or any(f.strip().lower().
+                           endswith(
+                               f"{os.extsep}wav")
+                           for f in files
+                           if isinstance(f,str)):
+        check_we_got_LAME()
   def warning(self,warningText) -> None:
+    """Logs a warning (or an error if
+       warnings_are_errors is set)"""
     if self.warnings_are_errors:error(warningText)
     self.warnings.append(warningText)
     sys.stderr.write(f"WARNING: {warningText}\n")
@@ -530,7 +546,7 @@ class Run():
     
     - This message was added by the DAISY tool
     {generator}
-    and not by the publishers of this DAISY book.
+    not by the producers of the DAISY publication.
 """)) # (it's iOS users that need this apparently, as Apple systems see the zip extension and automatically unpack it.  But we do need to manually unpack if writing to a CD-ROM for old devices.)
     # Have asked on https://apple.stackexchange.com/questions/474687/can-i-modify-my-zip-so-ios-wont-auto-unpack-it-on-download
     secsSoFar = 0
@@ -1354,16 +1370,17 @@ def recodeMP3(dat:bytes) -> bytes:
 
     # Fallback method: use LAME external binary.
     
-    # It seems broken players like FSReader can get timing wrong if mp3 contains
+    # Players like FSReader can get timing wrong if mp3 contains
     # too many tags at the start (e.g. images).
     # eyed3 clear() won't help: it zeros out bytes without changing indices.
-    # To ensure everything is removed, better decode to raw PCM and re-encode :-(
+    # To ensure everything is removed, better decode to raw PCM and re-encode.
+    # The --decode option has been in LAME since 2000; don't worry about LAME's ./configure --disable-decoder: that is an option for building cut-down libraries, not the command-line frontend
     decodeJob = run(["lame","-t","--decode"]+(["--mp3input"] if 'audio/mp3' in mutagen.File(BytesIO(dat)).mime else [])+["-","-o","-"],input=dat,check=True,stdout=PIPE,stderr=PIPE)
     # (On some LAME versions, the above might work
     # with AIFF files too, but we say MP3 or WAV.
     # Some LAME versions can't take WAV from stdin
     # only raw when encoding, but ok if --decode)
-    m = re.search(b'(?s)([0-9.]+) kHz, ([0-9]+).*?([0-9]+) bit',decodeJob.stderr) # hope nobody disabled --decode when building LAME (is OK on lame.buanzo.org EXEs)
+    m = re.search(b'(?s)([0-9.]+) kHz, ([0-9]+).*?([0-9]+) bit',decodeJob.stderr)
     if not m: error("lame did not give expected format for frequency, channels and bits output")
     return run(["lame","--quiet","-r","-s",m.group(1).decode('latin1')]+(['-a'] if m.group(2)==b'2' else [])+['-m','m','--bitwidth',m.group(3).decode('latin1'),"-","--resample","44.1","-b","64","-q","0","-o","-"],input=decodeJob.stdout,check=True,stdout=PIPE).stdout
 
@@ -1523,7 +1540,7 @@ def numDaisy3NavpointsToClose(s:int, headingsR:list[BookTOCInfo]) -> int:
     return N+(1 if thisDepth is None else 0)
 
 def hReduce(headings:list) -> list[BookTOCInfo]:
-    """convert a list of ChapterTOCInfo lists (or
+    """Convert a list of ChapterTOCInfo lists (or
     text strings for unstructured chapters) into a
     single BookTOCInfo list"""
     return reduce(lambda a,b:a+b,[
