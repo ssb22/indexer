@@ -1,6 +1,6 @@
 #!/usr/bin/env python3
 """
-Anemone 1.66 (http://ssb22.user.srcf.net/anemone)
+Anemone 1.67 (http://ssb22.user.srcf.net/anemone)
 (c) 2023-24 Silas S. Brown.  License: Apache 2
 
 To use this module, either run it from the command
@@ -30,13 +30,25 @@ def anemone(*files,**options) -> list[str]:
     """This function can be called by scripts that
     import anemone: simply put the equivalent of
     the command line into 'files' and 'options'.
+    
     You can also specify a JSON dictionary instead
     of the name of a JSON file, and/or an HTML
     string instead of the name of an HTML file
     (this can also be done on the command line
     with careful quoting).
+    
+    Additionally, you can set the options
+    warning_callback and/or progress_callback to
+    Python callables, to log an in-progress
+    conversion (useful for multi-threaded UIs).
+    warning_callback takes a string, and
+    progress_callback takes an integer percentage.
+    If these are set, then standard error is not
+    used for warnings or progress.
+    
     If you do not give this function any arguments
     it will look at the system command line.
+    
     Return value is a list of warnings, if any."""
 
     R=Run(*files,**options)
@@ -285,7 +297,9 @@ class Run():
                      else b.split('/'))
                     for b in R.merge_books if b]]
     except: error(f"Unable to parse merge-books={R.merge_books}") # noqa: E722
-    for f in R.files:
+    R.progress_loopStart(len(R.files),15)
+    for i,f in enumerate(R.files):
+        R.progress(i)
         fOrig = f
         if isinstance(f,dict):
             # support direct JSON pass-in as dict
@@ -320,6 +334,7 @@ class Run():
             except UnicodeDecodeError: error(f"Couldn't decode {fOrig} as UTF-8")
             R.textData.append(f)
         else: error(f"Format of '{fOrig}' has not been recognised")
+    R.progress(len(R.files))
     if R.htmlData: # check for text-only DAISY:
         if not R.jsonData:
             R.jsonData=[None]*len(R.htmlData)
@@ -359,11 +374,10 @@ class Run():
                 t="--"+t.replace("_","-")
             error(f"{t} must be a valid HTML attribute name")
     if not len(s)==3: error("marker_attribute, page_attribute and image_attribute must be different")
-    # R.outputFile won't have been set unless it ends with ".zip"
-    if os.extsep in R.outputFile[:-4]: R.warning(f"More than one dot in output filename has not been tested with all DAISY readers: {repr(R.outputFile)}")
+    # Run constructor guarantees R.outputFile ends with ".zip", so we don't need to check that here
     if "daisy" not in R.outputFile[:-4]: R.warning(f"Output filename {repr(R.outputFile)} does not contain 'daisy'")
     if R.outputFile==f"output_daisy{os.extsep}zip": R.warning(f"Outputting to default filename {repr(R.outputFile)}.  It's better to set an output filename that identifies the publication.")
-    if not re.sub("[_-]","",R.outputFile[:-4].replace("daisy","")): R.warning(f"Output filename {repr(R.outputFile)} does not seem to contain any meaningful publication identifier")
+    if not re.sub("[._-]","",R.outputFile[:-4].replace("daisy","")): R.warning(f"Output filename {repr(R.outputFile)} does not seem to contain any meaningful publication identifier")
     if re.search('[%&?@*#{}<>!:+`=|$]',R.outputFile): R.warning(f"Output filename {repr(R.outputFile)} contains characters not allowed on Microsoft Windows")
     if re.search('[ "'+"']",R.outputFile): R.warning(f"Space or quote in output filename may complicate things for command-line users: {repr(R.outputFile)}")
     if re.search("[^ -~]",R.outputFile): R.warning(f"Non-ASCII characters in output filename has not been tested with all DAISY readers: {repr(R.outputFile)}")
@@ -387,12 +401,38 @@ class Run():
                            for f in files
                            if isinstance(f,str)):
         check_we_got_LAME()
-  def warning(self,warningText) -> None:
+  def warning(self,warningText:str) -> None:
     """Logs a warning (or an error if
        warnings_are_errors is set)"""
     if self.warnings_are_errors:error(warningText)
     self.warnings.append(warningText)
-    sys.stderr.write(f"WARNING: {warningText}\n")
+    self.warning_callback(warningText)
+  def warning_callback(self,text:str) -> None:
+     "overridden by passing in a callable"
+     sys.stderr.write(f"WARNING: {text}\n")
+  def progress_loopStart(self,i:int,frac:int) -> None:
+      """Helps with progress logging when
+         progress_callback is set.  Prepares for a
+         loop of 'i' iterations to take 'frac' %
+         of the total progress."""
+      if "next_base_percent" in self.__dict__:
+          self.base_percent = self.next_base_percent
+      else: self.base_percent = 0
+      self.prog_N,self.prog_D = frac,max(1,i)
+      if not i: self.progress(1) # empty loop: just say all 'done'
+      self.next_base_percent = self.base_percent + frac
+      assert self.next_base_percent <= 100
+  def progress(self,i:int) -> None:
+      "logs progress if progress_callback is set"
+      if "progress_callback" not in self.__dict__:
+          return
+      if "old_progress" not in self.__dict__:
+          self.old_progress = 0
+      percentage = self.base_percent + int(
+          i * self.prog_N / self.prog_D)
+      if percentage <= self.old_progress: return
+      self.progress_callback(percentage)
+      self.old_progress = percentage
   def check_for_JSON_transcript(self) -> None:
     """Checks to see if the last thing added to
     the Run object is a JSON podcast transcript,
@@ -479,7 +519,7 @@ class Run():
     merge0lenSpans(recordingTexts,headings,R.audioData)
     if R.mp3_recode and any(R.audioData) or any(
             'audio/mp3' not in mutagen.File(BytesIO(dat)).mime for dat in R.audioData if dat): # parallelise lame if possible
-        if not __name__=="__main__":
+        if not __name__=="__main__" and "progress_callback" not in R.__dict__:
             sys.stderr.write(
                 f"Making {R.outputFile}...\n") # especially if repeatedly called as a module, better print which outputFile we're working on BEFORE the mp3s as well as after
             sys.stderr.flush()
@@ -551,6 +591,7 @@ class Run():
     # Have asked on https://apple.stackexchange.com/questions/474687/can-i-modify-my-zip-so-ios-wont-auto-unpack-it-on-download
     secsSoFar = 0
     durations = [] ; curP = 1
+    R.progress_loopStart(len(recordingTexts),70)
     for recNo in range(1,len(recordingTexts)+1):
         rTxt = recordingTexts[recNo-1]
         secsThisRecording = mutagen.File(
@@ -563,7 +604,7 @@ class Run():
             }sec synchronisation error on some readers""") # seems lame v3.100 can result in timestamps being effectively multiplied by ~1.0001 on some players but not all, causing slight de-sync on 1h+ recordings (bladeenc may avoid this but be lower quality overall; better to keep the recordings shorter if possible)
         durations.append(secsThisRecording)
         if R.audioData[recNo-1]:
-            if recordingTasks is not None:
+            if recordingTasks is not None and "progress_callback" not in R.__dict__:
                 sys.stderr.write(f"""Adding {
                     recNo:04d}.mp3...""")
                 sys.stderr.flush()
@@ -571,7 +612,7 @@ class Run():
                  R.audioData[recNo-1]
                  if recordingTasks is None
                  else recordingTasks[recNo-1].result())
-            if recordingTasks is not None:
+            if recordingTasks is not None and "progress_callback" not in R.__dict__:
                 sys.stderr.write(" done\n")
         writestr(f'{recNo:04d}.smil',D(
             R.section_smil(recNo,secsSoFar,
@@ -594,6 +635,8 @@ class Run():
         secsSoFar += secsThisRecording
         curP += (1+len(rTxt.textsAndTimes)//2
                  if isinstance(rTxt,TextsAndTimesWithPages) else 1)
+        R.progress(recNo)
+    R.progress_loopStart(len(R.imageFiles),15)
     for n,u in enumerate(R.imageFiles):
         writestr(f'{n+1}{u[u.rindex("."):]}',
                  fetch(u,R.cache,R.refresh,
@@ -601,6 +644,7 @@ class Run():
                        R.user_agent)
                  if re.match("https?://",u)
                  else open(u,'rb').read())
+        R.progress(n+1)
     if not R.date:
         R.date = "%d-%02d-%02d" % time.localtime(
                                   )[:3]
@@ -627,7 +671,8 @@ class Run():
              for t in recordingTexts])))
     if not R.daisy3: writestr('er_book_info.xml',D(er_book_info(durations))) # not DAISY standard but EasyReader can use this
     z.close()
-    sys.stderr.write(f"Wrote {R.outputFile}\n")
+    if "progress_callback" not in R.__dict__:
+      sys.stderr.write(f"Wrote {R.outputFile}\n")
   def getHeadings(self,recordingTexts) -> list:
     """Gets headings from recordingTexts for the
     DAISY's NCC / OPF data"""
