@@ -1,6 +1,6 @@
 #!/usr/bin/env python3
 """
-Anemone 1.67 (http://ssb22.user.srcf.net/anemone)
+Anemone 1.68 (http://ssb22.user.srcf.net/anemone)
 (c) 2023-24 Silas S. Brown.  License: Apache 2
 
 To use this module, either run it from the command
@@ -362,7 +362,7 @@ class Run():
     if R.htmlData and not len(R.audioData)==len(R.htmlData): error(f"If HTML documents with audio are specified, there must be exactly one HTML document for each recording.  We got f{len(R.htmlData)} HTML documents and f{len(R.audioData)} recordings.")
     if R.htmlData and not len(R.htmlData)==len(dict.fromkeys(R.htmlData).keys()): error("Duplicate HTML input documents")
     if not R.htmlData and not R.textData and not R.audioData: error("No input given")
-    if not re.match("[a-z]{2,3}($|-)",R.lang): error("lang doesn't look like a valid ISO-639 language code")
+    if not re.match("[a-z]{2,3}($|-)",R.lang): R.warning(f"lang '{R.lang}' doesn't look like a valid ISO-639 language code") # this should perhaps be an error
     if R.date and not re.match("([+-][0-9]*)?[0-9]{4}-[01][0-9]-[0-3][0-9]$",R.date): error("date (if set) should be in ISO 8601's YYYY-MM-DD format")
     s = set()
     for t in ['marker_attribute',
