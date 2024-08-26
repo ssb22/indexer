@@ -41,4 +41,6 @@ test_anemone:
 	unzip -c test_daisy.zip 0001.htm|grep '<h1 id="p1">Chapter 74</h1>' >/dev/null
 	# Test progress callback
 	[ "$$(echo $$(python3 -c 'from anemone import *;anemone("<p data-pid=A>one</p><p data-pid=B>two</p>","test_daisy.zip",progress_callback=lambda s:print(f"P({s})"))'))" = "P(7) P(15) P(85) P(100)" ] # bash: embedded (non-terminating) newlines not deleted unless omit "" to get word splitting
+	# Test info callback
+	[ "$$(echo $$(python3 -c 'from anemone import *;anemone("<p data-pid=A>one</p><p data-pid=B>two</p>","test_daisy.zip",info_callback=lambda s:print(f"I({s})"))'))" = "I(Wrote test_daisy.zip )" ]
 .PHONY: test test_ohi_latex test_anemone

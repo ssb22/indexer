@@ -1,6 +1,6 @@
 #!/usr/bin/env python3
 """
-Anemone 1.69 (http://ssb22.user.srcf.net/anemone)
+Anemone 1.70 (http://ssb22.user.srcf.net/anemone)
 (c) 2023-24 Silas S. Brown.  License: Apache 2
 
 To use this module, either run it from the command
@@ -38,15 +38,15 @@ def anemone(*files,**options) -> list[str]:
     with careful quoting).
     
     Additionally, you can set the options
-    warning_callback and/or progress_callback to
-    Python callables, to log an in-progress
-    conversion (useful for multi-threaded UIs).
-    warning_callback takes a string, and
+    warning_callback, info_callback and/or
+    progress_callback.  These are Python callables
+    to log an in-progress conversion (useful for
+    multi-threaded UIs).  warning_callback and
+    info_callback each take a string, and
     progress_callback takes an integer percentage.
-    If warning_callback is set, then standard error
-    is not used for warnings, but anemone() still
-    returns a copy of the warning list.  Setting
-    progress_callback does not affect standard error.
+    If warning_callback or info_callback is set,
+    the corresponding information is not written
+    to standand error.
     
     If you do not give this function any arguments
     it will look at the system command line.
@@ -314,7 +314,7 @@ class Run():
             if R.outputFile: error(f"Only one {os.extsep}zip output file may be specified")
             R.outputFile = f ; continue
         elif isinstance(f,str) and re.match("https?://",f):
-            try: f=fetch(f,R.cache,R.refresh,R.refetch,R.delay,R.user_agent)
+            try: f=fetch(f,R.cache,R.refresh,R.refetch,R.delay,R.user_agent,R)
             except HTTPError as e:
                 error(f"Unable to fetch {f}: {e}")
         elif delimited(f,'{','}'): pass
@@ -409,6 +409,10 @@ class Run():
     if self.warnings_are_errors:error(warningText)
     self.warnings.append(warningText)
     self.warning_callback(warningText)
+  def info(self,text:str,newline:bool=True)->None:
+      if "info_callback" in self.__dict__:
+          if text: self.info_callback(text)
+      else: sys.stderr.write(f"{text}{chr(10) if newline else ''}"), sys.stderr.flush()
   def warning_callback(self,text:str) -> None:
      "overridden by passing in a callable"
      sys.stderr.write(f"WARNING: {text}\n")
@@ -513,7 +517,7 @@ class Run():
     assert recordingTexts
     headings = R.getHeadings(recordingTexts)
     if R.dry_run:
-        return sys.stderr.write(
+        return R.info(
             f"""Dry run: {len(R.warnings) if
             R.warnings else 'no'} warning{'' if
             len(R.warnings)==1 else 's'
@@ -522,9 +526,8 @@ class Run():
     if R.mp3_recode and any(R.audioData) or any(
             'audio/mp3' not in mutagen.File(BytesIO(dat)).mime for dat in R.audioData if dat): # parallelise lame if possible
         if not __name__=="__main__":
-            sys.stderr.write(
-                f"Making {R.outputFile}...\n") # especially if repeatedly called as a module, better print which outputFile we're working on BEFORE the mp3s as well as after
-            sys.stderr.flush()
+            R.info(
+                f"Making {R.outputFile}...") # especially if repeatedly called as a module, better print which outputFile we're working on BEFORE the mp3s as well as after
         executor = ThreadPoolExecutor(
             max_workers=cpu_count())
         recordingTasks=[(executor.submit(
@@ -607,15 +610,14 @@ class Run():
         durations.append(secsThisRecording)
         if R.audioData[recNo-1]:
             if recordingTasks is not None:
-                sys.stderr.write(f"""Adding {
-                    recNo:04d}.mp3...""")
-                sys.stderr.flush()
+                R.info(f"""Adding {
+                    recNo:04d}.mp3...""",False)
             writestr(f"{recNo:04d}.mp3",
                  R.audioData[recNo-1]
                  if recordingTasks is None
                  else recordingTasks[recNo-1].result())
             if recordingTasks is not None:
-                sys.stderr.write(" done\n")
+                R.info(" done")
         writestr(f'{recNo:04d}.smil',D(
             R.section_smil(recNo,secsSoFar,
                          secsThisRecording,curP,
@@ -643,7 +645,7 @@ class Run():
         writestr(f'{n+1}{u[u.rindex("."):]}',
                  fetch(u,R.cache,R.refresh,
                        R.refetch,R.delay,
-                       R.user_agent)
+                       R.user_agent,R)
                  if re.match("https?://",u)
                  else open(u,'rb').read())
         R.progress(n+1)
@@ -673,7 +675,7 @@ class Run():
              for t in recordingTexts])))
     if not R.daisy3: writestr('er_book_info.xml',D(er_book_info(durations))) # not DAISY standard but EasyReader can use this
     z.close()
-    sys.stderr.write(f"Wrote {R.outputFile}\n")
+    R.info(f"Wrote {R.outputFile}\n")
   def getHeadings(self,recordingTexts) -> list:
     """Gets headings from recordingTexts for the
     DAISY's NCC / OPF data"""
@@ -1435,7 +1437,8 @@ def fetch(url:str,
           refresh:bool = False,
           refetch:bool = False,
           delay:int = 0,
-          user_agent = None) -> bytes:
+          user_agent = None,
+          info = None) -> bytes:
     """Fetches a URL, with delay and/or cache.
     
     cache: the cache directory (None = don't save)
@@ -1455,8 +1458,16 @@ def fetch(url:str,
     (tracked globally from last fetch)
 
     user_agent: the User-Agent string to use, if
-    not using Python's default User-Agent"""
-    
+    not using Python's default User-Agent
+
+    info: an optional Run instance to take the log
+    (otherwise we use standard error)"""
+
+    if not info:
+        class MockInfo:
+            def info(self,text:str,newline:bool=True):
+                sys.stderr.write(f"{text}{chr(10) if newline else ''}"), sys.stderr.flush()
+        info = MockInfo()
     ifModSince = None
     if hasattr(cache,"get"):
         # if we're given a requests_cache session,
@@ -1466,8 +1477,7 @@ def fetch(url:str,
                               only_if_cached=True)
             if r.status_code == 200:
                 return r.content
-        sys.stderr.write(f"Fetching {url}...")
-        sys.stderr.flush()
+        info.info(f"Fetching {url}...",False)
         try: r = cache.request('GET',url,
                           headers = {
                               "User-Agent":
@@ -1477,13 +1487,13 @@ def fetch(url:str,
                           refresh=refresh,
                           force_refresh=refetch)
         except Exception as e:
-            sys.stderr.write(" error\n")
+            info.info(" error")
             raise HTTPError("",500,f"{e}",{},None)
         if r.status_code == 200:
-            sys.stderr.write(" fetched\n")
+            info.info(" fetched")
             return r.content
         else:
-            sys.stderr.write(" bad status\n")
+            info.info(" bad status")
             raise HTTPError("",r.status_code,"unexpected HTTP code",{},None)
 
     # Fallback to our own filesystem-based code
@@ -1506,8 +1516,7 @@ def fetch(url:str,
         else: return open(fn,'rb').read()
       elif os.path.exists(fnExc) and not refetch and not refresh: raise HTTPError("",int(open(fnExc).read()),"HTTP error on last fetch",{},None) # useful especially if a wrapper script is using our fetch() for multiple chapters and stopping on a 404
       Path(fn[:fn.rindex(os.sep)]).mkdir(parents=True,exist_ok=True)
-    sys.stderr.write(f"Fetching {url}...")
-    sys.stderr.flush()
+    info.info(f"Fetching {url}...",False)
     global _last_urlopen_time
     try: _last_urlopen_time
     except NameError: _last_urlopen_time = 0
@@ -1525,18 +1534,18 @@ def fetch(url:str,
             e = HTTPError("",500,f"{e}",{},None)
         _last_urlopen_time = time.time()
         if e.getcode()==304 and cache:
-            sys.stderr.write(" no new data\n")
+            info.info(" no new data")
             return open(fn,'rb').read()
         else:
-            sys.stderr.write(f"error {e.getcode()}\n")
+            info.info(f"error {e.getcode()}")
             if cache: open(fnExc,"w").write(
                     str(e.getcode()))
             raise
     _last_urlopen_time = time.time()
     if cache:
         open(fn,'wb').write(dat)
-        sys.stderr.write(" saved\n")
-    else: sys.stderr.write(" fetched\n")
+        info.info(" saved")
+    else: info.info(" fetched")
     return dat
 
 def addPbeforeTag(tag:str, num:int, paras:list) -> bool:
