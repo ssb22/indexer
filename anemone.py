@@ -1,6 +1,6 @@
 #!/usr/bin/env python3
 """
-Anemone 1.68 (http://ssb22.user.srcf.net/anemone)
+Anemone 1.69 (http://ssb22.user.srcf.net/anemone)
 (c) 2023-24 Silas S. Brown.  License: Apache 2
 
 To use this module, either run it from the command
@@ -43,8 +43,10 @@ def anemone(*files,**options) -> list[str]:
     conversion (useful for multi-threaded UIs).
     warning_callback takes a string, and
     progress_callback takes an integer percentage.
-    If these are set, then standard error is not
-    used for warnings or progress.
+    If warning_callback is set, then standard error
+    is not used for warnings, but anemone() still
+    returns a copy of the warning list.  Setting
+    progress_callback does not affect standard error.
     
     If you do not give this function any arguments
     it will look at the system command line.
@@ -519,7 +521,7 @@ class Run():
     merge0lenSpans(recordingTexts,headings,R.audioData)
     if R.mp3_recode and any(R.audioData) or any(
             'audio/mp3' not in mutagen.File(BytesIO(dat)).mime for dat in R.audioData if dat): # parallelise lame if possible
-        if not __name__=="__main__" and "progress_callback" not in R.__dict__:
+        if not __name__=="__main__":
             sys.stderr.write(
                 f"Making {R.outputFile}...\n") # especially if repeatedly called as a module, better print which outputFile we're working on BEFORE the mp3s as well as after
             sys.stderr.flush()
@@ -604,7 +606,7 @@ class Run():
             }sec synchronisation error on some readers""") # seems lame v3.100 can result in timestamps being effectively multiplied by ~1.0001 on some players but not all, causing slight de-sync on 1h+ recordings (bladeenc may avoid this but be lower quality overall; better to keep the recordings shorter if possible)
         durations.append(secsThisRecording)
         if R.audioData[recNo-1]:
-            if recordingTasks is not None and "progress_callback" not in R.__dict__:
+            if recordingTasks is not None:
                 sys.stderr.write(f"""Adding {
                     recNo:04d}.mp3...""")
                 sys.stderr.flush()
@@ -612,7 +614,7 @@ class Run():
                  R.audioData[recNo-1]
                  if recordingTasks is None
                  else recordingTasks[recNo-1].result())
-            if recordingTasks is not None and "progress_callback" not in R.__dict__:
+            if recordingTasks is not None:
                 sys.stderr.write(" done\n")
         writestr(f'{recNo:04d}.smil',D(
             R.section_smil(recNo,secsSoFar,
@@ -671,8 +673,7 @@ class Run():
              for t in recordingTexts])))
     if not R.daisy3: writestr('er_book_info.xml',D(er_book_info(durations))) # not DAISY standard but EasyReader can use this
     z.close()
-    if "progress_callback" not in R.__dict__:
-      sys.stderr.write(f"Wrote {R.outputFile}\n")
+    sys.stderr.write(f"Wrote {R.outputFile}\n")
   def getHeadings(self,recordingTexts) -> list:
     """Gets headings from recordingTexts for the
     DAISY's NCC / OPF data"""
