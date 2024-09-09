@@ -2,7 +2,7 @@
 macOS voices, using different voices for different
 characters in the dialogue
 
-v0.2 (c) 2024 Silas S. Brown.  License: Apache 2
+v0.3 (c) 2024 Silas S. Brown.  License: Apache 2
 """
 
 # Licensed under the Apache License, Version 2.0 (the "License");
@@ -151,7 +151,7 @@ def voiceParamsAndStrings(paragraph, voiceMap):
             if '”' in text: quotedPart,text = text.split('”',1)
             else: quotedPart,text = text,"" # quote to be continued next paragraph
             if text.startswith("  "): quotedPart,text = quotedPart+"  ",text[2:] # otherwise the 2-space sentence boundary will get removed in next loop iteration's beforeQuote.strip(), and we want the caller to get it
-            r.append(([voiceMap[v] for v in curVoice.split('+')],quotedPart))
+            r.append(([voiceMap[v if v else "narrator"] for v in curVoice.split('+')],quotedPart)) # support narrator (empty curVoice) for some quotes
         if text=="  ": r[-1]=(r[-1][0],r[-1][1]+"  ") # keep sentence break after, as above
     else:r.append(([voiceMap["narrator"]],paragraph)) # all narrator
     return r
