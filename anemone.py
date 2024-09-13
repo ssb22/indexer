@@ -1,6 +1,6 @@
 #!/usr/bin/env python3
 """
-Anemone 1.70 (http://ssb22.user.srcf.net/anemone)
+Anemone 1.71 (http://ssb22.user.srcf.net/anemone)
 (c) 2023-24 Silas S. Brown.  License: Apache 2
 
 To use this module, either run it from the command
@@ -184,6 +184,7 @@ be useful if there are commas in some chapter
 titles.""")
     args.add_argument("--chapter-heading-level",default=1,help="Heading level to use for chapters that don't have titles")
     args.add_argument("--warnings-are-errors",action="store_true",help="Treat warnings as errors")
+    args.add_argument("--ignore-chapter-skips",action="store_true",help="Don't emit warnings or errors about chapter numbers being skipped")
     args.add_argument("--dry-run",action="store_true",help="Don't actually output DAISY, just check the input and parameters")
     args.add_argument("--version",action="store_true",help="Just print version number and exit (takes effect only if called from the command line)")
 
@@ -212,7 +213,7 @@ if __name__ == "__main__" and "--version" in sys.argv:
     print (generator)
     raise SystemExit
 
-import textwrap
+import textwrap, inspect
 from collections import namedtuple as NT
 from functools import reduce
 from subprocess import run, PIPE
@@ -250,7 +251,17 @@ class AnemoneError(Exception):
     # And scattered scum of the waves' old war, as the tide comes tumbling in." - Cale Young Rice
     """This exception type is used by Anemone to
     signal parameter errors etc to its caller when
-    it is being called as a module."""
+    it is being called as a module.  If the
+    environment variable ANEMONE_DEBUG is set,
+    it will also report its construction on the
+    standard error stream regardless of how the
+    calling code handles it (might be useful to
+    diagnose misbehaving calling environments)"""
+    def __init__(self, message):
+        Exception.__init__(self,message)
+        import os # might not have been imported yet
+        if "ANEMONE_DEBUG" in os.environ:
+            sys.stderr.write(f"Got AnemoneError: {message}\n")
 
 # These must be defined before Run for type hints:
 PageInfo = NT('PageInfo',['duringId','pageNo'])
@@ -382,7 +393,6 @@ class Run():
     if not re.sub("[._-]","",R.outputFile[:-4].replace("daisy","")): R.warning(f"Output filename {repr(R.outputFile)} does not seem to contain any meaningful publication identifier")
     if re.search('[%&?@*#{}<>!:+`=|$]',R.outputFile): R.warning(f"Output filename {repr(R.outputFile)} contains characters not allowed on Microsoft Windows")
     if re.search('[ "'+"']",R.outputFile): R.warning(f"Space or quote in output filename may complicate things for command-line users: {repr(R.outputFile)}")
-    if re.search("[^ -~]",R.outputFile): R.warning(f"Non-ASCII characters in output filename has not been tested with all DAISY readers: {repr(R.outputFile)}")
   def import_libs(self,files) -> None:
     """Checks availability of, and imports, the
        libraries necessary for our run.  Not all
@@ -408,11 +418,15 @@ class Run():
        warnings_are_errors is set)"""
     if self.warnings_are_errors:error(warningText)
     self.warnings.append(warningText)
+    if not __name__=="__main__" and "ANEMONE_DEBUG" in os.environ:
+        sys.stderr.write(f"Anemone-Warning: {warningText}\n") # even if warning_callback overridden, do this as well
     self.warning_callback(warningText)
   def info(self,text:str,newline:bool=True)->None:
       if "info_callback" in self.__dict__:
           if text: self.info_callback(text)
-      else: sys.stderr.write(f"{text}{chr(10) if newline else ''}"), sys.stderr.flush()
+          if "ANEMONE_DEBUG" not in os.environ: return
+      sys.stderr.write(f"{text}{chr(10) if newline else ''}")
+      sys.stderr.flush()
   def warning_callback(self,text:str) -> None:
      "overridden by passing in a callable"
      sys.stderr.write(f"WARNING: {text}\n")
@@ -721,11 +735,18 @@ class Run():
                 R.warning(f"Chapter {chapNo} is completely blank!  (Is {'--marker-attribute' if __name__=='__main__' else 'marker_attribute'} set correctly?)")
                 nums = [] ; first = 0 ; textsAndTimes.append(TagAndText('p',''))
             chapterNumberTextFull = chapterNumberText = nums[0] if len(nums)==1 and not nums[0]=="1" else str(chapNo)
+            if int(chapterNumberText) > chapNo:
+                if not R.ignore_chapter_skips:
+                    R.warning(f"""Skipping chapter{
+                    f' {chapNo}'
+                    if int(chapterNumberText) == chapNo + 1
+                    else f's {chapNo}-{int(chapterNumberText)-1}'}""")
+                chapNo = int(chapterNumberText) # so it's in sync, in case there's more than one number in the 1st para later and we have to fall back on automatic count
             if R.chapter_titles:
                 if len(R.chapter_titles)>1: chapterNumberTextFull,R.chapter_titles = R.chapter_titles[0],R.chapter_titles[1:]
                 else: chapterNumberTextFull,R.chapter_titles = R.chapter_titles[0], []
                 if chapterNumberText not in chapterNumberTextFull:
-                    R.warning(f"Title for chapter {chapNo} is '{chapterNumberTextFull}' which does not contain the expected '{chapterNumberText}'")
+                    R.warning(f"Title for chapter {chapNo} is '{chapterNumberTextFull}' which does not contain the expected '{chapterNumberText}' ({'' if len(nums)==1 and not nums[0]=='1' else 'from automatic numbering as nothing was '}extracted from '{textsAndTimes[first].text}')")
             # In EasyReader 10 on Android, unless there is at least one HEADING (not just div), navigation display is non-functional.  And every heading must point to a 'real' heading in the text, otherwise EasyReader 10 will delete all the text in Daisy 2, or promote something to a heading in Daisy 3 (this is not done by Thorium Reader)
             # (EasyReader 10 on Android also inserts a newline after every span class=sentence if it's a SMIL item, even if there's no navigation pointing to it)
             # So let's add a "real" start-of-chapter heading before the text, with time 0.001 second if we don't know the time from the first time marker (don't set it to 0 or Thorium can have issues)
@@ -1472,13 +1493,15 @@ def fetch(url:str,
     if hasattr(cache,"get"):
         # if we're given a requests_cache session,
         # use that instead of our own caching code
-        if not refresh and not refetch:
+        if not refresh and not refetch and "only_if_cached" in inspect.getfullargspec(cache.request).args:
             r = cache.request('GET',url,
                               only_if_cached=True)
             if r.status_code == 200:
                 return r.content
         info.info(f"Fetching {url}...",False)
-        try: r = cache.request('GET',url,
+        try:
+           if 'force_refresh' in inspect.getfullargspec(cache.request).args:
+              r = cache.request('GET',url,
                           headers = {
                               "User-Agent":
                               user_agent}
@@ -1486,6 +1509,13 @@ def fetch(url:str,
                           timeout=20,
                           refresh=refresh,
                           force_refresh=refetch)
+           else: # old requests_cache v0.9 (in Ubuntu 24.04) can't use force_refresh etc
+              r = cache.request('GET',url,
+                          headers = {
+                              "User-Agent":
+                              user_agent}
+                          if user_agent else {},
+                          timeout=20)
         except Exception as e:
             info.info(" error")
             raise HTTPError("",500,f"{e}",{},None)
