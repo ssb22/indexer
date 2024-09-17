@@ -1,6 +1,6 @@
 #!/usr/bin/env python3
 """
-Anemone 1.71 (http://ssb22.user.srcf.net/anemone)
+Anemone 1.72 (http://ssb22.user.srcf.net/anemone)
 (c) 2023-24 Silas S. Brown.  License: Apache 2
 
 To use this module, either run it from the command
@@ -341,6 +341,9 @@ class Run():
             R.htmlData.append(f)
         elif fOrig.lower().endswith(f"{os.extsep}mp3") or fOrig.lower().endswith(f"{os.extsep}wav"):
             R.audioData.append(f)
+            if R.has_old_mutagen() and fOrig.lower().endswith(f"{os.extsep}mp3"):
+                # Mutagen 1.46 and below can't always auto-detect MP3 files, so we trust the extension if we're not on 1.47+
+                R.old_mutagen.add(f)
             R.filenameTitles.append(fOrig[:fOrig.rindex(os.extsep)])
         elif fOrig.lower().endswith(f"{os.extsep}txt"):
             try: f = f.decode('utf-8').strip()
@@ -413,6 +416,25 @@ class Run():
                            for f in files
                            if isinstance(f,str)):
         check_we_got_LAME()
+  def has_old_mutagen(self) -> bool:
+      """Detect Mutagen 1.46 or earlier.  This is supplied with
+      Ubuntu 24.04 LTS (non-pip) and cannot detect MP3 files
+      unless they have ID3 tags, so we be more careful if that
+      old version is on the system."""
+      try: return self.old_mutagen
+      except AttributeError: pass
+      global mutagen
+      try: import mutagen
+      except ImportError: return # we'll error later (above)
+      if mutagen.version < (1,47,0):
+          self.old_mutagen = set([True])
+      else: self.old_mutagen = set()
+      return self.old_mutagen
+  def MFile(self,dat):
+      if dat in self.old_mutagen:
+          from mutagen import mp3
+          return mp3.MP3(BytesIO(dat)) # override autodetect
+      else: return mutagen.File(BytesIO(dat))
   def warning(self,warningText:str) -> None:
     """Logs a warning (or an error if
        warnings_are_errors is set)"""
@@ -538,7 +560,7 @@ class Run():
             } for {R.outputFile}\n""")
     merge0lenSpans(recordingTexts,headings,R.audioData)
     if R.mp3_recode and any(R.audioData) or any(
-            'audio/mp3' not in mutagen.File(BytesIO(dat)).mime for dat in R.audioData if dat): # parallelise lame if possible
+            'audio/mp3' not in R.MFile(dat).mime for dat in R.audioData if dat): # parallelise lame if possible
         if not __name__=="__main__":
             R.info(
                 f"Making {R.outputFile}...") # especially if repeatedly called as a module, better print which outputFile we're working on BEFORE the mp3s as well as after
@@ -547,9 +569,9 @@ class Run():
         recordingTasks=[(executor.submit(
             (recodeMP3 if
              R.mp3_recode or
-             'audio/mp3' not in mutagen.File(BytesIO(dat)).mime
-             else lambda x:x),
-            dat) if dat else None)
+             'audio/mp3' not in R.MFile(dat).mime
+             else lambda x,r:x),
+            dat, R) if dat else None)
                         for dat in R.audioData]
     else: executor,recordingTasks = None,None
     try: R.write_all0(recordingTexts,headings,recordingTasks)
@@ -613,8 +635,7 @@ class Run():
     R.progress_loopStart(len(recordingTexts),70)
     for recNo in range(1,len(recordingTexts)+1):
         rTxt = recordingTexts[recNo-1]
-        secsThisRecording = mutagen.File(
-            BytesIO(R.audioData[recNo-1])
+        secsThisRecording = R.MFile(R.audioData[recNo-1]
         ).info.length if R.audioData[recNo-1] else 0
         if secsThisRecording > 3600:
             R.warning(f"""Recording {recNo
@@ -1420,7 +1441,7 @@ def merge0lenSpans(recordingTexts:list, headings:list, hasAudio:list) -> None:
                     if pInfo.duringId > i//2: pages[pI]=PageInfo(pInfo.duringId-1,pInfo.pageNo)
             i += 1
 
-def recodeMP3(dat:bytes) -> bytes:
+def recodeMP3(dat:bytes, R:Run) -> bytes:
     """Takes MP3 or WAV data, re-codes it
     as suitable for DAISY, and returns the bytes
     of new MP3 data for putting into DAISY ZIP"""
@@ -1444,7 +1465,7 @@ def recodeMP3(dat:bytes) -> bytes:
     # eyed3 clear() won't help: it zeros out bytes without changing indices.
     # To ensure everything is removed, better decode to raw PCM and re-encode.
     # The --decode option has been in LAME since 2000; don't worry about LAME's ./configure --disable-decoder: that is an option for building cut-down libraries, not the command-line frontend
-    decodeJob = run(["lame","-t","--decode"]+(["--mp3input"] if 'audio/mp3' in mutagen.File(BytesIO(dat)).mime else [])+["-","-o","-"],input=dat,check=True,stdout=PIPE,stderr=PIPE)
+    decodeJob = run(["lame","-t","--decode"]+(["--mp3input"] if 'audio/mp3' in R.MFile(dat).mime else [])+["-","-o","-"],input=dat,check=True,stdout=PIPE,stderr=PIPE)
     # (On some LAME versions, the above might work
     # with AIFF files too, but we say MP3 or WAV.
     # Some LAME versions can't take WAV from stdin
@@ -1490,6 +1511,7 @@ def fetch(url:str,
                 sys.stderr.write(f"{text}{chr(10) if newline else ''}"), sys.stderr.flush()
         info = MockInfo()
     ifModSince = None
+    headers = {"User-Agent":user_agent} if user_agent else {}
     if hasattr(cache,"get"):
         # if we're given a requests_cache session,
         # use that instead of our own caching code
@@ -1502,20 +1524,14 @@ def fetch(url:str,
         try:
            if 'force_refresh' in inspect.getfullargspec(cache.request).args:
               r = cache.request('GET',url,
-                          headers = {
-                              "User-Agent":
-                              user_agent}
-                          if user_agent else {},
-                          timeout=20,
-                          refresh=refresh,
+                          headers = headers,
+                          timeout = 20,
+                          refresh = refresh,
                           force_refresh=refetch)
            else: # old requests_cache v0.9 (in Ubuntu 24.04) can't use force_refresh etc
               r = cache.request('GET',url,
-                          headers = {
-                              "User-Agent":
-                              user_agent}
-                          if user_agent else {},
-                          timeout=20)
+                          headers = headers,
+                          timeout = 20)
         except Exception as e:
             info.info(" error")
             raise HTTPError("",500,f"{e}",{},None)
@@ -1551,7 +1567,6 @@ def fetch(url:str,
     try: _last_urlopen_time
     except NameError: _last_urlopen_time = 0
     if delay: time.sleep(min(0,_last_urlopen_time+delay-time.time()))
-    headers = {"User-Agent":user_agent} if user_agent else {}
     if ifModSince:
         t = time.gmtime(ifModSince)
         headers["If-Modified-Since"]=f"{'Mon Tue Wed Thu Fri Sat Sun'.split()[t.tm_wday]}, {t.tm_mday} {'Jan Feb Mar Apr May Jun Jul Aug Sep Oct Nov Dec'.split()[t.tm_mon-1]} {t.tm_year} {t.tm_hour:02d}:{t.tm_min:02d}:{t.tm_sec:02d} GMT"

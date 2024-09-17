@@ -52,13 +52,15 @@ The daisy anemone is a sea creature on the rocky Western shores of Britain and I
 
 * Dolphin EasyReader 10 (iOS, Android and Chromebook): is able to open the ZIP and play the audio while highlighting the paragraphs in a ‘full audio plus full text’ book, both Daisy 2 and Daisy 3.  In very large books (over 1&nbsp;GB), loading and navigation becomes unreliable.  An Internet connection is required the first time a book is opened.
 
-* EDRLab Thorium Reader (Windows, Mac and GNU/Linux): is able to open the ZIP and play the audio while highlighting the paragraphs in a ‘full audio plus full text’ book, both Daisy 2 and Daisy 3.  Still works in very large books but loading is slow.
+* EDRLab Thorium Reader (Windows, Mac and GNU/Linux): is able to open the ZIP and play the audio while highlighting the paragraphs in a ‘full audio plus full text’ book, both Daisy 2 and Daisy 3.  Still works in very large books but loading is slow.  Version 2.4 might be more responsive than version 3.0.
 
 * Dolphin EasyReader 10 (Windows): is able to play audio while highlighting paragraphs in both Daisy 2 and Daisy 3, but ZIP needs to be unpacked separately and NCC or OPF file opened.  Very large (1 GB+) books can cause the program to crash when Search is used.
 
 * JAWS FSReader 3 (Windows): is able to play audio while highlighting paragraphs in both Daisy 2 and Daisy 3, but ZIP needs to be unpacked separately and NCC or OPF file opened; may work better without JAWS running; synchronisation with audio seems to require `--mp3-recode`; images are not scaled to fit; tested working with a Braille display and audio speed changes; not tested with very large books (1GB+)
 
-* HumanWare Brailliant: does not show text if there is audio (hopefully it can still be used for navigation) in both Daisy 2 and Daisy 3
+* HumanWare Brailliant: does not show text if there is audio (hopefully it can still be used for navigation); ZIP needs to be unpacked; tested both Daisy 2 and Daisy 3 (which the device calls "Niso" format)
+
+does not show text if there is audio (hopefully it can still be used for navigation) in both Daisy 2 and Daisy 3
 
 * Pronto Notetaker: ZIP needs to be unpacked to a “Daisy” folder on SD or USB, and the device just plays the audio; tested only with Daisy 2
 
@@ -68,7 +70,7 @@ The daisy anemone is a sea creature on the rocky Western shores of Britain and I
 
 * HumanWare Victor Reader Stratus4: When unpacking the ZIP to CD, please ensure that your CD writer does *not* create a *folder* with the same name as the ZIP: this default behaviour of Microsoft Windows does *not* result in a valid Daisy CD.  The individual *files* of the ZIP need to be written to the *top level* of the CD, *not* to a folder on it.  Otherwise, the Stratus4 will not recognise the CD as a Daisy CD and will just play the MP3s, resulting in only time and track based navigation being available.  Tested with both Daisy 2 and Daisy 3.
 
-* HIMS QBraille XL: can display the text (after opening with Space and Enter); does not play audio; tested only with Daisy 2
+* HIMS QBraille XL: can display the text (after opening with Space and Enter); does not play audio; ZIP needs to be unpacked; tested only with Daisy 2
 
 * Daisy Consortium Simply Reading 3 (app available for Android 7 and below): is able to open the ZIP and play the audio while highlighting the paragraphs in a ‘full audio plus full text’ book, although fonts for some languages might be missing on earlier Android devices
 
