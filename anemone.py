@@ -1,6 +1,6 @@
 #!/usr/bin/env python3
 """
-Anemone 1.72 (http://ssb22.user.srcf.net/anemone)
+Anemone 1.73 (http://ssb22.user.srcf.net/anemone)
 (c) 2023-24 Silas S. Brown.  License: Apache 2
 
 To use this module, either run it from the command
@@ -53,10 +53,18 @@ def anemone(*files,**options) -> list[str]:
     
     Return value is a list of warnings, if any."""
 
-    R=Run(*files,**options)
-    R.check() ; R.import_libs(files)
-    R.write_all(R.get_texts())
-    return R.warnings
+    try:
+        R=Run(*files,**options)
+        R.check() ; R.import_libs(files)
+        R.write_all(R.get_texts())
+        return R.warnings
+    except AnemoneError: raise
+    except Exception as e: # make sure wrapped in AnemoneError
+        if __name__=="__main__" or "ANEMONE_DEBUG" in os.environ:
+            sys.stderr.write(traceback.format_exc())
+        tb = e.__traceback__
+        while tb.tb_next: tb = tb.tb_next
+        raise AnemoneError(f"Unhandled {e.__class__.__name__}: {e} at line {tb.tb_lineno} (v{version})")
 
 def populate_argument_parser(args) -> None:
     """Calls add_argument on args, with the names
@@ -94,6 +102,11 @@ the name of the reader who voiced the recordings, if known""")
 the attribute used in the HTML to indicate a
 segment number corresponding to a JSON time marker
 entry, default is data-pid""")
+    args.add_argument("--marker-attribute-prefix",
+                      default="", help="""
+When extracting all text for chapters that don't
+have timings, ignore any marker attributes whose
+values don't start with the given prefix""")
     args.add_argument("--page-attribute",
                       default="data-no",help="""
 the attribute used in the HTML to indicate a page number, default is data-no""")
@@ -181,7 +194,8 @@ search-based navigation).  If passing this option
 into the anemone module, you may use a list
 instead of a comma-separated string, which might
 be useful if there are commas in some chapter
-titles.""")
+titles.  Use blank titles for chapters that
+already have them in the markup.""")
     args.add_argument("--chapter-heading-level",default=1,help="Heading level to use for chapters that don't have titles")
     args.add_argument("--warnings-are-errors",action="store_true",help="Treat warnings as errors")
     args.add_argument("--ignore-chapter-skips",action="store_true",help="Don't emit warnings or errors about chapter numbers being skipped")
@@ -207,7 +221,7 @@ def get_argument_parser():
     populate_argument_parser(args)
     return args
 
-import time, sys, os, re, json
+import time, sys, os, re, json, traceback
 
 if __name__ == "__main__" and "--version" in sys.argv:
     print (generator)
@@ -494,7 +508,7 @@ class Run():
                 if len(bodyList)>1:
                     bodyList[-2] += "<br>"
         R.htmlData.append(' '.join(
-            f'<span {R.marker_attribute}="{i}">{c}</span>' for i,c in enumerate(bodyList) if c))
+            f'<span {R.marker_attribute}="{R.marker_attribute_prefix}{i}">{c}</span>' for i,c in enumerate(bodyList) if c))
         R.jsonData[-1]={"markers":[
             {"id":f"{i}","time":t}
             for i,t in enumerate(
@@ -502,14 +516,20 @@ class Run():
             if bodyList[i]]}
   def get_null_jsonData(self,h) -> dict:
     """Generate no-audio JSON for internal use
-    when making text-only DAISY files from HTML.
+    when making text-only DAISY files from HTML,
+    or no-timings JSON for an audio+text chapter.
     In this case we assume any element with any
     marker-attribute should be extracted."""
+    if self.marker_attribute == 'id' and not self.marker_attribute_prefix and not hasattr(self,"warned_about_prefix"):
+        self.warning("You've set marker attribute to 'id' and have chapters without audio-timing data.  This results in ALL text with ANY id being extracted for those chapters.  To avoid including site 'furniture' you might want to set marker_attribute_prefix.")
+        self.warned_about_prefix = True
     return {'markers':
          [{'id':i[self.marker_attribute],'time':0}
           for i in BeautifulSoup(h,'html.parser')
           .find_all(**{self.marker_attribute:
-                       True})]}
+                       True})
+          if i[self.marker_attribute].startswith(
+                  self.marker_attribute_prefix)]}
   def get_texts(self) -> list:
     """Gets the text markup required for the run,
     extracting it from HTML (guided by JSON IDs)
@@ -519,11 +539,14 @@ class Run():
     elif not R.htmlData: return R.filenameTitles # section titles only, from sound filenames
     recordingTexts = []
     for h,j in zip(R.htmlData,R.jsonData):
-        if j is None:
+        if j is None: # skip audio this chapter
             j = R.get_null_jsonData(h)
             include_alt_tags_in_text = True
         else: include_alt_tags_in_text = False # because we won't be able to match it up to the audio
         markers = j['markers']
+        if not markers: # empty markers list
+            markers = R.get_null_jsonData(h)['markers']
+            # - rely on merge0lenSpans to merge whole chapter
         want_pids = [jsonAttr(m,"id") for m in markers]
         extractor = PidsExtractor(R,want_pids)
         extractor.handle_soup(
@@ -746,7 +769,13 @@ class Run():
             chapHeadings.append(ChapterTOCInfo(
                 tag, re.sub('<[^>]*>','',text),
                 v//2))
-        if not chapHeadings:
+        if chapHeadings:
+            if R.chapter_titles:
+                if len(R.chapter_titles)>1: cTitle,R.chapter_titles = R.chapter_titles[0],R.chapter_titles[1:]
+                else: cTitle,R.chapter_titles = R.chapter_titles[0], []
+                if cTitle.strip():
+                    R.warning(f"Title override for chapter {chapNo} is {cTitle} but there's already a title in the markup.  Ignoring override.")
+        else: # not chapHeadings
             # This'll be a problem, as master_smil and ncc_html need headings to refer to the chapter at all.  (Well, ncc_html can also do it by page number if we have them, but we haven't tested all DAISY readers with page number only navigation, and what if we don't even have page numbers?)
             # So let's see if we can at least get a chapter number.
             if first is not None: nums=re.findall(
@@ -766,8 +795,11 @@ class Run():
             if R.chapter_titles:
                 if len(R.chapter_titles)>1: chapterNumberTextFull,R.chapter_titles = R.chapter_titles[0],R.chapter_titles[1:]
                 else: chapterNumberTextFull,R.chapter_titles = R.chapter_titles[0], []
-                if chapterNumberText not in chapterNumberTextFull:
-                    R.warning(f"Title for chapter {chapNo} is '{chapterNumberTextFull}' which does not contain the expected '{chapterNumberText}' ({'' if len(nums)==1 and not nums[0]=='1' else 'from automatic numbering as nothing was '}extracted from '{textsAndTimes[first].text}')")
+                if not chapterNumberTextFull:
+                    R.warning(f"Title override for chapter {chapNo} is blank.  Setting to {chapterNumberText}")
+                    chapterNumberTextFull = chapterNumberText
+                elif chapterNumberText not in chapterNumberTextFull:
+                    R.warning(f"Title for chapter {chapNo} is '{chapterNumberTextFull}' which does not contain the expected '{chapterNumberText}' ({'' if len(nums)==1 and not nums[0]=='1' else 'from automatic numbering as nothing was '}extracted from '{textsAndTimes[first].text.replace(chr(10),' / ')}')")
             # In EasyReader 10 on Android, unless there is at least one HEADING (not just div), navigation display is non-functional.  And every heading must point to a 'real' heading in the text, otherwise EasyReader 10 will delete all the text in Daisy 2, or promote something to a heading in Daisy 3 (this is not done by Thorium Reader)
             # (EasyReader 10 on Android also inserts a newline after every span class=sentence if it's a SMIL item, even if there's no navigation pointing to it)
             # So let's add a "real" start-of-chapter heading before the text, with time 0.001 second if we don't know the time from the first time marker (don't set it to 0 or Thorium can have issues)
@@ -1613,7 +1645,7 @@ def removeImages(text:str) -> str:
 def numDaisy3NavpointsToClose(s:int, headingsR:list[BookTOCInfo]) -> int:
     """Calculates the number of DAISY 3 navigation
     points that need closing after index s"""
-    
+
     thisTag = headingsR[s]
     if thisTag.hTag.startswith('h'):
         thisDepth = int(thisTag.hTag[1])
@@ -1634,7 +1666,8 @@ def numDaisy3NavpointsToClose(s:int, headingsR:list[BookTOCInfo]) -> int:
         for i in reversed(headingsR[:s+1])
     ).split('0',1)[0]
     if thisDepth: D=thisDepth
-    else: D=int(headingNums_closed[0]) # the heading before this div (this code assumes there will be one, which is currently true as these divs are generated only by verse numbering)
+    elif headingNums_closed: D=int(headingNums_closed[0])
+    else: D=nextDepth
     N = sum(1 for j in range(nextDepth,D+1)
             if str(j) in headingNums_closed)
     return N+(1 if thisDepth is None else 0)
