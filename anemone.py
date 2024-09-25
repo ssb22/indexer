@@ -1,6 +1,6 @@
 #!/usr/bin/env python3
 """
-Anemone 1.73 (http://ssb22.user.srcf.net/anemone)
+Anemone 1.74 (http://ssb22.user.srcf.net/anemone)
 (c) 2023-24 Silas S. Brown.  License: Apache 2
 
 To use this module, either run it from the command
@@ -125,14 +125,16 @@ path name for the URL-fetching cache (default
 string if you don't want to save anything); when
 using anemone as a module, you can instead pass in
 a requests_cache session object if you want that
-to do it instead, although the delay option is
-ignored when you do this""")
+to do it instead""")
     args.add_argument("--reload",dest="refetch",
                       action="store_true",help="""
 if images etc have already been fetched from URLs,
 fetch them again without If-Modified-Since""")
     args.add_argument("--delay",default=0,help="""
 minimum number of seconds between URL fetches (default none)""")
+    args.add_argument("--retries",default=0,help="""
+number of times to retry URL fetches on timeouts
+and unhandled exceptions (default no retries)""")
     args.add_argument("--user-agent",default=f"Mozilla/5.0 (compatible, {' '.join(generator.split()[:2])})",help="User-Agent string to send for URL fetches")
     args.add_argument("--daisy3",
                       action="store_true",help="""
@@ -339,7 +341,7 @@ class Run():
             if R.outputFile: error(f"Only one {os.extsep}zip output file may be specified")
             R.outputFile = f ; continue
         elif isinstance(f,str) and re.match("https?://",f):
-            try: f=fetch(f,R.cache,R.refresh,R.refetch,R.delay,R.user_agent,R)
+            try: f=fetch(f,R.cache,R.refresh,R.refetch,R.delay,R.user_agent,R.retries,R)
             except HTTPError as e:
                 error(f"Unable to fetch {f}: {e}")
         elif delimited(f,'{','}'): pass
@@ -703,7 +705,7 @@ class Run():
         writestr(f'{n+1}{u[u.rindex("."):]}',
                  fetch(u,R.cache,R.refresh,
                        R.refetch,R.delay,
-                       R.user_agent,R)
+                       R.user_agent,R.retries,R)
                  if re.match("https?://",u)
                  else open(u,'rb').read())
         R.progress(n+1)
@@ -1512,16 +1514,16 @@ def fetch(url:str,
           refetch:bool = False,
           delay:int = 0,
           user_agent = None,
+          retries:int = 0,
           info = None) -> bytes:
     """Fetches a URL, with delay and/or cache.
     
     cache: the cache directory (None = don't save)
     or a requests_cache session object to do it
-    (delay option is ignored when using session)
 
     refresh: if True, send an If-Modified-Since
     request if we have a cached item (the date of
-    modification will be the timestamp of the file
+    modification may be the timestamp of the file
     in the cache, not necessarily the actual last
     modified time as given by the server)
 
@@ -1534,9 +1536,15 @@ def fetch(url:str,
     user_agent: the User-Agent string to use, if
     not using Python's default User-Agent
 
+    retries: number of times to retry a fetch
+    if it times out or unhandled exception
+
     info: an optional Run instance to take the log
     (otherwise we use standard error)"""
 
+    global _last_request_time
+    try: _last_request_time
+    except NameError: _last_request_time = 0
     if not info:
         class MockInfo:
             def info(self,text:str,newline:bool=True):
@@ -1547,12 +1555,24 @@ def fetch(url:str,
     if hasattr(cache,"get"):
         # if we're given a requests_cache session,
         # use that instead of our own caching code
-        if not refresh and not refetch and "only_if_cached" in inspect.getfullargspec(cache.request).args:
+        is_recent_requestsCache_version = "only_if_cached" in inspect.getfullargspec(cache.request).args
+        if not refresh and not refetch and is_recent_requestsCache_version:
+            # if the cache can tell us it has it,
+            # we don't even have to say "Fetching"
             r = cache.request('GET',url,
                               only_if_cached=True)
             if r.status_code == 200:
                 return r.content
+        if delay and not is_recent_requestsCache_version:
+            global _last_request_warned
+            try: _last_request_warned
+            except NameError:
+                _last_request_warned = True
+                info.info("Using the parameter 'delay' with a requests_cache object requires a version of requests_cache that supports the only_if_cached parameter.  Your requests_cache seems too old.  Ignoring 'delay'.")
+                # otherwise we'd have to unconditionally delay even for things we already have cached
         info.info(f"Fetching {url}...",False)
+        if delay and is_recent_requestsCache_version:
+            time.sleep(min(0,_last_request_time+delay-time.time()))
         try:
            if 'force_refresh' in inspect.getfullargspec(cache.request).args:
               r = cache.request('GET',url,
@@ -1565,8 +1585,13 @@ def fetch(url:str,
                           headers = headers,
                           timeout = 20)
         except Exception as e:
+            _last_request_time = time.time()
+            if retries:
+                info.info(f" error, retrying ({retries} {'try' if retries==1 else 'tries'} left)")
+                return fetch(url,cache,refresh,refetch,delay,user_agent,retries-1,info)
             info.info(" error")
             raise HTTPError("",500,f"{e}",{},None)
+        _last_request_time = time.time()
         if r.status_code == 200:
             info.info(" fetched")
             return r.content
@@ -1595,10 +1620,7 @@ def fetch(url:str,
       elif os.path.exists(fnExc) and not refetch and not refresh: raise HTTPError("",int(open(fnExc).read()),"HTTP error on last fetch",{},None) # useful especially if a wrapper script is using our fetch() for multiple chapters and stopping on a 404
       Path(fn[:fn.rindex(os.sep)]).mkdir(parents=True,exist_ok=True)
     info.info(f"Fetching {url}...",False)
-    global _last_urlopen_time
-    try: _last_urlopen_time
-    except NameError: _last_urlopen_time = 0
-    if delay: time.sleep(min(0,_last_urlopen_time+delay-time.time()))
+    if delay: time.sleep(min(0,_last_request_time+delay-time.time()))
     if ifModSince:
         t = time.gmtime(ifModSince)
         headers["If-Modified-Since"]=f"{'Mon Tue Wed Thu Fri Sat Sun'.split()[t.tm_wday]}, {t.tm_mday} {'Jan Feb Mar Apr May Jun Jul Aug Sep Oct Nov Dec'.split()[t.tm_mon-1]} {t.tm_year} {t.tm_hour:02d}:{t.tm_min:02d}:{t.tm_sec:02d} GMT"
@@ -1607,9 +1629,12 @@ def fetch(url:str,
         for b in url.encode('utf-8'))
     try: dat = urlopen(Request(url2,headers=headers)).read()
     except Exception as e:
+        _last_request_time = time.time()
         if not isinstance(e,HTTPError):
+            if retries:
+                info.info(f" error {e}, retrying ({retries} {'try' if retries==1 else 'tries'} left)")
+                return fetch(url,cache,refresh,refetch,delay,user_agent,retries-1,info)
             e = HTTPError("",500,f"{e}",{},None)
-        _last_urlopen_time = time.time()
         if e.getcode()==304 and cache:
             info.info(" no new data")
             return open(fn,'rb').read()
@@ -1618,7 +1643,7 @@ def fetch(url:str,
             if cache: open(fnExc,"w").write(
                     str(e.getcode()))
             raise
-    _last_urlopen_time = time.time()
+    _last_request_time = time.time()
     if cache:
         open(fn,'wb').write(dat)
         info.info(" saved")
