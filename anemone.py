@@ -1,6 +1,6 @@
 #!/usr/bin/env python3
 """
-Anemone 1.74 (http://ssb22.user.srcf.net/anemone)
+Anemone 1.75 (http://ssb22.user.srcf.net/anemone)
 (c) 2023-24 Silas S. Brown.  License: Apache 2
 
 To use this module, either run it from the command
@@ -148,6 +148,15 @@ re-code the MP3 files to ensure they are constant
 bitrate and more likely to work with the more
 limited DAISY-reading programs like FSReader 3
 (this requires LAME or miniaudio/lameenc)""")
+    args.add_argument("--squash",
+                      action="store_true",help="""
+re-code MP3 files to 16kHz, resulting in a smaller
+DAISY but at the expense of reduced sound quality.
+This requires LAME or miniaudio/lameenc.
+If Pillow/PIL is available too, reduce the sizes
+of any large images.  Use this option only if
+space is at a premium and you don't mind a severe
+loss of audio and image quality.""")
     args.add_argument("--allow-jumps",
                       action="store_true",help="""
 Allow jumps in heading levels e.g. h1 to h3 if the
@@ -380,6 +389,7 @@ class Run():
     if not R.outputFile:
         R.outputFile=f"output_daisy{os.extsep}zip"
     if not R.title: R.title=re.sub("(?i)[ _-]daisy[0-9]?$","",R.outputFile.replace(f"{os.extsep}zip",""))
+    if R.squash: R.mp3_recode = True
   def check(self) -> None:
     """Checks we've got everything.
     You may omit calling this if you're creating
@@ -703,11 +713,12 @@ class Run():
     R.progress_loopStart(len(R.imageFiles),15)
     for n,u in enumerate(R.imageFiles):
         writestr(f'{n+1}{u[u.rindex("."):]}',
+                 (squash_image if R.squash else lambda x,y:y)(u,
                  fetch(u,R.cache,R.refresh,
                        R.refetch,R.delay,
                        R.user_agent,R.retries,R)
                  if re.match("https?://",u)
-                 else open(u,'rb').read())
+                 else open(u,'rb').read()))
         R.progress(n+1)
     if not R.date:
         R.date = "%d-%02d-%02d" % time.localtime(
@@ -908,12 +919,12 @@ class Run():
     <meta name="dc:language" content="{R.lang}" scheme="ISO 639" />
     <meta name="dc:publisher" content="{deHTML(R.publisher)}" />
     <meta name="dc:title" content="{deHTML(R.title)}" />
-    <meta name="dc:type" content="text" />
+    <meta name="dc:type" content="{"text" if hasFullText or not any(R.audioData) else "sound"}" />
     <meta name="dc:identifier" content="{R.url}" />
     <meta name="dc:format" content="{'ANSI/NISO Z39.86-2005' if R.daisy3 else 'Daisy 2.02'}" />
     <meta name="ncc:narrator" content="{R.reader}" />
     <meta name="ncc:producedDate" content="{R.date}" />
-    <meta name="{'dtb' if R.daisy3 else 'ncc'}:generator" content="{generator}" />
+    <meta name="{'dtb' if R.daisy3 else 'ncc'}:generator" content="{generator}{' (squash option enabled)' if R.squash else ''}" />
     <meta name="ncc:charset" content="utf-8" />
     <meta name="ncc:pageFront" content="0" />
     <meta name="ncc:maxPageNormal" content="{maxPageNo}" />
@@ -1056,7 +1067,7 @@ class Run():
   <head>
     <meta name="dc:title" content="{deHTML(R.title)}" />
     <meta name="dc:format" content="Daisy 2.02" />
-    <meta name="ncc:generator" content="{generator}" />
+    <meta name="ncc:generator" content="{generator}{' (squash option enabled)' if R.squash else ''}" />
     <meta name="ncc:timeInThisSmil" content="{hmsTime(totalSecs)}" />
     <layout>
       <region id="textView" />
@@ -1092,7 +1103,7 @@ class Run():
     if R.daisy3
     else '<meta name="dc:format" content="Daisy 2.02" />'}
     <meta name="{'dtb' if R.daisy3
-    else 'ncc'}:generator" content="{generator}" />
+    else 'ncc'}:generator" content="{generator}{' (squash option enabled)' if R.squash else ''}" />
     <meta name="{'dtb' if R.daisy3
     else 'ncc'}:totalElapsedTime" content="{
     hmsTime(totalSecsSoFar)}" />""" + (
@@ -1146,7 +1157,7 @@ class Run():
                 totalSecs:float) -> str:
     "Make the package OPF for a DAISY 3 file"
     R = self
-    return f"""<?xml version="1.0" encoding="utf-8"?>
+    return deBlank(f"""<?xml version="1.0" encoding="utf-8"?>
 <!DOCTYPE package
   PUBLIC "+//ISBN 0-9673008-1-9//DTD OEB 1.2 Package//EN" "http://openebook.org/dtds/oeb-1.2/oebpkg12.dtd">
 <package xmlns="http://openebook.org/namespaces/oeb-package/1.0/" unique-identifier="{R.url}">
@@ -1159,13 +1170,14 @@ class Run():
          <dc:Title>{R.title}</dc:Title>
          <dc:Identifier id="{R.url}"/>
          <dc:Creator>{R.creator}</dc:Creator>
-         <dc:Type>text</dc:Type>
+         <dc:Type>{"text" if hasFullText or not any(R.audioData) else "sound"}</dc:Type>
       </dc-metadata>
       <x-metadata>
          <meta name="dtb:multimediaType" content="{"audioFullText" if hasFullText else "audioNcc"}"/>
          <meta name="dtb:totalTime" content="{hmsTime(totalSecs)}"/>
-         <meta name="dtb:multimediaContent" content="audio,text{',image' if R.imageFiles else ''}"/>
+         <meta name="dtb:multimediaContent" content="{','.join(['audio,' if any(R.audioData) else '','text' if hasFullText or not any(R.audioData) else '','image' if R.imageFiles else ''])}"/>
          <meta name="dtb:narrator" content="{deHTML(R.reader)}"/>
+         {'<meta name="dtb:audioFormat" content="MP3"/>' if any(R.audioData) else ''}
          <meta name="dtb:producedDate" content="{R.date}"/>
       </x-metadata>
    </metadata>
@@ -1190,7 +1202,7 @@ class Run():
       <itemref idref="{i:04d}"/>""" for i in range(1,numRecs+1))+"""
    </spine>
 </package>
-"""
+""")
   def text_htm(self, paras:list[TagAndText], offset:int=0) -> str:
     """Format the text, as htm for DAISY 2 or xml
     for DAISY 3.
@@ -1215,7 +1227,7 @@ class Run():
         {f'<meta name="dc:Language" content="{R.lang}" />' if R.daisy3 else ''}
         {f'<meta name="dc:identifier" content="{R.url}" />' if R.daisy3 else ''}
         {f'<meta name="dtb:uid" content="{R.url}"/>' if R.daisy3 else '<meta content="text/html; charset=utf-8" http-equiv="content-type"/>'}
-        <meta name="generator" content="{generator}"/>
+        <meta name="generator" content="{generator}{' (squash option enabled)' if R.squash else ''}"/>
     </head>
     <{'book' if R.daisy3 else 'body'}>
         {f'<frontmatter><doctitle>{R.title}</doctitle><docauthor>{R.creator}</docauthor></frontmatter><bodymatter>' if R.daisy3 else ''}
@@ -1475,6 +1487,20 @@ def merge0lenSpans(recordingTexts:list, headings:list, hasAudio:list) -> None:
                     if pInfo.duringId > i//2: pages[pI]=PageInfo(pInfo.duringId-1,pInfo.pageNo)
             i += 1
 
+def squash_image(u:str, dat:bytes) -> bytes:
+    try:
+        from PIL import Image
+    except ImportError: return dat # no Pillow: can't squash images
+    imgType = u[u.rindex(".")+1:].lower().replace("jpg","jpeg")
+    img = Image.open(BytesIO(dat))
+    w, h = img.size
+    while w > 320 or h > 240: w,h = w//2,h//2
+    img,out = img.resize((w,h)), BytesIO()
+    img.save(out,imgType,
+             **({"optimize":True,"quality":50}
+                if imgType=="jpeg" else {}))
+    return out.getvalue()
+
 def recodeMP3(dat:bytes, R:Run) -> bytes:
     """Takes MP3 or WAV data, re-codes it
     as suitable for DAISY, and returns the bytes
@@ -1483,9 +1509,9 @@ def recodeMP3(dat:bytes, R:Run) -> bytes:
     if load_miniaudio_and_lameenc():
         # Preferred method: use these 2 libraries
         # (works with a range of input file types)
-        pcm = miniaudio.decode(dat,nchannels=1)
+        pcm = miniaudio.decode(dat,nchannels=1,sample_rate=11025 if R.squash else 44100)
         enc = lameenc.Encoder()
-        enc.set_bit_rate(64)
+        enc.set_bit_rate(16 if R.squash else 64)
         enc.set_channels(1)
         enc.set_quality(0)
         enc.set_in_sample_rate(pcm.sample_rate)
@@ -1506,7 +1532,16 @@ def recodeMP3(dat:bytes, R:Run) -> bytes:
     # only raw when encoding, but ok if --decode)
     m = re.search(b'(?s)([0-9.]+) kHz, ([0-9]+).*?([0-9]+) bit',decodeJob.stderr)
     if not m: error("lame did not give expected format for frequency, channels and bits output")
-    return run(["lame","--quiet","-r","-s",m.group(1).decode('latin1')]+(['-a'] if m.group(2)==b'2' else [])+['-m','m','--bitwidth',m.group(3).decode('latin1'),"-","--resample","44.1","-b","64","-q","0","-o","-"],input=decodeJob.stdout,check=True,stdout=PIPE).stdout
+    return run(["lame","--quiet","-r","-s",
+                m.group(1).decode('latin1')]+
+               (['-a'] if m.group(2)==b'2' else [])+
+               ['-m','m',
+                '--bitwidth',m.group(3).decode('latin1'),
+                "-",
+                "--resample","11.025" if R.squash else "44.1",
+                "-b","16" if R.squash else "64",
+                "-q","0","-o","-"],
+               input=decodeJob.stdout,check=True,stdout=PIPE).stdout
 
 def fetch(url:str,
           cache = "cache", # not necessarily str
