@@ -1,6 +1,6 @@
 #!/usr/bin/env python3
 """
-Anemone 1.75 (http://ssb22.user.srcf.net/anemone)
+Anemone 1.76 (http://ssb22.user.srcf.net/anemone)
 (c) 2023-24 Silas S. Brown.  License: Apache 2
 
 To use this module, either run it from the command
@@ -10,9 +10,9 @@ line, or import it and use the anemone() function.
 # Licensed under the Apache License, Version 2.0 (the "License");
 # you may not use this file except in compliance with the License.
 # You may obtain a copy of the License at
-# 
+#
 #     http://www.apache.org/licenses/LICENSE-2.0
-# 
+#
 # Unless required by applicable law or agreed to in writing, software
 # distributed under the License is distributed on an "AS IS" BASIS,
 # WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
@@ -30,13 +30,13 @@ def anemone(*files,**options) -> list[str]:
     """This function can be called by scripts that
     import anemone: simply put the equivalent of
     the command line into 'files' and 'options'.
-    
+
     You can also specify a JSON dictionary instead
     of the name of a JSON file, and/or an HTML
     string instead of the name of an HTML file
     (this can also be done on the command line
     with careful quoting).
-    
+
     Additionally, you can set the options
     warning_callback, info_callback and/or
     progress_callback.  These are Python callables
@@ -47,10 +47,10 @@ def anemone(*files,**options) -> list[str]:
     If warning_callback or info_callback is set,
     the corresponding information is not written
     to standand error.
-    
+
     If you do not give this function any arguments
     it will look at the system command line.
-    
+
     Return value is a list of warnings, if any."""
 
     try:
@@ -71,14 +71,14 @@ def populate_argument_parser(args) -> None:
     of all Anemone command-line options, which are
     also options for anemone(), and help text.
     This is also used for runtime module help."""
-    
+
     args.add_argument("files",metavar="file",
                       nargs="+",help="""
 file name of: an MP3 or WAV recording, a text file
 containing its title (if no full text), an XHTML
 file containing its full text, a JSON file
 containing its time markers (or text plus time in
-JSON transcript format), or the output ZIP file. 
+JSON transcript format), or the output ZIP file.
 Only one output file may be specified, but any
 number of the other files can be included; URLs
 may be given if they are to be fetched.  If only
@@ -157,6 +157,19 @@ If Pillow/PIL is available too, reduce the sizes
 of any large images.  Use this option only if
 space is at a premium and you don't mind a severe
 loss of audio and image quality.""")
+    args.add_argument("--aac",
+                      action="store_true",help="""
+use AAC instead of MP3 (saves some space at normal
+size; slightly increases quality at squash) -
+this requires fdkaac binary + miniaudio library,
+or afconvert binary.  It also requires the daisy3 setting.
+The current implementation of this creates temporary files:
+on Unix set TMPDIR if you want to put them somewhere other
+than the default temporary directory (for example on a
+RAMdisk).  Please note that, although the DAISY 3 standard
+says players must support at least CBR AAC, I have not yet
+been able to check if all players can actually do this.""")
+    # (faac/pyfaac can't do CBR and Daisy 3 specs say players aren't required to be able to cope with VBR, so need fdkaac/afconvert for AAC, assuming ffmpeg native AAC coder isn't up to it)
     args.add_argument("--allow-jumps",
                       action="store_true",help="""
 Allow jumps in heading levels e.g. h1 to h3 if the
@@ -217,7 +230,7 @@ generator=__doc__.strip().split('\n')[0] # string we use to identify ourselves i
 
 def get_argument_parser():
     "populates an ArgumentParser for Anemone"
-    
+
     from argparse import ArgumentParser
     if __name__=="__main__": AP=ArgumentParser
     else:
@@ -232,7 +245,7 @@ def get_argument_parser():
     populate_argument_parser(args)
     return args
 
-import time, sys, os, re, json, traceback
+import time, sys, os, re, json, traceback, tempfile
 
 if __name__ == "__main__" and "--version" in sys.argv:
     print (generator)
@@ -268,7 +281,7 @@ def error(m) -> None:
     """Anemone error handler.  If running as an
     application, print message and error-exit.  If
     running as a module, raise an AnemoneError."""
-    
+
     if __name__=="__main__": sys.stderr.write(f"Error: {m}\n"),sys.exit(1)
     else: raise AnemoneError(str(m))
 class AnemoneError(Exception):
@@ -389,14 +402,14 @@ class Run():
     if not R.outputFile:
         R.outputFile=f"output_daisy{os.extsep}zip"
     if not R.title: R.title=re.sub("(?i)[ _-]daisy[0-9]?$","",R.outputFile.replace(f"{os.extsep}zip",""))
-    if R.squash: R.mp3_recode = True
+    if R.squash or R.aac: R.mp3_recode = True
   def check(self) -> None:
     """Checks we've got everything.
     You may omit calling this if you're creating
     a temporary Run just to call something like
     check_for_JSON_transcript and get its HTML."""
     R = self
-    if R.htmlData and any(a and not j for a,j in zip(R.audioData,R.jsonData)): error("Full text and audio without time markers is not yet implemented")
+    if R.htmlData and any(a and not j for a,j in zip(R.audioData,R.jsonData)): error("Full text and audio without time markers is not yet implemented (but you can give an empty markers list if you want to combine a whole chapter into one navigation point)")
     if R.jsonData and not R.htmlData: error("Time markers without full text is not implemented")
     if R.htmlData and R.textData: error("Combining full text with title-only text files is not yet implemented.  Please specify full text for everything or just titles for everything, not both.")
     if R.jsonData and not len(R.audioData)==len(R.jsonData): error(f"If JSON marker files are specified, there must be exactly one JSON file for each recording file.  We got f{len(R.jsonData)} JSON files and f{len(R.audioData)} recording files.")
@@ -406,6 +419,7 @@ class Run():
     if not R.htmlData and not R.textData and not R.audioData: error("No input given")
     if not re.match("[a-z]{2,3}($|-)",R.lang): R.warning(f"lang '{R.lang}' doesn't look like a valid ISO-639 language code") # this should perhaps be an error
     if R.date and not re.match("([+-][0-9]*)?[0-9]{4}-[01][0-9]-[0-3][0-9]$",R.date): error("date (if set) should be in ISO 8601's YYYY-MM-DD format")
+    if R.aac and not R.daisy3: error("aac requires daisy3")
     s = set()
     for t in ['marker_attribute',
               'page_attribute',
@@ -432,16 +446,17 @@ class Run():
     global mutagen, BeautifulSoup
     if R.audioData and any(R.audioData):
         try: import mutagen
-        except ImportError: error("Anemone needs the Mutagen library to determine play lengths.\nPlease do: pip install mutagen")
+        except ImportError: error('Anemone needs the Mutagen library to determine play lengths.\nPlease do: pip install mutagen\nIf you are unable to use pip, it may also work to download mutagen source and move its "mutagen" directory to the current directory.')
     if R.htmlData:
         try: from bs4 import BeautifulSoup
-        except ImportError: error("Anemone needs the beautifulsoup4 library to parse HTML.\nPlease do: pip install beautifulsoup4")
+        except ImportError: error('Anemone needs the beautifulsoup4 library to parse HTML.\nPlease do: pip install beautifulsoup4\nIf you are unable to use pip, it may also work to download beautifulsoup4 source and move its "bs4" directory to the current directory.')
     if R.mp3_recode or any(f.strip().lower().
                            endswith(
                                f"{os.extsep}wav")
                            for f in files
                            if isinstance(f,str)):
-        check_we_got_LAME()
+        if R.aac: check_we_got_AAC(any(f.strip().lower().endswith(f"{os.extsep}mp3") for f in files))
+        else: check_we_got_LAME()
   def has_old_mutagen(self) -> bool:
       """Detect Mutagen 1.46 or earlier.  This is supplied with
       Ubuntu 24.04 LTS (non-pip) and cannot detect MP3 files
@@ -602,7 +617,7 @@ class Run():
         executor = ThreadPoolExecutor(
             max_workers=cpu_count())
         recordingTasks=[(executor.submit(
-            (recodeMP3 if
+            (recodeAAC if R.aac else recodeMP3 if
              R.mp3_recode or
              'audio/mp3' not in R.MFile(dat).mime
              else lambda x,r:x),
@@ -659,7 +674,7 @@ class Run():
     to EasyReader as a whole.  Some other DAISY
     readers need to be pointed at the {'OPF' if R.daisy3 else 'NCC'} file
     instead, or at the whole directory/folder.
-    
+
     - This message was added by the DAISY tool
     {generator}
     not by the producers of the DAISY publication.
@@ -681,8 +696,8 @@ class Run():
         if R.audioData[recNo-1]:
             if recordingTasks is not None:
                 R.info(f"""Adding {
-                    recNo:04d}.mp3...""",False)
-            writestr(f"{recNo:04d}.mp3",
+                    recNo:04d}.{'mp4' if R.aac else 'mp3'}...""",False)
+            writestr(f"{recNo:04d}.{'mp4' if R.aac else 'mp3'}",
                  R.audioData[recNo-1]
                  if recordingTasks is None
                  else recordingTasks[recNo-1].result())
@@ -952,7 +967,7 @@ class Run():
     if R.daisy3 else ''}
   <{'navMap id="navMap"' if R.daisy3 else 'body'}>"""+''.join((f"""
     <navPoint id="s{s+1}" class="{t.hTag}" playOrder="{s+1}">
-      <navLabel><text>{t.hLine}</text>{'' if recTimeTxts[t.recNo][2*t.itemNo]==recTimeTxts[t.recNo][2*t.itemNo+2] else f'''<audio src="{t.recNo+1:04d}.mp3" clipBegin="{hmsTime(recTimeTxts[t.recNo][2*t.itemNo])}" clipEnd="{hmsTime(recTimeTxts[t.recNo][2*t.itemNo+2])}"/>'''}</navLabel>
+      <navLabel><text>{t.hLine}</text>{'' if recTimeTxts[t.recNo][2*t.itemNo]==recTimeTxts[t.recNo][2*t.itemNo+2] else f'''<audio src="{t.recNo+1:04d}.{'mp4' if R.aac else 'mp3'}" clipBegin="{hmsTime(recTimeTxts[t.recNo][2*t.itemNo])}" clipEnd="{hmsTime(recTimeTxts[t.recNo][2*t.itemNo+2])}"/>'''}</navLabel>
       <content src="{t.recNo+1:04d}.smil#pr{t.recNo+1}.{t.itemNo}"/>
     {'</navPoint>'*numDaisy3NavpointsToClose(s,headingsR)}""" if R.daisy3 else ''.join(f"""
     <span class="page-normal" id="page{N
@@ -1039,7 +1054,7 @@ class Run():
   def normaliseDepth(self, items:list) -> list:
     """Ensure that heading items' depth conforms
     to DAISY standard, in a BookTOCInfo list"""
-    
+
     if self.allow_jumps: return items
     curDepth = 0
     for i in range(len(items)):
@@ -1132,7 +1147,7 @@ class Run():
     else f'<seq id="sq{recNo}.{i//2}a">'}
           {'' if
     textsAndTimes[i-1]==textsAndTimes[i+1]
-    else f'''<audio src="{recNo:04d}.mp3" clip{
+    else f'''<audio src="{recNo:04d}.{'mp4' if R.aac else 'mp3'}" clip{
     'B' if R.daisy3 else '-b'}egin="{
     hmsTime(textsAndTimes[i-1]) if R.daisy3 else
     f'npt={textsAndTimes[i-1]:.3f}s'}" clip{
@@ -1177,13 +1192,13 @@ class Run():
          <meta name="dtb:totalTime" content="{hmsTime(totalSecs)}"/>
          <meta name="dtb:multimediaContent" content="{','.join(['audio,' if any(R.audioData) else '','text' if hasFullText or not any(R.audioData) else '','image' if R.imageFiles else ''])}"/>
          <meta name="dtb:narrator" content="{deHTML(R.reader)}"/>
-         {'<meta name="dtb:audioFormat" content="MP3"/>' if any(R.audioData) else ''}
+         {f'<meta name="dtb:audioFormat" content="{"MP4-AAC" if R.aac else "MP3"}"/>' if any(R.audioData) else ''}
          <meta name="dtb:producedDate" content="{R.date}"/>
       </x-metadata>
    </metadata>
    <manifest>
       <item href="package.opf" id="opf" media-type="text/xml"/>"""+''.join(f"""
-      <item href="{i:04d}.mp3" id="opf-{i
+      <item href="{i:04d}.{'mp4' if R.aac else 'mp3'}" id="opf-{i
       }" media-type="audio/mpeg"/>""" for i in range(1,numRecs+1))+''.join(f"""
       <item href="{i+1}{u[u.rindex("."):]
       }" id="opf-{i+numRecs+1
@@ -1253,7 +1268,7 @@ class PidsExtractor:
     should be kept, and others are site decoration
     etc).  Also pick up on any page-number tags
     and note where they were."""
-    
+
     def __init__(self, R:Run, want_pids:list[str]):
         self.R = R
         self.want_pids = want_pids # IDs we want
@@ -1264,7 +1279,7 @@ class PidsExtractor:
         self.previous_pid_contents = None
         self.images_before_first_pid = []
         self.seen_heading = False
-    
+
     def handle_soup(self,t,addTo=None,
                     include_alt=False) -> None:
         """Recursively scan through the HTML.
@@ -1274,7 +1289,7 @@ class PidsExtractor:
         can append to this.
         include_alt is True if we want to repeat
         the ALT tags of included images in text"""
-        
+
         if not t.name: # data or comment
             if t.PREFIX: pass # ignore comment, doctype etc
             elif addTo is not None: # collect text
@@ -1370,13 +1385,13 @@ def load_miniaudio_and_lameenc() -> bool:
         miniaudio, lameenc = M, L
         return True
     except: return False # noqa: E722 (ImportError or anything wrong with those libraries = can't use either)
-    
+
 def check_we_got_LAME() -> None:
     """Complains if LAME is not available on
     this system, either as miniaudio + lameenc
     imports, or as a binary.  Makes a little
     extra effort to find a binary on Windows."""
-    
+
     if which('lame'): return
     if load_miniaudio_and_lameenc(): return
     if sys.platform=='win32':
@@ -1387,6 +1402,23 @@ Please either install the miniaudio and lameenc pip libraries,
 or {'run the exe installer from lame.buanzo.org'
     if sys.platform=='win32' else 'install lame'
 }, and then try again.""")
+
+def check_we_got_AAC(need_miniaudio_too) -> None:
+    """Complains if an AAC encoder is not
+    available on this system"""
+    if which('afconvert'): pass
+    elif which('fdkaac'):
+        if need_miniaudio_too:
+            try:
+                import miniaudio as M
+                global miniaudio
+                miniaudio = M
+                return
+            except: error("If using the fdkaac binary, we also need the miniaudio library to decode MP3s") # noqa: E722 (ImportError or anything wrong with those libraries = can't use either)
+        else: pass
+    else: error("""Anemone requires the FDKAAC program to encode AAC audio.
+Please either remove the aac option, or run on a Mac, or install FDKAAC
+and then try again.""")
 
 tagRewrite = { # used by get_texts
     'legend':'h3', # used in fieldset
@@ -1440,7 +1472,7 @@ def jsonAttr(d:dict,suffix:str) -> str:
     checking exactly one key does this.  Used for
     checking JSON for things like paragraphId if
     you know only that it ends with 'Id'"""
-    
+
     keys = [k for k in d.keys() if k.lower().endswith(suffix)]
     if not keys: error(f"No *{suffix} in {repr(keys)}")
     if len(keys)>1: error(f"More than one *{suffix} in {repr(keys)}")
@@ -1451,7 +1483,7 @@ def parseTime(t:str) -> float:
     minutes:seconds or hours:minutes:seconds
     (decimal fractions of seconds allowed),
     and returns floating-point seconds"""
-    
+
     tot = 0.0 ; mul = 1
     for u in reversed(t.split(':')):
         tot += float(u)*mul ; mul *= 60
@@ -1468,7 +1500,7 @@ def merge0lenSpans(recordingTexts:list, headings:list, hasAudio:list) -> None:
     do know where item 1 starts and where item 2
     ends, so can we set the navigation to create
     a combined item for both 1 and 2."""
-    
+
     for cT,cH,hA in zip(recordingTexts,headings,hasAudio):
         if not hA or not isinstance(cT,TextsAndTimesWithPages): continue
         textsAndTimes,pages = cT
@@ -1519,7 +1551,7 @@ def recodeMP3(dat:bytes, R:Run) -> bytes:
         return mp3 + enc.flush()
 
     # Fallback method: use LAME external binary.
-    
+
     # Players like FSReader can get timing wrong if mp3 contains
     # too many tags at the start (e.g. images).
     # eyed3 clear() won't help: it zeros out bytes without changing indices.
@@ -1543,6 +1575,31 @@ def recodeMP3(dat:bytes, R:Run) -> bytes:
                 "-q","0","-o","-"],
                input=decodeJob.stdout,check=True,stdout=PIPE).stdout
 
+def recodeAAC(dat:bytes, R:Run) -> bytes:
+    """Takes MP3 or WAV data, re-codes it
+    as suitable for DAISY, and returns the bytes
+    of new AAC data for putting into DAISY ZIP"""
+    # Neither afconvert nor fdkaac allow stdout streaming,
+    # so we're going to need a temp file for output.
+    # afconvert also can't stream from /dev/stdin
+    # (it works when redirecting via < but not via pipe),
+    # so we'll need a temp file for input as well on Mac.
+    outT = tempfile.NamedTemporaryFile(suffix=os.extsep+"mp4")
+    if which('afconvert'):
+        inT = tempfile.NamedTemporaryFile(suffix=os.extsep+("mp3" if 'audio/mp3' in R.MFile(dat).mime else "wav"))
+        open(inT.name,"wb").write(dat)
+        run(["afconvert",inT.name,outT.name,"-d","aac","-s","0",
+             "-b","16000" if R.squash else "48000"],
+            check=True)
+    else:
+        run(["fdkaac","-S","-I",
+                      "-b","16000" if R.squash else "48000",
+                      "-R","--raw-channels","1",
+                      "--raw-rate","11025" if R.squash else "44100",
+                      "-","-f","0","-o",outT.name],
+               input=miniaudio.decode(dat,nchannels=1,sample_rate=11025 if R.squash else 44100).samples.tobytes(),check=True)
+    return open(outT.name,'rb').read()
+
 def fetch(url:str,
           cache = "cache", # not necessarily str
           refresh:bool = False,
@@ -1552,7 +1609,7 @@ def fetch(url:str,
           retries:int = 0,
           info = None) -> bytes:
     """Fetches a URL, with delay and/or cache.
-    
+
     cache: the cache directory (None = don't save)
     or a requests_cache session object to do it
 
@@ -1772,20 +1829,20 @@ def hmsTime(secs:float) -> str:
     with fractions to 3 decimal places.  (Some
     old DAISY readers can crash if more than 3
     decimals are used, so we must stick to 3)"""
-    
+
     return f"{int(secs/3600)}:{int(secs/60)%60:02d}:{secs%60:06.3f}"
 
 def deHTML(t:str) -> str:
     """Remove HTML tags from t, collapse
     whitespace and escape quotes so it can be
     included in an XML attribute"""
-    
+
     return re.sub(r'\s+',' ',re.sub('<[^>]*>','',t)).replace('"','&quot;').strip()
 
 def er_book_info(durations:list[float]) -> str:
     """Return the EasyReader book info.
     durations = list of secsThisRecording"""
-    
+
     return """<?xml version="1.0" encoding="utf-8"?>
 <book_info>
     <smil_info>"""+"".join(f"""
