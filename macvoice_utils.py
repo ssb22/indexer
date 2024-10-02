@@ -2,7 +2,7 @@
 macOS voices, using different voices for different
 characters in the dialogue
 
-v0.3 (c) 2024 Silas S. Brown.  License: Apache 2
+v0.4 (c) 2024 Silas S. Brown.  License: Apache 2
 """
 
 # Licensed under the Apache License, Version 2.0 (the "License");
@@ -173,8 +173,9 @@ def synth_chapter(txt,voiceMap,
     needParagraphBreak = False
     numParas = len(txt.split('\n'))
     for paraNo,para in enumerate(txt.split('\n')):
-        sys.stderr.write(f"\r synth {paraNo}/{numParas}"), sys.stderr.flush()
-        if para.endswith(".wav"): yield para
+        sys.stderr.write(f"\r synth {paraNo+1}/{numParas}"), sys.stderr.flush()
+        if para.endswith(".wav"):
+            yield para ; continue
         elif not para: continue
         elif needParagraphBreak and not any(re.search(r,para) for r in no_paraBreak_regex_list):
             if '**' in para: para=para.replace('**','**[[slnc 300]]',1)
@@ -183,6 +184,7 @@ def synth_chapter(txt,voiceMap,
         needParagraphBreak = True
         if get_sentence_timings: para = para.rstrip() + "  " # ensure ends sentence
         for voices,text in voiceParamsAndStrings(para,voiceMap):
+            text = re.sub(r"^\)","",re.sub(r"\($","",text)) # avoid isolated "open bracket" etc as a result of a voice change
             if get_sentence_timings:
               while "  " in text:
                 text0,text = text.split("  ",1)
@@ -313,7 +315,7 @@ def labelSentencesForTeX(paragraph):
     track the page numbers of each sentence,
     assuming sentences are separated by '  '"""
     c = SLCount()
-    return re.sub("[^ ].*?(?=  |$)",lambda m:(' '.join([m.group().split()[0]+c()]+m.group().split()[1:]) if m.group() else ""),paragraph) # don't put sentence label BEFORE the first word, because adding a label before the first word of a paragraph has been known to occasionally affect LaTeX's widows/orphans weighting, changing the pagination.  Put it at the end of the first word of the sentence instead.
+    return re.sub("[^ ].*?(?=  |$)",lambda m:(' '.join([m.group().split(' ')[0]+c()]+m.group().split(' ')[1:]) if m.group() else ""),paragraph) # don't put sentence label BEFORE the first word, because adding a label before the first word of a paragraph has been known to occasionally affect LaTeX's widows/orphans weighting, changing the pagination.  Put it at the end of the first word of the sentence instead.
 class SLCount:
     "used by labelSentencesForTeX" # (but must be at global scope or its global_uid will get reset when labelSentencesForTeX is called)
     global_uid = 0
