@@ -159,17 +159,18 @@ space is at a premium and you don't mind a severe
 loss of audio and image quality.""")
     args.add_argument("--aac",
                       action="store_true",help="""
-use AAC instead of MP3 (saves some space at normal
-size; slightly increases quality at squash) -
-this requires fdkaac binary + miniaudio library,
+use AAC instead of MP3.  This DOES NOT PLAY on all
+DAISY readers, so use this only if you know your
+reader supports it!  It saves some space at normal
+size and slightly increases quality at squash.
+It requires fdkaac binary + miniaudio library,
 or afconvert binary.  It also requires the daisy3 setting.
 The current implementation of this creates temporary files:
 on Unix set TMPDIR if you want to put them somewhere other
-than the default temporary directory (for example on a
-RAMdisk).  Please note that, although the DAISY 3 standard
-says players must support at least CBR AAC, I have not yet
-been able to check if all players can actually do this.""")
+than the default temporary directory, for example on a
+RAMdisk.""")
     # (faac/pyfaac can't do CBR and Daisy 3 specs say players aren't required to be able to cope with VBR, so need fdkaac/afconvert for AAC, assuming ffmpeg native AAC coder isn't up to it)
+    # Thorium can play AAC audio; Dolphin EasyReader 11 on Android cannot play it; others not tested
     args.add_argument("--allow-jumps",
                       action="store_true",help="""
 Allow jumps in heading levels e.g. h1 to h3 if the
