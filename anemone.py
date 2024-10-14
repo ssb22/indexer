@@ -1,6 +1,6 @@
 #!/usr/bin/env python3
 """
-Anemone 1.76 (http://ssb22.user.srcf.net/anemone)
+Anemone 1.77 (http://ssb22.user.srcf.net/anemone)
 (c) 2023-24 Silas S. Brown.  License: Apache 2
 
 To use this module, either run it from the command
@@ -148,29 +148,6 @@ re-code the MP3 files to ensure they are constant
 bitrate and more likely to work with the more
 limited DAISY-reading programs like FSReader 3
 (this requires LAME or miniaudio/lameenc)""")
-    args.add_argument("--squash",
-                      action="store_true",help="""
-re-code MP3 files to 16kHz, resulting in a smaller
-DAISY but at the expense of reduced sound quality.
-This requires LAME or miniaudio/lameenc.
-If Pillow/PIL is available too, reduce the sizes
-of any large images.  Use this option only if
-space is at a premium and you don't mind a severe
-loss of audio and image quality.""")
-    args.add_argument("--aac",
-                      action="store_true",help="""
-use AAC instead of MP3.  This DOES NOT PLAY on all
-DAISY readers, so use this only if you know your
-reader supports it!  It saves some space at normal
-size and slightly increases quality at squash.
-It requires fdkaac binary + miniaudio library,
-or afconvert binary.  It also requires the daisy3 setting.
-The current implementation of this creates temporary files:
-on Unix set TMPDIR if you want to put them somewhere other
-than the default temporary directory, for example on a
-RAMdisk.""")
-    # (faac/pyfaac can't do CBR and Daisy 3 specs say players aren't required to be able to cope with VBR, so need fdkaac/afconvert for AAC, assuming ffmpeg native AAC coder isn't up to it)
-    # Thorium can play AAC audio; Dolphin EasyReader 11 on Android cannot play it; others not tested
     args.add_argument("--allow-jumps",
                       action="store_true",help="""
 Allow jumps in heading levels e.g. h1 to h3 if the
@@ -246,7 +223,7 @@ def get_argument_parser():
     populate_argument_parser(args)
     return args
 
-import time, sys, os, re, json, traceback, tempfile
+import time, sys, os, re, json, traceback
 
 if __name__ == "__main__" and "--version" in sys.argv:
     print (generator)
@@ -403,7 +380,6 @@ class Run():
     if not R.outputFile:
         R.outputFile=f"output_daisy{os.extsep}zip"
     if not R.title: R.title=re.sub("(?i)[ _-]daisy[0-9]?$","",R.outputFile.replace(f"{os.extsep}zip",""))
-    if R.squash or R.aac: R.mp3_recode = True
   def check(self) -> None:
     """Checks we've got everything.
     You may omit calling this if you're creating
@@ -420,7 +396,6 @@ class Run():
     if not R.htmlData and not R.textData and not R.audioData: error("No input given")
     if not re.match("[a-z]{2,3}($|-)",R.lang): R.warning(f"lang '{R.lang}' doesn't look like a valid ISO-639 language code") # this should perhaps be an error
     if R.date and not re.match("([+-][0-9]*)?[0-9]{4}-[01][0-9]-[0-3][0-9]$",R.date): error("date (if set) should be in ISO 8601's YYYY-MM-DD format")
-    if R.aac and not R.daisy3: error("aac requires daisy3")
     s = set()
     for t in ['marker_attribute',
               'page_attribute',
@@ -456,8 +431,7 @@ class Run():
                                f"{os.extsep}wav")
                            for f in files
                            if isinstance(f,str)):
-        if R.aac: check_we_got_AAC(any(f.strip().lower().endswith(f"{os.extsep}mp3") for f in files))
-        else: check_we_got_LAME()
+        check_we_got_LAME()
   def has_old_mutagen(self) -> bool:
       """Detect Mutagen 1.46 or earlier.  This is supplied with
       Ubuntu 24.04 LTS (non-pip) and cannot detect MP3 files
@@ -615,20 +589,22 @@ class Run():
         if not __name__=="__main__":
             R.info(
                 f"Making {R.outputFile}...") # especially if repeatedly called as a module, better print which outputFile we're working on BEFORE the mp3s as well as after
-        executor = ThreadPoolExecutor(
-            max_workers=cpu_count())
-        recordingTasks=[(executor.submit(
-            (recodeAAC if R.aac else recodeMP3 if
-             R.mp3_recode or
+        global _theThreadPoolExecutor
+        try: _theThreadPoolExecutor
+        except NameError:
+            # (if Anemone is called by a multithreaded client, we
+            # want only one ThreadPoolExecutor across all threads)
+            _theThreadPoolExecutor = ThreadPoolExecutor(
+                max_workers=cpu_count())
+        recordingTasks=[(_theThreadPoolExecutor.submit(
+            (recodeMP3 if R.mp3_recode or
              'audio/mp3' not in R.MFile(dat).mime
              else lambda x,r:x),
             dat, R) if dat else None)
                         for dat in R.audioData]
-    else: executor,recordingTasks = None,None
+    else: recordingTasks = None,None
     try: R.write_all0(recordingTexts,headings,recordingTasks)
     except: # unhandled exception: clean up
-        try: executor.shutdown(wait=False,cancel_futures=False) # (cancel_futures is Python 3.9+)
-        except: pass # (no executor / can't do it) # noqa: E722
         try: os.remove(R.outputFile) # incomplete
         except: pass # noqa: E722
         raise
@@ -697,8 +673,8 @@ class Run():
         if R.audioData[recNo-1]:
             if recordingTasks is not None:
                 R.info(f"""Adding {
-                    recNo:04d}.{'mp4' if R.aac else 'mp3'}...""",False)
-            writestr(f"{recNo:04d}.{'mp4' if R.aac else 'mp3'}",
+                    recNo:04d}.mp3...""",False)
+            writestr(f"{recNo:04d}.mp3",
                  R.audioData[recNo-1]
                  if recordingTasks is None
                  else recordingTasks[recNo-1].result())
@@ -729,12 +705,11 @@ class Run():
     R.progress_loopStart(len(R.imageFiles),15)
     for n,u in enumerate(R.imageFiles):
         writestr(f'{n+1}{u[u.rindex("."):]}',
-                 (squash_image if R.squash else lambda x,y:y)(u,
                  fetch(u,R.cache,R.refresh,
                        R.refetch,R.delay,
                        R.user_agent,R.retries,R)
                  if re.match("https?://",u)
-                 else open(u,'rb').read()))
+                 else open(u,'rb').read())
         R.progress(n+1)
     if not R.date:
         R.date = "%d-%02d-%02d" % time.localtime(
@@ -940,7 +915,7 @@ class Run():
     <meta name="dc:format" content="{'ANSI/NISO Z39.86-2005' if R.daisy3 else 'Daisy 2.02'}" />
     <meta name="ncc:narrator" content="{R.reader}" />
     <meta name="ncc:producedDate" content="{R.date}" />
-    <meta name="{'dtb' if R.daisy3 else 'ncc'}:generator" content="{generator}{' (squash option enabled)' if R.squash else ''}" />
+    <meta name="{'dtb' if R.daisy3 else 'ncc'}:generator" content="{generator}" />
     <meta name="ncc:charset" content="utf-8" />
     <meta name="ncc:pageFront" content="0" />
     <meta name="ncc:maxPageNormal" content="{maxPageNo}" />
@@ -968,7 +943,7 @@ class Run():
     if R.daisy3 else ''}
   <{'navMap id="navMap"' if R.daisy3 else 'body'}>"""+''.join((f"""
     <navPoint id="s{s+1}" class="{t.hTag}" playOrder="{s+1}">
-      <navLabel><text>{t.hLine}</text>{'' if recTimeTxts[t.recNo][2*t.itemNo]==recTimeTxts[t.recNo][2*t.itemNo+2] else f'''<audio src="{t.recNo+1:04d}.{'mp4' if R.aac else 'mp3'}" clipBegin="{hmsTime(recTimeTxts[t.recNo][2*t.itemNo])}" clipEnd="{hmsTime(recTimeTxts[t.recNo][2*t.itemNo+2])}"/>'''}</navLabel>
+      <navLabel><text>{t.hLine}</text>{'' if recTimeTxts[t.recNo][2*t.itemNo]==recTimeTxts[t.recNo][2*t.itemNo+2] else f'''<audio src="{t.recNo+1:04d}.mp3" clipBegin="{hmsTime(recTimeTxts[t.recNo][2*t.itemNo])}" clipEnd="{hmsTime(recTimeTxts[t.recNo][2*t.itemNo+2])}"/>'''}</navLabel>
       <content src="{t.recNo+1:04d}.smil#pr{t.recNo+1}.{t.itemNo}"/>
     {'</navPoint>'*numDaisy3NavpointsToClose(s,headingsR)}""" if R.daisy3 else ''.join(f"""
     <span class="page-normal" id="page{N
@@ -1083,7 +1058,7 @@ class Run():
   <head>
     <meta name="dc:title" content="{deHTML(R.title)}" />
     <meta name="dc:format" content="Daisy 2.02" />
-    <meta name="ncc:generator" content="{generator}{' (squash option enabled)' if R.squash else ''}" />
+    <meta name="ncc:generator" content="{generator}" />
     <meta name="ncc:timeInThisSmil" content="{hmsTime(totalSecs)}" />
     <layout>
       <region id="textView" />
@@ -1119,7 +1094,7 @@ class Run():
     if R.daisy3
     else '<meta name="dc:format" content="Daisy 2.02" />'}
     <meta name="{'dtb' if R.daisy3
-    else 'ncc'}:generator" content="{generator}{' (squash option enabled)' if R.squash else ''}" />
+    else 'ncc'}:generator" content="{generator}" />
     <meta name="{'dtb' if R.daisy3
     else 'ncc'}:totalElapsedTime" content="{
     hmsTime(totalSecsSoFar)}" />""" + (
@@ -1148,7 +1123,7 @@ class Run():
     else f'<seq id="sq{recNo}.{i//2}a">'}
           {'' if
     textsAndTimes[i-1]==textsAndTimes[i+1]
-    else f'''<audio src="{recNo:04d}.{'mp4' if R.aac else 'mp3'}" clip{
+    else f'''<audio src="{recNo:04d}.mp3" clip{
     'B' if R.daisy3 else '-b'}egin="{
     hmsTime(textsAndTimes[i-1]) if R.daisy3 else
     f'npt={textsAndTimes[i-1]:.3f}s'}" clip{
@@ -1193,13 +1168,13 @@ class Run():
          <meta name="dtb:totalTime" content="{hmsTime(totalSecs)}"/>
          <meta name="dtb:multimediaContent" content="{','.join(['audio,' if any(R.audioData) else '','text' if hasFullText or not any(R.audioData) else '','image' if R.imageFiles else ''])}"/>
          <meta name="dtb:narrator" content="{deHTML(R.reader)}"/>
-         {f'<meta name="dtb:audioFormat" content="{"MP4-AAC" if R.aac else "MP3"}"/>' if any(R.audioData) else ''}
+         {'<meta name="dtb:audioFormat" content="MP3"/>' if any(R.audioData) else ''}
          <meta name="dtb:producedDate" content="{R.date}"/>
       </x-metadata>
    </metadata>
    <manifest>
       <item href="package.opf" id="opf" media-type="text/xml"/>"""+''.join(f"""
-      <item href="{i:04d}.{'mp4' if R.aac else 'mp3'}" id="opf-{i
+      <item href="{i:04d}.mp3" id="opf-{i
       }" media-type="audio/mpeg"/>""" for i in range(1,numRecs+1))+''.join(f"""
       <item href="{i+1}{u[u.rindex("."):]
       }" id="opf-{i+numRecs+1
@@ -1243,7 +1218,7 @@ class Run():
         {f'<meta name="dc:Language" content="{R.lang}" />' if R.daisy3 else ''}
         {f'<meta name="dc:identifier" content="{R.url}" />' if R.daisy3 else ''}
         {f'<meta name="dtb:uid" content="{R.url}"/>' if R.daisy3 else '<meta content="text/html; charset=utf-8" http-equiv="content-type"/>'}
-        <meta name="generator" content="{generator}{' (squash option enabled)' if R.squash else ''}"/>
+        <meta name="generator" content="{generator}"/>
     </head>
     <{'book' if R.daisy3 else 'body'}>
         {f'<frontmatter><doctitle>{R.title}</doctitle><docauthor>{R.creator}</docauthor></frontmatter><bodymatter>' if R.daisy3 else ''}
@@ -1404,23 +1379,6 @@ or {'run the exe installer from lame.buanzo.org'
     if sys.platform=='win32' else 'install lame'
 }, and then try again.""")
 
-def check_we_got_AAC(need_miniaudio_too) -> None:
-    """Complains if an AAC encoder is not
-    available on this system"""
-    if which('afconvert'): pass
-    elif which('fdkaac'):
-        if need_miniaudio_too:
-            try:
-                import miniaudio as M
-                global miniaudio
-                miniaudio = M
-                return
-            except: error("If using the fdkaac binary, we also need the miniaudio library to decode MP3s") # noqa: E722 (ImportError or anything wrong with those libraries = can't use either)
-        else: pass
-    else: error("""Anemone requires the FDKAAC program to encode AAC audio.
-Please either remove the aac option, or run on a Mac, or install FDKAAC
-and then try again.""")
-
 tagRewrite = { # used by get_texts
     'legend':'h3', # used in fieldset
 }
@@ -1520,20 +1478,6 @@ def merge0lenSpans(recordingTexts:list, headings:list, hasAudio:list) -> None:
                     if pInfo.duringId > i//2: pages[pI]=PageInfo(pInfo.duringId-1,pInfo.pageNo)
             i += 1
 
-def squash_image(u:str, dat:bytes) -> bytes:
-    try:
-        from PIL import Image
-    except ImportError: return dat # no Pillow: can't squash images
-    imgType = u[u.rindex(".")+1:].lower().replace("jpg","jpeg")
-    img = Image.open(BytesIO(dat))
-    w, h = img.size
-    while w > 320 or h > 240: w,h = w//2,h//2
-    img,out = img.resize((w,h)), BytesIO()
-    img.save(out,imgType,
-             **({"optimize":True,"quality":50}
-                if imgType=="jpeg" else {}))
-    return out.getvalue()
-
 def recodeMP3(dat:bytes, R:Run) -> bytes:
     """Takes MP3 or WAV data, re-codes it
     as suitable for DAISY, and returns the bytes
@@ -1542,9 +1486,9 @@ def recodeMP3(dat:bytes, R:Run) -> bytes:
     if load_miniaudio_and_lameenc():
         # Preferred method: use these 2 libraries
         # (works with a range of input file types)
-        pcm = miniaudio.decode(dat,nchannels=1,sample_rate=11025 if R.squash else 44100)
+        pcm = miniaudio.decode(dat,nchannels=1,sample_rate=44100)
         enc = lameenc.Encoder()
-        enc.set_bit_rate(16 if R.squash else 64)
+        enc.set_bit_rate(64)
         enc.set_channels(1)
         enc.set_quality(0)
         enc.set_in_sample_rate(pcm.sample_rate)
@@ -1571,35 +1515,10 @@ def recodeMP3(dat:bytes, R:Run) -> bytes:
                ['-m','m',
                 '--bitwidth',m.group(3).decode('latin1'),
                 "-",
-                "--resample","11.025" if R.squash else "44.1",
-                "-b","16" if R.squash else "64",
+                "--resample","44.1",
+                "-b","64",
                 "-q","0","-o","-"],
                input=decodeJob.stdout,check=True,stdout=PIPE).stdout
-
-def recodeAAC(dat:bytes, R:Run) -> bytes:
-    """Takes MP3 or WAV data, re-codes it
-    as suitable for DAISY, and returns the bytes
-    of new AAC data for putting into DAISY ZIP"""
-    # Neither afconvert nor fdkaac allow stdout streaming,
-    # so we're going to need a temp file for output.
-    # afconvert also can't stream from /dev/stdin
-    # (it works when redirecting via < but not via pipe),
-    # so we'll need a temp file for input as well on Mac.
-    outT = tempfile.NamedTemporaryFile(suffix=os.extsep+"mp4")
-    if which('afconvert'):
-        inT = tempfile.NamedTemporaryFile(suffix=os.extsep+("mp3" if 'audio/mp3' in R.MFile(dat).mime else "wav"))
-        open(inT.name,"wb").write(dat)
-        run(["afconvert",inT.name,outT.name,"-d","aac","-s","0",
-             "-b","16000" if R.squash else "48000"],
-            check=True)
-    else:
-        run(["fdkaac","-S","-I",
-                      "-b","16000" if R.squash else "48000",
-                      "-R","--raw-channels","1",
-                      "--raw-rate","11025" if R.squash else "44100",
-                      "-","-f","0","-o",outT.name],
-               input=miniaudio.decode(dat,nchannels=1,sample_rate=11025 if R.squash else 44100).samples.tobytes(),check=True)
-    return open(outT.name,'rb').read()
 
 def fetch(url:str,
           cache = "cache", # not necessarily str
@@ -1635,14 +1554,16 @@ def fetch(url:str,
     info: an optional Run instance to take the log
     (otherwise we use standard error)"""
 
-    global _last_request_time
-    try: _last_request_time
-    except NameError: _last_request_time = 0
-    if not info:
+    if not info: # no Run instance: use standard error and a global last request time
         class MockInfo:
             def info(self,text:str,newline:bool=True):
                 sys.stderr.write(f"{text}{chr(10) if newline else ''}"), sys.stderr.flush()
-        info = MockInfo()
+        global _globalMockInfo
+        try: _globalMockInfo
+        except NameError: _globalMockInfo = MockInfo()
+        info = _globalMockInfo
+    if delay and not hasattr(info,"_last_request_time"):
+        info._last_request_time = 0
     ifModSince = None
     headers = {"User-Agent":user_agent} if user_agent else {}
     if hasattr(cache,"get"):
@@ -1657,15 +1578,13 @@ def fetch(url:str,
             if r.status_code == 200:
                 return r.content
         if delay and not is_recent_requestsCache_version:
-            global _last_request_warned
-            try: _last_request_warned
-            except NameError:
-                _last_request_warned = True
+            if not hasattr(info,"_last_request_warned"):
+                info._last_request_warned = True
                 info.info("Using the parameter 'delay' with a requests_cache object requires a version of requests_cache that supports the only_if_cached parameter.  Your requests_cache seems too old.  Ignoring 'delay'.")
                 # otherwise we'd have to unconditionally delay even for things we already have cached
         info.info(f"Fetching {url}...",False)
         if delay and is_recent_requestsCache_version:
-            time.sleep(min(0,_last_request_time+delay-time.time()))
+            time.sleep(min(0,info._last_request_time+delay-time.time()))
         try:
            if 'force_refresh' in inspect.getfullargspec(cache.request).args:
               r = cache.request('GET',url,
@@ -1678,13 +1597,13 @@ def fetch(url:str,
                           headers = headers,
                           timeout = 20)
         except Exception as e:
-            _last_request_time = time.time()
+            info._last_request_time = time.time()
             if retries:
                 info.info(f" error, retrying ({retries} {'try' if retries==1 else 'tries'} left)")
                 return fetch(url,cache,refresh,refetch,delay,user_agent,retries-1,info)
             info.info(" error")
             raise HTTPError("",500,f"{e}",{},None)
-        _last_request_time = time.time()
+        info._last_request_time = time.time()
         if r.status_code == 200:
             info.info(" fetched")
             return r.content
@@ -1713,7 +1632,7 @@ def fetch(url:str,
       elif os.path.exists(fnExc) and not refetch and not refresh: raise HTTPError("",int(open(fnExc).read()),"HTTP error on last fetch",{},None) # useful especially if a wrapper script is using our fetch() for multiple chapters and stopping on a 404
       Path(fn[:fn.rindex(os.sep)]).mkdir(parents=True,exist_ok=True)
     info.info(f"Fetching {url}...",False)
-    if delay: time.sleep(min(0,_last_request_time+delay-time.time()))
+    if delay: time.sleep(min(0,info._last_request_time+delay-time.time()))
     if ifModSince:
         t = time.gmtime(ifModSince)
         headers["If-Modified-Since"]=f"{'Mon Tue Wed Thu Fri Sat Sun'.split()[t.tm_wday]}, {t.tm_mday} {'Jan Feb Mar Apr May Jun Jul Aug Sep Oct Nov Dec'.split()[t.tm_mon-1]} {t.tm_year} {t.tm_hour:02d}:{t.tm_min:02d}:{t.tm_sec:02d} GMT"
@@ -1722,7 +1641,7 @@ def fetch(url:str,
         for b in url.encode('utf-8'))
     try: dat = urlopen(Request(url2,headers=headers)).read()
     except Exception as e:
-        _last_request_time = time.time()
+        info._last_request_time = time.time()
         if not isinstance(e,HTTPError):
             if retries:
                 info.info(f" error {e}, retrying ({retries} {'try' if retries==1 else 'tries'} left)")
@@ -1736,7 +1655,7 @@ def fetch(url:str,
             if cache: open(fnExc,"w").write(
                     str(e.getcode()))
             raise
-    _last_request_time = time.time()
+    info._last_request_time = time.time()
     if cache:
         open(fn,'wb').write(dat)
         info.info(" saved")
