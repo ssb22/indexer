@@ -1,6 +1,6 @@
 #!/usr/bin/env python3
 """
-Anemone 1.79 (http://ssb22.user.srcf.net/anemone)
+Anemone 1.8 (http://ssb22.user.srcf.net/anemone)
 (c) 2023-24 Silas S. Brown.  License: Apache 2
 
 To use this module, either run it from the command
@@ -59,12 +59,7 @@ def anemone(*files,**options) -> list[str]:
         R.write_all(R.get_texts())
         return R.warnings
     except AnemoneError: raise
-    except Exception as e: # make sure wrapped in AnemoneError
-        if __name__=="__main__" or "ANEMONE_DEBUG" in os.environ:
-            sys.stderr.write(traceback.format_exc())
-        tb = e.__traceback__
-        while tb.tb_next: tb = tb.tb_next
-        raise AnemoneError(f"Unhandled {e.__class__.__name__}: {e} at line {tb.tb_lineno} (v{version})")
+    except Exception as e: raise AnemoneError("Unhandled",e) # ensure wrapped
 
 def populate_argument_parser(args) -> None:
     """Calls add_argument on args, with the names
@@ -287,9 +282,17 @@ class AnemoneError(Exception):
     standard error stream regardless of how the
     calling code handles it (might be useful to
     diagnose misbehaving calling environments)"""
-    def __init__(self, message):
+    def __init__(self, message, exception=None):
+        if exception is not None:
+            if __name__=="__main__" or "ANEMONE_DEBUG" in os.environ:
+                sys.stderr.write(traceback.format_exc())
+            tb = exception.__traceback__
+            while tb.tb_next: tb = tb.tb_next
+            message += f""" {exception.__class__.__name__}: {exception} {
+            f"at line {tb.tb_lineno} (v{version})" if
+            tb.tb_frame.f_locals['__name__'] == __name__
+            else f"in {tb.tb_frame.f_locals['__name__']}"}"""
         Exception.__init__(self,message)
-        import os # might not have been imported yet
         if "ANEMONE_DEBUG" in os.environ:
             sys.stderr.write(f"Got AnemoneError: {message}\n")
 
@@ -307,7 +310,7 @@ class Run():
   command line, or from anemone() caller."""
   def __init__(self,*inFiles,**kwargs):
     R = self
-    R.audioData,R.filenameTitles = [],[]
+    R.audioData,R.filenameTitles,R.filenameExt = [],[],[]
     R.jsonData = []
     R.textData,R.htmlData = [],[]
     R.imageFiles,R.outputFile = [],None
@@ -371,10 +374,8 @@ class Run():
             R.htmlData.append(f)
         elif fOrig.lower().endswith(f"{os.extsep}mp3") or fOrig.lower().endswith(f"{os.extsep}wav"):
             R.audioData.append(f)
-            if R.has_old_mutagen() and fOrig.lower().endswith(f"{os.extsep}mp3"):
-                # Mutagen 1.46 and below can't always auto-detect MP3 files, so we trust the extension if we're not on 1.47+
-                R.old_mutagen.add(f)
             R.filenameTitles.append(fOrig[:fOrig.rindex(os.extsep)])
+            R.filenameExt.append(fOrig[fOrig.rindex(os.extsep)+1:])
         elif fOrig.lower().endswith(f"{os.extsep}txt"):
             try: f = f.decode('utf-8').strip()
             except UnicodeDecodeError: error(f"Couldn't decode {fOrig} as UTF-8")
@@ -446,22 +447,9 @@ class Run():
                            for f in files
                            if isinstance(f,str)):
         check_we_got_LAME()
-  def has_old_mutagen(self) -> bool:
-      """Detect Mutagen 1.46 or earlier.  This is supplied with
-      Ubuntu 24.04 LTS (non-pip) and cannot detect MP3 files
-      unless they have ID3 tags, so we be more careful if that
-      old version is on the system."""
-      try: return self.old_mutagen
-      except AttributeError: pass
-      global mutagen
-      try: import mutagen
-      except ImportError: return # we'll error later (above)
-      if mutagen.version < (1,47,0):
-          self.old_mutagen = set([True])
-      else: self.old_mutagen = set()
-      return self.old_mutagen
-  def MFile(self,dat):
-      if dat in self.old_mutagen:
+  def MFile(self,dat,hasMP3ext=False):
+      if hasMP3ext:
+          # Mutagen 1.46 and below can't auto-detect MP3 w/out ID tags, so trust the extension
           from mutagen import mp3
           return mp3.MP3(BytesIO(dat)) # override autodetect
       else: return mutagen.File(BytesIO(dat))
@@ -472,10 +460,13 @@ class Run():
     self.warnings.append(warningText)
     if not __name__=="__main__" and "ANEMONE_DEBUG" in os.environ:
         sys.stderr.write(f"Anemone-Warning: {warningText}\n") # even if warning_callback overridden, do this as well
-    self.warning_callback(warningText)
+    try: self.warning_callback(warningText)
+    except Exception as e: raise AnemoneError("warning_callback exception",e) # don't ignore: might mean a GUI app is shutting down and we need to remove an in-progress zip before a timeout
   def info(self,text:str,newline:bool=True)->None:
       if "info_callback" in self.__dict__:
-          if text: self.info_callback(text)
+          if text:
+              try: self.info_callback(text)
+              except Exception as e: raise AnemoneError("info_callback exception",e) # don't ignore, as above
           if "ANEMONE_DEBUG" not in os.environ: return
       sys.stderr.write(f"{text}{chr(10) if newline else ''}")
       sys.stderr.flush()
@@ -503,7 +494,8 @@ class Run():
       percentage = self.base_percent + int(
           i * self.prog_N / self.prog_D)
       if percentage <= self.old_progress: return
-      self.progress_callback(percentage)
+      try: self.progress_callback(percentage)
+      except Exception as e: raise AnemoneError("progress_callback exception",e) # don't ignore, as above
       self.old_progress = percentage
   def check_for_JSON_transcript(self) -> None:
     """Checks to see if the last thing added to
@@ -599,7 +591,7 @@ class Run():
             } for {R.outputFile}\n""")
     merge0lenSpans(recordingTexts,headings,R.audioData)
     if R.mp3_recode and any(R.audioData) or any(
-            'audio/mp3' not in R.MFile(dat).mime for dat in R.audioData if dat): # parallelise lame if possible
+            'audio/mp3' not in R.MFile(dat,ext.lower()=="mp3").mime for dat,ext in zip(R.audioData,R.filenameExt) if dat): # parallelise lame if possible
         if not __name__=="__main__":
             R.info(
                 f"Making {R.outputFile}...") # especially if repeatedly called as a module, better print which outputFile we're working on BEFORE the mp3s as well as after
@@ -613,10 +605,11 @@ class Run():
         else: executor = shared_executor
         recordingTasks=[(executor.submit(
             (recodeMP3 if R.mp3_recode or
-             'audio/mp3' not in R.MFile(dat).mime
-             else lambda x,r:x),
-            dat, R) if dat else None)
-                        for dat in R.audioData]
+             'audio/mp3' not in R.MFile(dat,ext.lower()=="mp3").mime
+             else lambda x,r,m:x),
+            dat, R, ext.lower()=="mp3") if dat else None)
+                        for dat,ext in zip(R.audioData,R.filenameExt)]
+        R.audioData = [not not d for d in R.audioData] # save RAM: can drop original MP3 once each chapter finishes re-coding, even if ahead of collector waiting for longer earlier chapter
     else: executor,recordingTasks = None,None
     try: R.write_all0(recordingTexts,headings,recordingTasks)
     except: # unhandled exception: clean up
@@ -681,8 +674,14 @@ class Run():
     R.progress_loopStart(len(recordingTexts),70)
     for recNo in range(1,len(recordingTexts)+1):
         rTxt = recordingTexts[recNo-1]
-        secsThisRecording = R.MFile(R.audioData[recNo-1]
-        ).info.length if R.audioData[recNo-1] else 0
+        if R.audioData[recNo-1]:
+            if recordingTasks is not None:
+                R.info(f"""Adding {
+                    recNo:04d}.mp3...""",False)
+                R.audioData[recNo-1] = recordingTasks[recNo-1].result()
+                recordingTasks[recNo-1] = True # clear extra ref so data dropped below
+            secsThisRecording = R.MFile(R.audioData[recNo-1],True).info.length # (True because will be MP3 by now even if previously wasn't)
+        else: secsThisRecording = 0
         if secsThisRecording > 3600:
             R.warning(f"""Recording {recNo
             } is long enough to cause ~{
@@ -690,15 +689,10 @@ class Run():
             }sec synchronisation error on some readers""") # seems lame v3.100 can result in timestamps being effectively multiplied by ~1.0001 on some players but not all, causing slight de-sync on 1h+ recordings (bladeenc may avoid this but be lower quality overall; better to keep the recordings shorter if possible)
         durations.append(secsThisRecording)
         if R.audioData[recNo-1]:
-            if recordingTasks is not None:
-                R.info(f"""Adding {
-                    recNo:04d}.mp3...""",False)
             writestr(f"{recNo:04d}.mp3",
-                 R.audioData[recNo-1]
-                 if recordingTasks is None
-                 else recordingTasks[recNo-1].result())
-            if recordingTasks is not None:
-                R.info(" done")
+                 R.audioData[recNo-1])
+            R.audioData[recNo-1] = True # save RAM: drop once used
+            if recordingTasks is not None: R.info(" done")
         writestr(f'{recNo:04d}.smil',D(
             R.section_smil(recNo,secsSoFar,
                          secsThisRecording,curP,
@@ -1497,7 +1491,7 @@ def merge0lenSpans(recordingTexts:list, headings:list, hasAudio:list) -> None:
                     if pInfo.duringId > i//2: pages[pI]=PageInfo(pInfo.duringId-1,pInfo.pageNo)
             i += 1
 
-def recodeMP3(dat:bytes, R:Run) -> bytes:
+def recodeMP3(dat:bytes, R:Run, hasMP3ext:bool=False) -> bytes:
     """Takes MP3 or WAV data, re-codes it
     as suitable for DAISY, and returns the bytes
     of new MP3 data for putting into DAISY ZIP"""
@@ -1506,12 +1500,14 @@ def recodeMP3(dat:bytes, R:Run) -> bytes:
         # Preferred method: use these 2 libraries
         # (works with a range of input file types)
         pcm = miniaudio.decode(dat,nchannels=1,sample_rate=44100)
+        del dat # might save RAM if ThreadPoolExecutor doesn't still have a ref to the submitted task's parameter
         enc = lameenc.Encoder()
         enc.set_bit_rate(64)
         enc.set_channels(1)
         enc.set_quality(0)
         enc.set_in_sample_rate(pcm.sample_rate)
-        mp3=enc.encode(pcm.samples.tobytes())
+        pcm=pcm.samples.tobytes() # save a bit of RAM: don't keep pcm object when we need only its bytes going forward
+        mp3=enc.encode(pcm) # can take time
         return mp3 + enc.flush()
 
     # Fallback method: use LAME external binary.
@@ -1521,11 +1517,12 @@ def recodeMP3(dat:bytes, R:Run) -> bytes:
     # eyed3 clear() won't help: it zeros out bytes without changing indices.
     # To ensure everything is removed, better decode to raw PCM and re-encode.
     # The --decode option has been in LAME since 2000; don't worry about LAME's ./configure --disable-decoder: that is an option for building cut-down libraries, not the command-line frontend
-    decodeJob = run(["lame","-t","--decode"]+(["--mp3input"] if 'audio/mp3' in R.MFile(dat).mime else [])+["-","-o","-"],input=dat,check=True,stdout=PIPE,stderr=PIPE)
+    decodeJob = run(["lame","-t","--decode"]+(["--mp3input"] if 'audio/mp3' in R.MFile(dat,hasMP3ext).mime else [])+["-","-o","-"],input=dat,check=True,stdout=PIPE,stderr=PIPE)
     # (On some LAME versions, the above might work
     # with AIFF files too, but we say MP3 or WAV.
     # Some LAME versions can't take WAV from stdin
     # only raw when encoding, but ok if --decode)
+    del dat
     m = re.search(b'(?s)([0-9.]+) kHz, ([0-9]+).*?([0-9]+) bit',decodeJob.stderr)
     if not m: error("lame did not give expected format for frequency, channels and bits output")
     return run(["lame","--quiet","-r","-s",
@@ -1846,10 +1843,10 @@ if __name__ == "__main__": anemone()
 
 version = float(__doc__.split()[1]) # for code importing the module to check
 
-# __all__ cuts down what's listed in help(anemone), w/out stopping other things being available via dir() and help(symbol).  Might be useful especially because the default help() lists all classes, including namedtuple classes, with all default methods, before even getting to the anemone() function.  They can have other things *after* anemone(), but we want them to see anemone() as near to the top of the documentation as possible.  So let's take out the classes.
+# __all__ cuts down what's listed in help(anemone), w/out stopping other things being available via dir() and help(symbol).  Might be useful especially because the default help() lists all classes, including namedtuple classes, with all default methods, before even getting to the anemone() function.  They can have other things *after* anemone(), but we want them to see anemone() as near to the top of the documentation as possible.  So let's take out the classes (except AnemoneError).
 __all__ = sorted(n for n,s in globals().items()
                  if (isinstance(s,type(anemone))
-                     or n=='version')
+                     or n=='version' or n=='AnemoneError')
                  and n not in ['run','unquote',
                                'urlopen','which'])
 
