@@ -1,6 +1,6 @@
 #!/usr/bin/env python3
 """
-Anemone 1.8 (http://ssb22.user.srcf.net/anemone)
+Anemone 1.81 (http://ssb22.user.srcf.net/anemone)
 (c) 2023-24 Silas S. Brown.  License: Apache 2
 
 To use this module, either run it from the command
@@ -288,10 +288,12 @@ class AnemoneError(Exception):
                 sys.stderr.write(traceback.format_exc())
             tb = exception.__traceback__
             while tb.tb_next: tb = tb.tb_next
-            message += f""" {exception.__class__.__name__}: {exception} {
+            message += f""" {exception.__class__.__name__
+            }: {exception} {
             f"at line {tb.tb_lineno} (v{version})" if
-            tb.tb_frame.f_locals['__name__'] == __name__
-            else f"in {tb.tb_frame.f_locals['__name__']}"}"""
+            tb.tb_frame.f_globals['__name__'] == __name__
+            else f'''at {tb.tb_frame.f_globals['__name__']
+            }:{tb.tb_lineno}'''}"""
         Exception.__init__(self,message)
         if "ANEMONE_DEBUG" in os.environ:
             sys.stderr.write(f"Got AnemoneError: {message}\n")
@@ -374,7 +376,11 @@ class Run():
             R.htmlData.append(f)
         elif fOrig.lower().endswith(f"{os.extsep}mp3") or fOrig.lower().endswith(f"{os.extsep}wav"):
             R.audioData.append(f)
-            R.filenameTitles.append(fOrig[:fOrig.rindex(os.extsep)])
+            R.filenameTitles.append(
+                fOrig[fOrig.rfind('/' if re.match(
+                    'https?://',fOrig) else os.sep)+1:
+                      fOrig.rindex('.' if re.match('https?://',fOrig)
+                                   else os.extsep)])
             R.filenameExt.append(fOrig[fOrig.rindex(os.extsep)+1:])
         elif fOrig.lower().endswith(f"{os.extsep}txt"):
             try: f = f.decode('utf-8').strip()
@@ -436,7 +442,7 @@ class Run():
     R = self
     global mutagen, BeautifulSoup
     if R.audioData and any(R.audioData):
-        try: import mutagen
+        try: import mutagen, mutagen.mp3
         except ImportError: error('Anemone needs the Mutagen library to determine play lengths.\nPlease do: pip install mutagen\nIf you are unable to use pip, it may also work to download mutagen source and move its "mutagen" directory to the current directory.')
     if R.htmlData:
         try: from bs4 import BeautifulSoup
@@ -447,12 +453,6 @@ class Run():
                            for f in files
                            if isinstance(f,str)):
         check_we_got_LAME()
-  def MFile(self,dat,hasMP3ext=False):
-      if hasMP3ext:
-          # Mutagen 1.46 and below can't auto-detect MP3 w/out ID tags, so trust the extension
-          from mutagen import mp3
-          return mp3.MP3(BytesIO(dat)) # override autodetect
-      else: return mutagen.File(BytesIO(dat))
   def warning(self,warningText:str) -> None:
     """Logs a warning (or an error if
        warnings_are_errors is set)"""
@@ -591,7 +591,7 @@ class Run():
             } for {R.outputFile}\n""")
     merge0lenSpans(recordingTexts,headings,R.audioData)
     if R.mp3_recode and any(R.audioData) or any(
-            'audio/mp3' not in R.MFile(dat,ext.lower()=="mp3").mime for dat,ext in zip(R.audioData,R.filenameExt) if dat): # parallelise lame if possible
+            not ext.lower()=="mp3" for dat,ext in zip(R.audioData,R.filenameExt) if dat): # parallelise lame if possible
         if not __name__=="__main__":
             R.info(
                 f"Making {R.outputFile}...") # especially if repeatedly called as a module, better print which outputFile we're working on BEFORE the mp3s as well as after
@@ -605,8 +605,7 @@ class Run():
         else: executor = shared_executor
         recordingTasks=[(executor.submit(
             (recodeMP3 if R.mp3_recode or
-             'audio/mp3' not in R.MFile(dat,ext.lower()=="mp3").mime
-             else lambda x,r,m:x),
+             not ext.lower()=="mp3" else lambda x,r,m:x),
             dat, R, ext.lower()=="mp3") if dat else None)
                         for dat,ext in zip(R.audioData,R.filenameExt)]
         R.audioData = [not not d for d in R.audioData] # save RAM: can drop original MP3 once each chapter finishes re-coding, even if ahead of collector waiting for longer earlier chapter
@@ -680,7 +679,7 @@ class Run():
                     recNo:04d}.mp3...""",False)
                 R.audioData[recNo-1] = recordingTasks[recNo-1].result()
                 recordingTasks[recNo-1] = True # clear extra ref so data dropped below
-            secsThisRecording = R.MFile(R.audioData[recNo-1],True).info.length # (True because will be MP3 by now even if previously wasn't)
+            secsThisRecording = mutagen.mp3.MP3(BytesIO(R.audioData[recNo-1])).info.length
         else: secsThisRecording = 0
         if secsThisRecording > 3600:
             R.warning(f"""Recording {recNo
@@ -1179,7 +1178,7 @@ class Run():
       <x-metadata>
          <meta name="dtb:multimediaType" content="{"audioFullText" if hasFullText else "audioNcc"}"/>
          <meta name="dtb:totalTime" content="{hmsTime(totalSecs)}"/>
-         <meta name="dtb:multimediaContent" content="{','.join(['audio,' if any(R.audioData) else '','text' if hasFullText or not any(R.audioData) else '','image' if R.imageFiles else ''])}"/>
+         <meta name="dtb:multimediaContent" content="{','.join((['audio'] if any(R.audioData) else [])+(['text'] if hasFullText or not any(R.audioData) else [])+(['image'] if R.imageFiles else []))}"/>
          <meta name="dtb:narrator" content="{deHTML(R.reader)}"/>
          {'<meta name="dtb:audioFormat" content="MP3"/>' if any(R.audioData) else ''}
          <meta name="dtb:producedDate" content="{R.date}"/>
@@ -1517,7 +1516,7 @@ def recodeMP3(dat:bytes, R:Run, hasMP3ext:bool=False) -> bytes:
     # eyed3 clear() won't help: it zeros out bytes without changing indices.
     # To ensure everything is removed, better decode to raw PCM and re-encode.
     # The --decode option has been in LAME since 2000; don't worry about LAME's ./configure --disable-decoder: that is an option for building cut-down libraries, not the command-line frontend
-    decodeJob = run(["lame","-t","--decode"]+(["--mp3input"] if 'audio/mp3' in R.MFile(dat,hasMP3ext).mime else [])+["-","-o","-"],input=dat,check=True,stdout=PIPE,stderr=PIPE)
+    decodeJob = run(["lame","-t","--decode"]+(["--mp3input"] if hasMP3ext else [])+["-","-o","-"],input=dat,check=True,stdout=PIPE,stderr=PIPE)
     # (On some LAME versions, the above might work
     # with AIFF files too, but we say MP3 or WAV.
     # Some LAME versions can't take WAV from stdin
