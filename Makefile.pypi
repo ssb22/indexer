@@ -5,7 +5,7 @@ check-if-anemone-version-is-changing:
 	if (git diff;git diff --staged)|grep '^[+]Anemone [0-9]'; then make -f Makefile.pypi update-anemone-pypi; else true; fi
 check-if-macvoice-utils-version-is-changing:
 	@if grep '^v[0-9][^.]*[.][0-9][0-9]' macvoice_utils.py; then echo "2+ decimal digits in macvoice_utils version number will need another -e 's/[.][1-9]$$/&0/' in Makefile.pypi's sed expression"; false; fi
-	if (git diff;git diff --staged)|grep '^[+]v[0-9]'; then make -f Makefile.pypi update-macvoice-utils-pypi; else true; fi
+	if (git diff macvoice_utils.py;git diff --staged macvoice_utils.py)|grep '^[+]v[0-9]'; then make -f Makefile.pypi update-macvoice-utils-pypi; else true; fi
 update-anemone-pypi:
 	mkdir anemone
 	cp anemone.py anemone/__init__.py
