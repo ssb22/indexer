@@ -1,6 +1,6 @@
 #!/usr/bin/env python3
 """
-Anemone 1.81 (http://ssb22.user.srcf.net/anemone)
+Anemone 1.82 (http://ssb22.user.srcf.net/anemone)
 (c) 2023-24 Silas S. Brown.  License: Apache 2
 
 To use this module, either run it from the command
@@ -365,6 +365,11 @@ class Run():
                 error(f"Unable to fetch {f}: {e}")
         elif delimited(f,'{','}'): pass
         elif delimited(f,'<','>'): pass
+        elif isinstance(f,bytes) and (f.startswith(b"RIFF") or f.startswith(b"ID3") or f.startswith(b"\xFF")): # audio data passed in to anemone() function
+            R.audioData.append(f)
+            R.filenameTitles.append("untitled")
+            R.filenameExt.append("wav" if f.startswith(b"RIFF") else "mp3")
+            continue
         elif not os.path.isfile(f): error(f"File not found: {f}")
         else: f = open(f,"rb").read()
         if delimited(f,'{','}'):
@@ -596,10 +601,10 @@ class Run():
             R.info(
                 f"Making {R.outputFile}...") # especially if repeatedly called as a module, better print which outputFile we're working on BEFORE the mp3s as well as after
         if R.max_threads:
-            if R.max_threads < 0: error(f"max-threads cannot be negative: {R.max_threads}")
-            executor = ThreadPoolExecutor(max_workers=R.max_threads)
+            if int(R.max_threads) < 1: error(f"max-threads, if specified, should be at least 1: {R.max_threads}") # seems some implementations of ThreadPoolExecutor will treat e.g. 0.5 as 1, but let's err on the side of caution and make it an int + re-check
+            executor = ThreadPoolExecutor(max_workers=int(R.max_threads))
             cCount = cpu_count()
-            if cCount and R.max_threads > cCount:
+            if cCount and int(R.max_threads) > cCount:
                 R.warning(f"""specified max {R.max_threads
                 } recode threads but detected only {cCount} CPUs""")
         else: executor = shared_executor
@@ -1479,15 +1484,17 @@ def merge0lenSpans(recordingTexts:list, headings:list, hasAudio:list) -> None:
         while i < len(textsAndTimes)-2:
             while i < len(textsAndTimes)-2 and \
                   isinstance(textsAndTimes[i],TagAndText) and \
-            (0 if i==0 else textsAndTimes[i-1])==\
-            textsAndTimes[i+1] and \
-            textsAndTimes[i].tag==textsAndTimes[i+2].tag: # tag identical and 0-length
+            (0 if i==0 else textsAndTimes[i-1])>=\
+            textsAndTimes[i+1]: # 0-length, or -ve due to 0.001 below
+              if textsAndTimes[i].tag==textsAndTimes[i+2].tag: # tag identical
                 textsAndTimes[i] = TagAndText(textsAndTimes[i].tag, f"{textsAndTimes[i].text}{' ' if textsAndTimes[i].tag=='span' else '<br>'}{textsAndTimes[i+2].text}") # new combined item
                 del textsAndTimes[i+1:i+3] # old
                 for hI,hV in enumerate(cH):
                     if hV.itemNo > i//2: cH[hI]=ChapterTOCInfo(hV.hTag,hV.hLine,hV.itemNo-1)
                 for pI,pInfo in enumerate(pages):
                     if pInfo.duringId > i//2: pages[pI]=PageInfo(pInfo.duringId-1,pInfo.pageNo)
+              else: # tag different: can't merge, but can still help Thorium Reader by not putting a completely 0-length paragraph
+                textsAndTimes[i+1] = textsAndTimes[i-1] + 0.001
             i += 1
 
 def recodeMP3(dat:bytes, R:Run, hasMP3ext:bool=False) -> bytes:
