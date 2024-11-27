@@ -1,6 +1,6 @@
 #!/usr/bin/env python3
 """
-Anemone 1.82 (http://ssb22.user.srcf.net/anemone)
+Anemone 1.83 (http://ssb22.user.srcf.net/anemone)
 (c) 2023-24 Silas S. Brown.  License: Apache 2
 
 To use this module, either run it from the command
@@ -324,14 +324,19 @@ class Run():
                 [a for k,v in kwargs.items()
                  for a in
                  ['--'+k.replace('_','-'),str(v)]
-                 if type(v) in [str,int]])
+                 if type(v) in [str,int,float]])
             .__dict__)
         R.files = inFiles # may mix dict + string, even in same category especially if using "skip", so don't separate types
     else: # being called from the command line
         R.__dict__.update(get_argument_parser().parse_args().__dict__)
     R.__dict__.update((k,v)
                       for k,v in kwargs.items()
-                      if type(v) not in [str,int,type(None)]) # (None means keep the default from parse_args; boolean and bytes we might as well handle directly; list e.g. merge_books should bypass parser; ditto session object for cache, a type we can't even name here if requests_cache is not installed)
+                      if type(v) not in [str,int,float,type(None)]) # (None means keep the default from parse_args; boolean and bytes we might as well handle directly; list e.g. merge_books should bypass parser; ditto session object for cache, a type we can't even name here if requests_cache is not installed)
+    # Ensure numeric arguments are not strings (since at least some versions of argparse will return strings if defaults overridden)
+    for k in ['delay','retries','max_threads']:
+        try: R.__dict__[k] = float(R.__dict__[k])
+        except ValueError: error(f"{k} must be a number")
+    R.__dict__['retries'] = int(R.__dict__['retries']) # "2.0" OK but "2.1" would loop if not take int
     for k in ['merge_books','chapter_titles']:
         if not isinstance(R.__dict__[k],list):
             if not isinstance(R.__dict__[k],str): error(f"{k} must be Python list or comma-separated string")
@@ -1844,10 +1849,9 @@ def set_max_shared_workers(nWorkers:int = 0) -> None:
         shared_executor = ThreadPoolExecutor(max_workers=nWorkers)
         if old: old.shutdown()
 set_max_shared_workers()
+version = float(__doc__.split()[1])
 
 if __name__ == "__main__": anemone()
-
-version = float(__doc__.split()[1]) # for code importing the module to check
 
 # __all__ cuts down what's listed in help(anemone), w/out stopping other things being available via dir() and help(symbol).  Might be useful especially because the default help() lists all classes, including namedtuple classes, with all default methods, before even getting to the anemone() function.  They can have other things *after* anemone(), but we want them to see anemone() as near to the top of the documentation as possible.  So let's take out the classes (except AnemoneError).
 __all__ = sorted(n for n,s in globals().items()
