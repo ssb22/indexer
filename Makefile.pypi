@@ -1,10 +1,16 @@
 # -*- mode: Makefile -*-
-all: check-if-anemone-version-is-changing check-if-macvoice-utils-version-is-changing
-check-if-anemone-version-is-changing:
+
+# This file contains rules to update the anemone and macvoice-utils PyPI packages.
+# It is run automatically by my homepage update scripts before a commit.
+# Current limitations: accepting a pull request from anyone else without a follow-on update would require remembering to do a manual `make -f Makefile.pypi update-anemone-pypi` or `make -f Makefile.pypi update-macvoice-utils-pypi`
+
+all: test check-if-anemone-version-is-changing check-if-macvoice-utils-version-is-changing
+test:
 	@if python3 anemone.py --version|grep '[.][0-9][0-9][0-9]'; then echo "3+ decimal digits in anemone version number will now need another -e 's/[.][0-9][0-9]$$/&0/' in Makefile.pypi's sed expression"; false; fi
+	@if grep '^v[0-9][^.]*[.][0-9][0-9]' macvoice_utils.py; then echo "2+ decimal digits in macvoice_utils version number will need another -e 's/[.][1-9]$$/&0/' in Makefile.pypi's sed expression"; false; fi
+check-if-anemone-version-is-changing:
 	if (git diff;git diff --staged)|grep '^[+]Anemone [0-9]'; then make -f Makefile.pypi update-anemone-pypi; else true; fi
 check-if-macvoice-utils-version-is-changing:
-	@if grep '^v[0-9][^.]*[.][0-9][0-9]' macvoice_utils.py; then echo "2+ decimal digits in macvoice_utils version number will need another -e 's/[.][1-9]$$/&0/' in Makefile.pypi's sed expression"; false; fi
 	if (git diff macvoice_utils.py;git diff --staged macvoice_utils.py)|grep '^[+]v[0-9]'; then make -f Makefile.pypi update-macvoice-utils-pypi; else true; fi
 update-anemone-pypi:
 	mkdir anemone
@@ -35,4 +41,4 @@ update-rtfuc-pypi:
 	twine upload dist/*
 	mv ../README.md .
 	rm -r rtfuc.egg-info dist rtfuc setup.py
-.PHONY: check-if-anemone-version-is-changing check-if-macvoice-utils-version-is-changing update-anemone-pypi update-macvoice-utils-pypi update-rtfuc-pypi all
+.PHONY: test check-if-anemone-version-is-changing check-if-macvoice-utils-version-is-changing update-anemone-pypi update-macvoice-utils-pypi update-rtfuc-pypi all

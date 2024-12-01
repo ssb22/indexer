@@ -1,5 +1,6 @@
 # -*- mode: Makefile -*-
 test: test_ohi_latex test_anemone
+	make -f Makefile.pypi test
 	@echo All tests passed
 test_ohi_latex:
 	echo kǎoyàn|python2.7 ohi_latex.py --dry-run
