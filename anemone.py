@@ -1,7 +1,7 @@
 #!/usr/bin/env python3
 """
-Anemone 1.83 (http://ssb22.user.srcf.net/anemone)
-(c) 2023-24 Silas S. Brown.  License: Apache 2
+Anemone 1.84 (http://ssb22.user.srcf.net/anemone)
+(c) 2023-25 Silas S. Brown.  License: Apache 2
 
 To use this module, either run it from the command
 line, or import it and use the anemone() function.
@@ -387,10 +387,11 @@ class Run():
         elif fOrig.lower().endswith(f"{os.extsep}mp3") or fOrig.lower().endswith(f"{os.extsep}wav"):
             R.audioData.append(f)
             R.filenameTitles.append(
-                fOrig[fOrig.rfind('/' if re.match(
-                    'https?://',fOrig) else os.sep)+1:
-                      fOrig.rindex('.' if re.match('https?://',fOrig)
-                                   else os.extsep)])
+                (fOrig[fOrig.rfind('/')+1:] if
+                 re.match('https?://',fOrig)
+                 else os.path.split(fOrig)[1])
+                [:fOrig.rindex('.' if re.match('https?://',fOrig)
+                               else os.extsep)])
             R.filenameExt.append(fOrig[fOrig.rindex(os.extsep)+1:])
         elif fOrig.lower().endswith(f"{os.extsep}txt"):
             try: f = f.decode('utf-8').strip()
@@ -437,12 +438,15 @@ class Run():
                 t="--"+t.replace("_","-")
             error(f"{t} must be a valid HTML attribute name")
     if not len(s)==3: error("marker_attribute, page_attribute and image_attribute must be different")
-    # Run constructor guarantees R.outputFile ends with ".zip", so we don't need to check that here
-    if "daisy" not in R.outputFile[:-4]: R.warning(f"Output filename {repr(R.outputFile)} does not contain 'daisy'")
-    if R.outputFile==f"output_daisy{os.extsep}zip": R.warning(f"Outputting to default filename {repr(R.outputFile)}.  It's better to set an output filename that identifies the publication.")
-    if not re.sub("[._-]","",R.outputFile[:-4].replace("daisy","")): R.warning(f"Output filename {repr(R.outputFile)} does not seem to contain any meaningful publication identifier")
-    if re.search('[%&?@*#{}<>!:+`=|$]',R.outputFile): R.warning(f"Output filename {repr(R.outputFile)} contains characters not allowed on Microsoft Windows")
-    if re.search('[ "'+"']",R.outputFile): R.warning(f"Space or quote in output filename may complicate things for command-line users: {repr(R.outputFile)}")
+    # Do a few checks on the filename (but not its full path).
+    # Run constructor guarantees R.outputFile ends with ".zip":
+    outDir,filename = os.path.split(R.outputFile[:-4])
+    outRpt = f"{filename}{f' (in {R.outputFile})' if outDir else ''}"
+    if "daisy" not in filename: R.warning(f"Output filename {outRpt} does not contain 'daisy'")
+    if filename==f"output_daisy{os.extsep}zip": R.warning(f"Outputting to default filename {outRpt}.  It's better to set an output filename that identifies the publication.")
+    if not re.sub("[._-]","",filename.replace("daisy","")): R.warning(f"Output filename {outRpt} does not seem to contain any meaningful publication identifier")
+    if re.search('[%&?@*#{}<>!:+`=|$]',filename): R.warning(f"Output filename {outRpt} contains characters not allowed on Microsoft Windows")
+    if re.search('[ "'+"']",filename): R.warning(f"Space or quote in output filename may complicate things for command-line users: {outRpt}")
   def import_libs(self,files) -> None:
     """Checks availability of, and imports, the
        libraries necessary for our run.  Not all
@@ -572,7 +576,10 @@ class Run():
             include_alt=include_alt_tags_in_text)
         rTxt = []
         for i in range(len(markers)):
-            rTxt.append(parseTime(jsonAttr(markers[i],"time")))
+            try: rTxt.append(parseTime(jsonAttr(markers[i],"time")))
+            except ValueError:
+                R.warning(f"JSON {len(recordingTexts)+1} marker {i+1} has invalid timestamp.  Ignoring this marker.")
+                continue
             if want_pids[i] in extractor.id_to_content:
                 tag,content = extractor.id_to_content[want_pids[i]]
                 content = ''.join(content).strip()
@@ -632,10 +639,9 @@ class Run():
   def write_all0(self,recordingTexts,headings,recordingTasks) -> None:
     "Service method for write_all"
     R = self
-    if os.sep in R.outputFile:
-        Path(R.outputFile[:R.outputFile.rindex(
-            os.sep)]).mkdir(parents=True,
-                            exist_ok=True)
+    d,_ = os.path.split(R.outputFile)
+    if d:
+        Path(d).mkdir(parents=True,exist_ok=True)
     z = ZipFile(R.outputFile,"w",ZIP_DEFLATED,
                 True)
     R.dataSectors = R.catalogueEntries = 0
@@ -1657,7 +1663,7 @@ def fetch(url:str,
             ifModSince=os.stat(fn).st_mtime
         else: return open(fn,'rb').read()
       elif os.path.exists(fnExc) and not refetch and not refresh: raise HTTPError("",int(open(fnExc).read()),"HTTP error on last fetch",{},None) # useful especially if a wrapper script is using our fetch() for multiple chapters and stopping on a 404
-      Path(fn[:fn.rindex(os.sep)]).mkdir(parents=True,exist_ok=True)
+      Path(os.path.split(fn)[0]).mkdir(parents=True,exist_ok=True)
     info.info(f"Fetching {url}...",False)
     if delay: time.sleep(min(0,info._last_request_time+delay-time.time()))
     if ifModSince:
