@@ -620,14 +620,14 @@ class Run():
                 R.warning(f"""specified max {R.max_threads
                 } recode threads but detected only {cCount} CPUs""")
         else: executor = shared_executor
-        recordingTasks=[(executor.submit(
+        recodeTasks=[(executor.submit(
             (recodeMP3 if R.mp3_recode or
              not ext.lower()=="mp3" else lambda x,r,m:x),
             dat, R, ext.lower()=="mp3") if dat else None)
                         for dat,ext in zip(R.audioData,R.filenameExt)]
         R.audioData = [not not d for d in R.audioData] # save RAM: can drop original MP3 once each chapter finishes re-coding, even if ahead of collector waiting for longer earlier chapter
-    else: executor,recordingTasks = None,None
-    try: R.write_all0(recordingTexts,headings,recordingTasks)
+    else: executor,recodeTasks = None,None
+    try: R.write_all0(recordingTexts,headings,recodeTasks)
     except: # unhandled exception: clean up
         if R.max_threads and executor:
             try: executor.shutdown(wait=False)
@@ -636,7 +636,7 @@ class Run():
         except: pass # noqa: E722
         raise
     if R.max_threads and executor: executor.shutdown()
-  def write_all0(self,recordingTexts,headings,recordingTasks) -> None:
+  def write_all0(self,recordingTexts,headings,recodeTasks) -> None:
     "Service method for write_all"
     R = self
     d,_ = os.path.split(R.outputFile)
@@ -690,11 +690,11 @@ class Run():
     for recNo in range(1,len(recordingTexts)+1):
         rTxt = recordingTexts[recNo-1]
         if R.audioData[recNo-1]:
-            if recordingTasks is not None:
+            if recodeTasks is not None:
                 R.info(f"""Adding {
                     recNo:04d}.mp3...""",False)
-                R.audioData[recNo-1] = recordingTasks[recNo-1].result()
-                recordingTasks[recNo-1] = True # clear extra ref so data dropped below
+                R.audioData[recNo-1] = recodeTasks[recNo-1].result()
+                recodeTasks[recNo-1] = True # clear extra ref so data dropped below
             secsThisRecording = mutagen.mp3.MP3(BytesIO(R.audioData[recNo-1])).info.length
         else: secsThisRecording = 0
         if secsThisRecording > 3600:
@@ -707,7 +707,7 @@ class Run():
             writestr(f"{recNo:04d}.mp3",
                  R.audioData[recNo-1])
             R.audioData[recNo-1] = True # save RAM: drop once used
-            if recordingTasks is not None: R.info(" done")
+            if recodeTasks is not None: R.info(" done")
         writestr(f'{recNo:04d}.smil',D(
             R.section_smil(recNo,secsSoFar,
                          secsThisRecording,curP,
