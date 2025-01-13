@@ -1,6 +1,6 @@
 #!/usr/bin/env python3
 """
-Anemone 1.84 (http://ssb22.user.srcf.net/anemone)
+Anemone 1.85 (http://ssb22.user.srcf.net/anemone)
 (c) 2023-25 Silas S. Brown.  License: Apache 2
 
 To use this module, either run it from the command
@@ -157,6 +157,8 @@ the number of threads you specify.
 If calling anemone as a module and you want to limit the
 pool size but still have a shared pool, then don't set this
 but instead call set_max_shared_workers().""")
+# Both can be overridden by the environment variable
+# ANEMONE_THREAD_LIMIT (e.g. 0 for unlimited)."""
     args.add_argument("--allow-jumps",
                       action="store_true",help="""
 Allow jumps in heading levels e.g. h1 to h3 if the
@@ -207,6 +209,17 @@ instead of a comma-separated string, which might
 be useful if there are commas in some chapter
 titles.  Use blank titles for chapters that
 already have them in the markup.""")
+    args.add_argument("--toc-titles",
+                      default="",help="""
+Comma-separated list of titles to use for the
+table of contents.  This can be set if you need
+more abbreviated versions of the chapter titles
+in the table of contents, while leaving the
+full versions in the chapters themselves.
+Again you may use a list instead of a
+comma-separated string if using the module.
+Any titles missing or blank in this list will
+be taken from the full chapter titles instead.""")
     args.add_argument("--chapter-heading-level",default=1,help="Heading level to use for chapters that don't have titles")
     args.add_argument("--warnings-are-errors",action="store_true",help="Treat warnings as errors")
     args.add_argument("--ignore-chapter-skips",action="store_true",help="Don't emit warnings or errors about chapter numbers being skipped")
@@ -337,7 +350,7 @@ class Run():
         try: R.__dict__[k] = float(R.__dict__[k])
         except ValueError: error(f"{k} must be a number")
     R.__dict__['retries'] = int(R.__dict__['retries']) # "2.0" OK but "2.1" would loop if not take int
-    for k in ['merge_books','chapter_titles']:
+    for k in ['merge_books','chapter_titles','toc_titles']:
         if not isinstance(R.__dict__[k],list):
             if not isinstance(R.__dict__[k],str): error(f"{k} must be Python list or comma-separated string")
             R.__dict__[k]=R.__dict__[k].split(',') # comma-separate if coming from the command line, but allow lists to be passed in to the module
@@ -612,11 +625,12 @@ class Run():
         if not __name__=="__main__":
             R.info(
                 f"Making {R.outputFile}...") # especially if repeatedly called as a module, better print which outputFile we're working on BEFORE the mp3s as well as after
+        R.max_threads = int(os.environ.get("ANEMONE_THREAD_LIMIT",R.max_threads))
         if R.max_threads:
-            if int(R.max_threads) < 1: error(f"max-threads, if specified, should be at least 1: {R.max_threads}") # seems some implementations of ThreadPoolExecutor will treat e.g. 0.5 as 1, but let's err on the side of caution and make it an int + re-check
-            executor = ThreadPoolExecutor(max_workers=int(R.max_threads))
+            if R.max_threads < 1: error(f"max-threads, if specified, should be at least 1: {R.max_threads}")
+            executor = ThreadPoolExecutor(max_workers=R.max_threads)
             cCount = cpu_count()
-            if cCount and int(R.max_threads) > cCount:
+            if cCount and R.max_threads > cCount:
                 R.warning(f"""specified max {R.max_threads
                 } recode threads but detected only {cCount} CPUs""")
         else: executor = shared_executor
@@ -803,8 +817,7 @@ class Run():
                 v//2))
         if chapHeadings:
             if R.chapter_titles:
-                if len(R.chapter_titles)>1: cTitle,R.chapter_titles = R.chapter_titles[0],R.chapter_titles[1:]
-                else: cTitle,R.chapter_titles = R.chapter_titles[0], []
+                cTitle = R.chapter_titles.pop(0)
                 if cTitle.strip():
                     R.warning(f"Title override for chapter {chapNo} is {cTitle} but there's already a title in the markup.  Ignoring override.")
         else: # not chapHeadings
@@ -825,8 +838,7 @@ class Run():
                     else f's {chapNo}-{int(chapterNumberText)-1}'}""")
                 chapNo = int(chapterNumberText) # so it's in sync, in case there's more than one number in the 1st para later and we have to fall back on automatic count
             if R.chapter_titles:
-                if len(R.chapter_titles)>1: chapterNumberTextFull,R.chapter_titles = R.chapter_titles[0],R.chapter_titles[1:]
-                else: chapterNumberTextFull,R.chapter_titles = R.chapter_titles[0], []
+                chapterNumberTextFull = R.chapter_titles.pop(0)
                 if not chapterNumberTextFull:
                     R.warning(f"Title override for chapter {chapNo} is blank.  Setting to {chapterNumberText}")
                     chapterNumberTextFull = chapterNumberText
@@ -922,7 +934,7 @@ class Run():
             (int(i.pageNo) for i in PNs),
             default=0)
         for PNs in pageNos),default=0)
-    headingsR = R.normaliseDepth(hReduce(headings)) # (hType,hText,recNo,textNo)
+    headingsR = R.normaliseDepth(hReduce(headings,R.toc_titles)) # (hType,hText,recNo,textNo)
     return deBlank(f"""<?xml version="1.0" encoding="utf-8"?>
 {'<!DOCTYPE ncx PUBLIC "-//NISO//DTD ncx 2005-1//EN" "http://www.daisy.org/z3986/2005/ncx-2005-1.dtd">' if R.daisy3 else '<!DOCTYPE html PUBLIC "-//W3C//DTD XHTML 1.0 Transitional//EN" "http://www.w3.org/TR/xhtml1/DTD/xhtml1-transitional.dtd">'}
 <{'ncx xmlns="http://www.daisy.org/z3986/2005/ncx/" version="2005-1"'
@@ -1079,7 +1091,7 @@ class Run():
                 totalSecs = 0):
     "Compile the master smil for a DAISY file"
     R = self
-    headings = hReduce(headings)
+    headings = hReduce(headings,R.toc_titles)
     return f"""<?xml version="1.0"?>
 <!DOCTYPE smil PUBLIC "-//W3C//DTD SMIL 1.0//EN" "http://www.w3.org/TR/REC-smil/SMIL10.dtd">
 <smil>
@@ -1742,16 +1754,21 @@ def numDaisy3NavpointsToClose(s:int, headingsR:list[BookTOCInfo]) -> int:
             if str(j) in headingNums_closed)
     return N+(1 if thisDepth is None else 0)
 
-def hReduce(headings:list) -> list[BookTOCInfo]:
+def hReduce(headings:list,overrides:list) -> list[BookTOCInfo]:
     """Convert a list of ChapterTOCInfo lists (or
     text strings for unstructured chapters) into a
     single BookTOCInfo list"""
-    return reduce(lambda a,b:a+b,[
+    ret = reduce(lambda a,b:a+b,[
         ([BookTOCInfo(hType,hText,recNo,textNo)
           for (hType,hText,textNo) in i]
          if isinstance(i,list) else
          [BookTOCInfo('h1',i,recNo,0)])
         for recNo,i in enumerate(headings)],[])
+    for i,o in enumerate(overrides):
+        if o.strip():
+            hType,_,n,t = ret[i]
+            ret[i] = BookTOCInfo(hType,o.strip(),n,t)
+    return ret
 
 def timeAdjust(textsAndTimes,secsThisRecording:float) -> None:
     """Ensure textsAndTimes starts at the
@@ -1842,6 +1859,7 @@ def set_max_shared_workers(nWorkers:int = 0) -> None:
        These workers are shared between any concurrent anemone()
        calls that don't have max_threads parameters."""
     global shared_executor, shared_executor_maxWorkers
+    nWorkers = int(os.environ.get("ANEMONE_THREAD_LIMIT",nWorkers))
     cCount = cpu_count()
     if not nWorkers: nWorkers = cCount
     if not nWorkers: nWorkers = 1 # cpu_count None = can't determine
