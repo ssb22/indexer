@@ -158,7 +158,7 @@ If calling anemone as a module and you want to limit the
 pool size but still have a shared pool, then don't set this
 but instead call set_max_shared_workers().""")
 # Both can be overridden by the environment variable
-# ANEMONE_THREAD_LIMIT (e.g. 0 for unlimited)."""
+# ANEMONE_THREAD_LIMIT (e.g. 0 for unlimited).
     args.add_argument("--allow-jumps",
                       action="store_true",help="""
 Allow jumps in heading levels e.g. h1 to h3 if the
