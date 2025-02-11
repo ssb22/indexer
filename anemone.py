@@ -1,6 +1,6 @@
 #!/usr/bin/env python3
 """
-Anemone 1.85 (http://ssb22.user.srcf.net/anemone)
+Anemone 1.86 (http://ssb22.user.srcf.net/anemone)
 (c) 2023-25 Silas S. Brown.  License: Apache 2
 
 To use this module, either run it from the command
@@ -223,6 +223,7 @@ be taken from the full chapter titles instead.""")
     args.add_argument("--chapter-heading-level",default=1,help="Heading level to use for chapters that don't have titles")
     args.add_argument("--warnings-are-errors",action="store_true",help="Treat warnings as errors")
     args.add_argument("--ignore-chapter-skips",action="store_true",help="Don't emit warnings or errors about chapter numbers being skipped")
+    args.add_argument("--accept-malformed-markers",action="store_true",help="Make a completely malformed marker a warning, not an error (unless all warnings are errors).  Malformed markers usually indicate a serious issue which will not lead to a good DAISY file, so this option should be used for diagnostic purposes only.")
     args.add_argument("--dry-run",action="store_true",help="Don't actually output DAISY, just check the input and parameters")
     args.add_argument("--version",action="store_true",help="Just print version number and exit (takes effect only if called from the command line)")
 
@@ -480,10 +481,11 @@ class Run():
                            for f in files
                            if isinstance(f,str)):
         check_we_got_LAME()
-  def warning(self,warningText:str) -> None:
+  def warning(self,warningText:str,action:str="") -> None:
     """Logs a warning (or an error if
        warnings_are_errors is set)"""
     if self.warnings_are_errors:error(warningText)
+    warningText += action # (the action that will be taken if not warnings_are_errors)
     self.warnings.append(warningText)
     if not __name__=="__main__" and "ANEMONE_DEBUG" in os.environ:
         sys.stderr.write(f"Anemone-Warning: {warningText}\n") # even if warning_callback overridden, do this as well
@@ -582,23 +584,37 @@ class Run():
         if not markers: # empty markers list
             markers = R.get_null_jsonData(h)['markers']
             # - rely on merge0lenSpans to merge whole chapter
-        want_pids = [jsonAttr(m,"id") for m in markers]
+        want_pids, markerToWantPid = [], {}
+        for i,m in enumerate(markers):
+            err = checkJsonAttr(m,"id")
+            if err:
+                R.warnings_are_errors |= not R.accept_malformed_markers
+                R.warning(f"Cannot process JSON {len(recordingTexts)+1} marker {i+1}: {err}",".  Ignoring this marker.")
+            else:
+                markerToWantPid[i] = len(want_pids)
+                want_pids.append(jsonAttr(m,"id"))
         extractor = PidsExtractor(R,want_pids)
         extractor.handle_soup(
             BeautifulSoup(h, 'html.parser'),
             include_alt=include_alt_tags_in_text)
         rTxt = []
         for i in range(len(markers)):
+            if i not in markerToWantPid: continue # bad id on this one
+            err = checkJsonAttr(markers[i],"time")
+            if err:
+                R.warnings_are_errors |= not R.accept_malformed_markers
+                R.warning(f"Cannot process JSON {len(recordingTexts)+1} marker {i+1}: {err}",".  Ignoring this marker.")
+                continue
             try: rTxt.append(parseTime(jsonAttr(markers[i],"time")))
             except ValueError:
-                R.warning(f"JSON {len(recordingTexts)+1} marker {i+1} has invalid timestamp.  Ignoring this marker.")
+                R.warning(f"JSON {len(recordingTexts)+1} marker {i+1} has invalid timestamp",".  Ignoring this marker.")
                 continue
-            if want_pids[i] in extractor.id_to_content:
-                tag,content = extractor.id_to_content[want_pids[i]]
+            if want_pids[markerToWantPid[i]] in extractor.id_to_content:
+                tag,content = extractor.id_to_content[want_pids[markerToWantPid[i]]]
                 content = ''.join(content).strip()
                 rTxt.append(TagAndText(tag,content_fixes(content)))
             else:
-                R.warning(f"JSON {len(recordingTexts)+1} marker {i+1} marks paragraph ID {want_pids[i]} which is not present in HTML {len(recordingTexts)+1}.  Anemone will make this a blank paragraph.")
+                R.warning(f"JSON {len(recordingTexts)+1} marker {i+1} marks paragraph ID {want_pids[markerToWantPid[i]]} which is not present in HTML {len(recordingTexts)+1}",".  Anemone will make this a blank paragraph.")
                 rTxt.append(TagAndText('p',''))
         recordingTexts.append(
             TextsAndTimesWithPages(rTxt,extractor.pageNos))
@@ -819,7 +835,7 @@ class Run():
             if R.chapter_titles:
                 cTitle = R.chapter_titles.pop(0)
                 if cTitle.strip():
-                    R.warning(f"Title override for chapter {chapNo} is {cTitle} but there's already a title in the markup.  Ignoring override.")
+                    R.warning(f"Title override for chapter {chapNo} is {cTitle} but there's already a title in the markup",".  Ignoring override.")
         else: # not chapHeadings
             # This'll be a problem, as master_smil and ncc_html need headings to refer to the chapter at all.  (Well, ncc_html can also do it by page number if we have them, but we haven't tested all DAISY readers with page number only navigation, and what if we don't even have page numbers?)
             # So let's see if we can at least get a chapter number.
@@ -840,7 +856,7 @@ class Run():
             if R.chapter_titles:
                 chapterNumberTextFull = R.chapter_titles.pop(0)
                 if not chapterNumberTextFull:
-                    R.warning(f"Title override for chapter {chapNo} is blank.  Setting to {chapterNumberText}")
+                    R.warning(f"Title override for chapter {chapNo} is blank",f".  Setting to {chapterNumberText}")
                     chapterNumberTextFull = chapterNumberText
                 elif chapterNumberText not in chapterNumberTextFull:
                     R.warning(f"Title for chapter {chapNo} is '{chapterNumberTextFull}' which does not contain the expected '{chapterNumberText}' ({'' if len(nums)==1 and not nums[0]=='1' else 'from automatic numbering as nothing was '}extracted from '{textsAndTimes[first].text.replace(chr(10),' / ')}')")
@@ -1352,7 +1368,7 @@ class PidsExtractor:
         elif addTo is not None and tag=='a': self.lastAStart = len(addTo)
         pageNo=attrs.get(self.R.page_attribute,"")
         if re.match("(?i)[ivxlm]",pageNo):
-            self.R.warning(f"Support of Roman page numbers not yet implemented: ignoring page marker for {pageNo}") # we will need to change ncc_html to support 'front' pages (not just 'normal' pages) if supporting this
+            self.R.warning("Support of Roman page numbers not yet implemented",f": ignoring page marker for {pageNo}") # we will need to change ncc_html to support 'front' pages (not just 'normal' pages) if supporting this
             pageNo = None
         if pageNo: self.pageNos.append(PageInfo(self.pageNoGoesAfter,pageNo))
         # Now the recursive call:
@@ -1467,15 +1483,20 @@ def easyReader_em_fix(content:str) -> str:
 def jsonAttr(d:dict,suffix:str) -> str:
     """Returns the value of a dictionary key whose
     name ends with the given lower-case suffix
-    (after converting names to lower case), after
-    checking exactly one key does this.  Used for
-    checking JSON for things like paragraphId if
-    you know only that it ends with 'Id'"""
-
+    (after converting names to lower case).  Used
+    for checking JSON for things like paragraphId
+    if you know only that it ends with 'Id'.  It
+    is assumed that there is exactly one such item
+    (use checkJsonAttr first to check it)."""
+    return str(d[[k for k in d.keys() if k.lower().endswith(suffix)][0]])
+def checkJsonAttr(d:dict,suffix:str) -> str:
+    """Checks that a dictionary is suitable for jsonAttr
+    i.e. it contains exactly one key whose name ends with
+    the given lower-case suffix (after converting names to
+    lower case).  Returns an error message, or None."""
     keys = [k for k in d.keys() if k.lower().endswith(suffix)]
-    if not keys: error(f"No *{suffix} in {repr(keys)}")
-    if len(keys)>1: error(f"More than one *{suffix} in {repr(keys)}")
-    return str(d[keys[0]])
+    if not keys: return f"Nothing ends with '{suffix}' in {repr(list(d.keys()))}"
+    if len(keys)>1: return f"More than one item ends with '{suffix}' in {repr(list(d.keys()))}"
 
 def parseTime(t:str) -> float:
     """Parses a string containing seconds,
