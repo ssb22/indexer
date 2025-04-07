@@ -1,7 +1,7 @@
 #!/usr/bin/env python
 # (works in both Python 2 and Python 3)
 
-# Online HTML Indexer v1.38 (c) 2013-18,2020,2022-24 Silas S. Brown.
+# Online HTML Indexer v1.38 (c) 2013-18,2020,2022-25 Silas S. Brown.
 
 # Licensed under the Apache License, Version 2.0 (the "License");
 # you may not use this file except in compliance with the License.
@@ -100,10 +100,12 @@ except ImportError: ohi_config = None
 
 gemini_mode = os.environ.get("SERVER_PROTOCOL","")=="GEMINI"
 
+import cgi # used only for cgi.parse().  if this fails (Python 3.13+, e.g. expected in Ubuntu 26.04 LTS) then you might want: pip install legacy-cgi
+
 if not web_adjuster_extension_mode and not gemini_mode:
     import cgitb ; cgitb.enable() # remove this if you don't want tracebacks in the browser
 
-import mmap, os, cgi, re
+import mmap, os, re
 try: from urllib import quote # Python 2
 except ImportError: from urllib.parse import quote # Python 3
 if ohi_config:
