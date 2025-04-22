@@ -40,4 +40,13 @@ update-rtfuc-pypi:
 	twine upload dist/*
 	mv ../README.md .
 	rm -r rtfuc.egg-info dist rtfuc setup.py
-.PHONY: test check-if-anemone-version-is-changing check-if-macvoice-utils-version-is-changing update-anemone-pypi update-macvoice-utils-pypi update-rtfuc-pypi all
+update-ebookonix-pypi:
+	mkdir ebookonix
+	cp ebookonix.py ebookonix/__init__.py
+	echo "from setuptools import setup, find_packages;setup(name='ebookonix',version='$$(grep ^ebookonix.v[0-9] ebookonix.py|sed -e 's/ebookonix v//' -e 's/ .*//')',license='Apache 2',platforms='any',author='Silas S. Brown',author_email='ssb$$(echo 22@ca)m.ac.uk',description='ONIX XML for zero-cost e-books',long_description='Convenience functions to generate ONIX XML for zero-cost e-books',long_description_content_type='text/markdown',packages=find_packages(),classifiers=['Programming Language :: Python :: 3','License :: OSI Approved :: Apache Software License','Operating System :: OS Independent'],python_requires='>=3.8')" > setup.py
+	mv README.md ..
+	python3 setup.py sdist
+	twine upload dist/*
+	mv ../README.md .
+	rm -r ebookonix.egg-info dist ebookonix setup.py
+.PHONY: test check-if-anemone-version-is-changing check-if-macvoice-utils-version-is-changing update-anemone-pypi update-macvoice-utils-pypi update-rtfuc-pypi update-ebookonix-pypi all

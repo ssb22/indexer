@@ -1,4 +1,6 @@
-"""Convenience functions to generate ONIX XML for zero-cost e-books.
+"""
+ebookonix v0.1
+Convenience functions to generate ONIX XML for zero-cost e-books.
 Not yet tested with a library, but validated with onixcheck"""
 
 import langcodes
