@@ -8,7 +8,11 @@ import re, time
 
 def onix_message(products,
                  sender="",name="",phone="",email=""):
-   return deBlank(f"""<?xml version="1.0" encoding="UTF-8"?>
+   """Creates a complete ONIX For Books XML message.
+   products is a list of return values of onix_product().
+   Sender organisation, contact name, phone and email may
+   be provided."""
+   return _deBlank(f"""<?xml version="1.0" encoding="UTF-8"?>
 <ONIXMessage release="3.1" xmlns="http://ns.editeur.org/onix/3.1/reference">
  <Header>
   <Sender>
@@ -29,9 +33,11 @@ def onix_product(url,title,lang_iso="en",year=2000,
                  idType="ISBN", # https://ns.editeur.org/onix/en/5 (but see code below)
                  deweyCode="",deweyTxt="",
                  publisher="",publisherWebsite=""):
-    # we use ProductForm ED = digital download
-    # and UnpricedItemType 01 = free of charge
-    if type(url)==list: urls = url # can be list of MP3s etc
+    """Creates an ONIX XML fragment for a book product.
+    We use ProductForm ED = digital download
+    and UnpricedItemType 01 = free of charge.
+    url is the EPUB URL, PDF URL, list of MP3 URLs, etc"""
+    if type(url)==list: urls = url
     else: urls = [url]
     def ext(u): return u.rsplit('.',1)[1]
     if not all(ext(u)==ext(urls[0]) for u in urls): raise Exception("URL list (e.g. MP3) must all be same extension")
@@ -42,7 +48,7 @@ def onix_product(url,title,lang_iso="en",year=2000,
                "epub":"E150", # but use E101 if we're not sure there's ALT text for the images etc
                "html":"E105","pdf":"E107","rtf":"E109","mp4":"D105",
                "txt":"E112","azw3":"E116","pdb":"E125","brf":"E146"}
-    return deBlank(f""" <Product>
+    return _deBlank(f""" <Product>
   <RecordReference>{idCode}-{lang_iso}-{year}-{format}</RecordReference>
   <NotificationType>03</NotificationType>
   <RecordSourceType>01</RecordSourceType>
@@ -127,4 +133,4 @@ def onix_product(url,title,lang_iso="en",year=2000,
   </ProductSupply>
  </Product>""")
 
-def deBlank(s): return re.sub("\n( *\n)+","\n",s)
+def _deBlank(s): return re.sub("\n( *\n)+","\n",s)
