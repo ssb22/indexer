@@ -1,6 +1,6 @@
 #!/usr/bin/env python3
 """
-Anemone 1.86 (http://ssb22.user.srcf.net/anemone)
+Anemone 1.87 (http://ssb22.user.srcf.net/anemone)
 (c) 2023-25 Silas S. Brown.  License: Apache 2
 
 To use this module, either run it from the command
@@ -634,7 +634,7 @@ class Run():
             f"""Dry run: {len(R.warnings) if
             R.warnings else 'no'} warning{'' if
             len(R.warnings)==1 else 's'
-            } for {R.outputFile}\n""")
+            } for {R.outputFile}""")
     merge0lenSpans(recordingTexts,headings,R.audioData)
     if R.mp3_recode and any(R.audioData) or any(
             not ext.lower()=="mp3" for dat,ext in zip(R.audioData,R.filenameExt) if dat): # parallelise lame if possible
@@ -795,7 +795,7 @@ class Run():
              for t in recordingTexts])))
     if not R.daisy3: writestr('er_book_info.xml',D(er_book_info(durations))) # not DAISY standard but EasyReader can use this
     z.close()
-    R.info(f"Wrote {R.outputFile}\n")
+    R.info(f"Wrote {R.outputFile}")
   def getHeadings(self,recordingTexts) -> list:
     """Gets headings from recordingTexts for the
     DAISY's NCC / OPF data"""

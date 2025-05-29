@@ -43,5 +43,5 @@ test_anemone:
 	# Test progress callback
 	[ "$$(echo $$(python3 -c 'from anemone import *;anemone("<p data-pid=A>one</p><p data-pid=B>two</p>","test_daisy.zip",progress_callback=lambda s:print(f"P({s})"))'))" = "P(7) P(15) P(85) P(100)" ] # bash: embedded (non-terminating) newlines not deleted unless omit "" to get word splitting
 	# Test info callback
-	[ "$$(echo $$(python3 -c 'from anemone import *;anemone("<p data-pid=A>one</p><p data-pid=B>two</p>","test_daisy.zip",info_callback=lambda s:print(f"I({s})"))'))" = "I(Wrote test_daisy.zip )" ]
+	[ "$$(echo $$(python3 -c 'from anemone import *;anemone("<p data-pid=A>one</p><p data-pid=B>two</p>","test_daisy.zip",info_callback=lambda s:print(f"I({s})"))'))" = "I(Wrote test_daisy.zip)" ]
 .PHONY: test test_ohi_latex test_anemone
