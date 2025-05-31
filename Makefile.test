@@ -9,39 +9,5 @@ test_ohi_latex:
 	grep '\\kao3\\yan4' index.tex >/dev/null
 test_anemone:
 	ruff check anemone.py
-	# Test audio-only Daisy 2, title from filename
-	sox -n test.wav synth 3 sine 300-3300
-	./anemone.py --warnings-are-errors test.wav test_daisy.zip
-	unzip -c test_daisy.zip ncc.html|grep '>test<' >/dev/null
-	# Test audio-only Daisy 3, title from filename
-	./anemone.py --warnings-are-errors --daisy3 test.wav test_daisy.zip
-	unzip -c test_daisy.zip navigation.ncx|grep '>test<' >/dev/null
-	# Test audio + HTML + JSON times in Daisy 3
-	./anemone.py --warnings-are-errors --daisy3 test.wav '<h1 data-pid="T">heading</h1><p data-pid="U">para</p>' '{"markers":[{"id":"T","time":"1"},{"id":"U","time":"2"}]}' test_daisy.zip
-	unzip -c test_daisy.zip navigation.ncx|grep '<navLabel><text>heading</text><audio src="0001.mp3" clipBegin="0:00:00.000" clipEnd="0:00:02.000"/></navLabel>' >/dev/null
-	unzip -c test_daisy.zip 0001.smil|grep '<audio src="0001.mp3" clipBegin="0:00:02.000" clipEnd="0:00:03.0[0-9][0-9]" id="aud1.1" />' >/dev/null # small length change on recode is OK
-	# Test JSON transcript processing
-	./anemone.py --warnings-are-errors --daisy3 test.wav '{"version":"1.0.0","segments":[{"speaker":"voice 1","startTime":0,"endTime":1.5,"body":"Testing 123"},{"speaker":"voice 2","startTime":1.5,"endTime":3,"body":"another voice"}]}' test_daisy.zip --chapter-titles="Script 1"
-	unzip -c test_daisy.zip 0001.smil|grep '<audio src="0001.mp3" clipBegin="0:00:01.500" clipEnd="0:00:03.0[0-9][0-9]" id="aud1.2" />' >/dev/null # 1.0 = h1
-	unzip -c test_daisy.zip 0001.xml|grep '<level1><h1 id="p1">Script 1</h1>' >/dev/null
-	# Test images
-	./anemone.py --warnings-are-errors --daisy3 test.wav '<h1 data-pid="T">heading</h1><img data-zoom="http://ssb22.user.srcf.net/dorset.jpg"><p data-pid="U">para</p>' '{"markers":[{"id":"T","time":"1"},{"id":"U","time":"2"}]}' test_daisy.zip
-	unzip -c test_daisy.zip 0001.xml|grep '</h1><p><imggroup><img src="1.jpg" id="i0" /></imggroup></p>' >/dev/null
-	# Test verse numbering
-	./anemone.py --warnings-are-errors --ignore-chapter-skips --daisy3 test.wav '<p data-pid="A">47 one</p><p data-pid="B">2 two</p><p data-pid="C">3 three</p>' '{"markers":[{"id":"A","time":"0"},{"id":"B","time":"1"},{"id":"C","time":"2"}]}' test_daisy.zip
-	unzip -c test_daisy.zip 0001.xml|grep '<level1><h1 id="p1">47</h1>' >/dev/null
-	unzip -c test_daisy.zip 0001.xml|grep '<p id="p2">one</p>' >/dev/null
-	unzip -c test_daisy.zip navigation.ncx|grep '<navLabel><text>47:2</text><audio src="0001.mp3" clipBegin="0:00:01.000" clipEnd="0:00:02.000"/></navLabel>' >/dev/null
-	# Test warnings as errors
-	rm test_daisy.zip
-	! ./anemone.py --warnings-are-errors --ignore-chapter-skips --daisy3 test.wav '<p data-pid="A">47 one</p><p data-pid="B">2 two</p><p data-pid="C">3 three</p>' '{"markers":[{"id":"A","time":"0"},{"id":"B","time":"1"},{"id":"C","time":"2"}]}' test_daisy.zip --chapter-titles="Chapter 74" 2>err
-	[ "$$(cat err)" = "Error: Title for chapter 47 is 'Chapter 74' which does not contain the expected '47' (extracted from '47 one')" ]
-	! [ -e test_daisy.zip ]
-	# Test import, warning callback, text-only
-	python3 -c 'from anemone import *;anemone("<p data-pid=A>one</p><p data-pid=B>two</p>","test_daisy.zip",warning_callback=lambda s:print(f"W({s})"),chapter_titles="Chapter 74")' | grep "W(Title for chapter 1 is 'Chapter 74' which does not contain the expected '1' (from automatic numbering as nothing was extracted from 'one'))" >/dev/null
-	unzip -c test_daisy.zip 0001.htm|grep '<h1 id="p1">Chapter 74</h1>' >/dev/null
-	# Test progress callback
-	[ "$$(echo $$(python3 -c 'from anemone import *;anemone("<p data-pid=A>one</p><p data-pid=B>two</p>","test_daisy.zip",progress_callback=lambda s:print(f"P({s})"))'))" = "P(7) P(15) P(85) P(100)" ] # bash: embedded (non-terminating) newlines not deleted unless omit "" to get word splitting
-	# Test info callback
-	[ "$$(echo $$(python3 -c 'from anemone import *;anemone("<p data-pid=A>one</p><p data-pid=B>two</p>","test_daisy.zip",info_callback=lambda s:print(f"I({s})"))'))" = "I(Wrote test_daisy.zip)" ]
+	python3 -m pytest test_anemone.py
 .PHONY: test test_ohi_latex test_anemone
