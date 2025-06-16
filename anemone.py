@@ -1,6 +1,6 @@
 #!/usr/bin/env python3
 """
-Anemone 1.87 (http://ssb22.user.srcf.net/anemone)
+Anemone 1.88 (http://ssb22.user.srcf.net/anemone)
 (c) 2023-25 Silas S. Brown.  License: Apache 2
 
 To use this module, either run it from the command
@@ -365,6 +365,7 @@ class Run():
                     for b in R.merge_books if b]]
     except: error(f"Unable to parse merge-books={R.merge_books}") # noqa: E722
     R.progress_loopStart(len(R.files),15)
+    htmlSeen = {}
     for i,f in enumerate(R.files):
         R.progress(i)
         fOrig = f
@@ -382,8 +383,8 @@ class Run():
             try: f=fetch(f,R.cache,R.refresh,R.refetch,R.delay,R.user_agent,R.retries,R)
             except HTTPError as e:
                 error(f"Unable to fetch {f}: {e}")
-        elif delimited(f,'{','}'): pass
-        elif delimited(f,'<','>'): pass
+        elif delimited(f,'{','}'): pass # handled below
+        elif delimited(f,'<','>'): pass # handled below
         elif isinstance(f,bytes) and (f.startswith(b"RIFF") or f.startswith(b"ID3") or f.startswith(b"\xFF")): # audio data passed in to anemone() function
             R.audioData.append(f)
             R.filenameTitles.append("untitled")
@@ -397,7 +398,12 @@ class Run():
             R.jsonData.append(f)
             R.check_for_JSON_transcript()
         elif delimited(f,'<','>'):
+            fToShow = fOrig
+            if len(fToShow) > 103:
+                fToShow = fToShow[:50]+"..."+fToShow[-50:]
+            if f in htmlSeen: error(f"Duplicate HTML input documents: {htmlSeen[f]} (document {R.htmlData.index(f)+1}) and {fToShow} (document {len(R.htmlData)+1})")
             R.htmlData.append(f)
+            htmlSeen[f] = fToShow
         elif fOrig.lower().endswith(f"{os.extsep}mp3") or fOrig.lower().endswith(f"{os.extsep}wav"):
             R.audioData.append(f)
             R.filenameTitles.append(
@@ -438,7 +444,6 @@ class Run():
     if R.jsonData and not len(R.audioData)==len(R.jsonData): error(f"If JSON marker files are specified, there must be exactly one JSON file for each recording file.  We got f{len(R.jsonData)} JSON files and f{len(R.audioData)} recording files.")
     if R.textData and not len(R.audioData)==len(R.textData): error(f"If text files are specified, there must be exactly one text file for each recording file.  We got f{len(R.textData)} text files and f{len(R.audioData)} recording files.")
     if R.htmlData and not len(R.audioData)==len(R.htmlData): error(f"If HTML documents with audio are specified, there must be exactly one HTML document for each recording.  We got f{len(R.htmlData)} HTML documents and f{len(R.audioData)} recordings.")
-    if R.htmlData and not len(R.htmlData)==len(dict.fromkeys(R.htmlData).keys()): error("Duplicate HTML input documents")
     if not R.htmlData and not R.textData and not R.audioData: error("No input given")
     if not re.match("[a-z]{2,3}($|-)",R.lang): R.warning(f"lang '{R.lang}' doesn't look like a valid ISO-639 language code") # this should perhaps be an error
     if R.date and not re.match("([+-][0-9]*)?[0-9]{4}-[01][0-9]-[0-3][0-9]$",R.date): error("date (if set) should be in ISO 8601's YYYY-MM-DD format")
