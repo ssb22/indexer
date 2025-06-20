@@ -1,6 +1,6 @@
 #!/usr/bin/env python3
 """
-Anemone 1.89 (http://ssb22.user.srcf.net/anemone)
+Anemone 1.9 (http://ssb22.user.srcf.net/anemone)
 (c) 2023-25 Silas S. Brown.  License: Apache 2
 
 To use this module, either run it from the command
@@ -187,23 +187,6 @@ promoting all verses to headings (losing paragraph
 formatting) in Daisy 3, which is the least bad
 option if you want these navigation points to
 work.""")
-    args.add_argument("--keep-pre-heading-chap-nums",
-                      action="store_true",help="""
-When text like 'Chapter 2' is encountered as a
-non-heading paragraph just before the chapter title,
-behave like Anemone 1.88 and below: keep it as a
-non-heading paragraph but adjust the timings so that
-the audio for the 'Chapter 2' is included in the main
-title to which the table of contents points.  This may
-cause confusion for users of the Search function on
-newer versions of EasyReader which give the chapter of
-each result in the search summary, since search results
-that are chapter numbers will appear to belong to the
-previous chapter.  New default behaviour is to promote
-the 'Chapter 2' to another heading of the same level
-and point the table of contents to that, which results
-in some readers not showing the chapter title in the
-heading font.""")
     args.add_argument("--merge-books",
                       default="",help="""
 Combine multiple books into one, for saving media
@@ -835,29 +818,26 @@ class Run():
             if R.bookTitlesAndNumChaps and chapNo==1: error("merge-books with non-HTML not yet implemented")
             ret.append(t) ; continue # title only
         textsAndTimes,pages = t ; first = None
-        chapHeadings = []
-        for v,u in enumerate(textsAndTimes):
-            if isinstance(u,float): continue #time
+        chapHeadings = [] ; v=0
+        while v < len(textsAndTimes):
+            u = textsAndTimes[v]
+            if isinstance(u,float): # time
+               v += 1 ; continue
             tag,text = u
             if first is None: first = v
             if not tag.startswith('h'):
-                continue
-            tocPointsTo = v
+                v += 1 ; continue
             if v//2 - 1 == first//2 and not textsAndTimes[first].tag.startswith('h'): # chapter starts with non-heading followed by heading: check the non-heading for "Chapter N" etc
                 nums=re.findall("[1-9][0-9]*",
                         textsAndTimes[first].text)
                 if len(nums)==1:
+                    textsAndTimes[first] = TagAndText(tag,textsAndTimes[first].text.replace(chr(160),' ')+" <br />"+text) # for document (nb content_fixes won't be run so close the br tag or EasyReader shows no text at all; include leading space because at least some versions of EasyReader ignore the br; replace any no-break space because 'Chapter N' is more likely to be a search query and EasyReader 12 can't match normal space to no-break space in search)
                     text=f"{nums[0]}: {text}" # for TOC
-                    if R.keep_pre_heading_chap_nums: # behaviour before 1.89 (disadvantage is EasyReader search results now list the chapter of the found text, and the chapter number counts as being in the previous chapter)
-                        textsAndTimes[v-1] = ( # set end of chapter number audio as soon as possible after its start so that a jump to the heading will include the chapter number
-                            textsAndTimes[first-1] if
-                            first else 0) + 0.001 # Thorium stops playing if 0-length
-                    else:
-                        textsAndTimes[first] = TagAndText(tag,textsAndTimes[first].text) # promote to heading of same level
-                        tocPointsTo = first # so search result gets correct chapter in EasyReader summary
+                    del textsAndTimes[first+1:v+1] ; v = first
             chapHeadings.append(ChapterTOCInfo(
                 tag, re.sub('<[^>]*>','',text),
-                tocPointsTo//2))
+                v//2))
+            v += 1
         if chapHeadings:
             if R.chapter_titles:
                 cTitle = R.chapter_titles.pop(0)
@@ -887,7 +867,7 @@ class Run():
                     chapterNumberTextFull = chapterNumberText
                 elif chapterNumberText not in chapterNumberTextFull:
                     R.warning(f"Title for chapter {chapNo} is '{chapterNumberTextFull}' which does not contain the expected '{chapterNumberText}' ({'' if len(nums)==1 and not nums[0]=='1' else 'from automatic numbering as nothing was '}extracted from '{textsAndTimes[first].text.replace(chr(10),' / ')}')")
-            # In EasyReader 10 on Android, unless there is at least one HEADING (not just div), navigation display is non-functional.  And every heading must point to a 'real' heading in the text, otherwise EasyReader 10 will delete all the text in Daisy 2, or promote something to a heading in Daisy 3 (this is not done by Thorium Reader).  And (tested on EasyReader 12) any heading in the text NOT in the table of contents (i.e. keep_pre_heading_chap_nums=False) is not displayed in heading style by EasyReader (ok in Thorium).
+            # In EasyReader 10 on Android, unless there is at least one HEADING (not just div), navigation display is non-functional.  And every heading must point to a 'real' heading in the text, otherwise EasyReader 10 will delete all the text in Daisy 2, or promote something to a heading in Daisy 3 (this is not done by Thorium Reader).  And (tested on EasyReader 12) any heading in the text NOT in the table of contents is not displayed in heading style by EasyReader (ok in Thorium).
             # (EasyReader 10 on Android also inserts a newline after every span class=sentence if it's a SMIL item, even if there's no navigation pointing to it)
             # So let's add a "real" start-of-chapter heading before the text, with time 0.001 second if we don't know the time from the first time marker (don't set it to 0 or Thorium can have issues)
             if first==1 and textsAndTimes[0]:
