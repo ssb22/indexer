@@ -1,5 +1,5 @@
 # -*- mode: Makefile -*-
-test: test_ohi_latex test_anemone
+test: test_ohi_latex test_anemone test_ebookonix
 	make -f Makefile.pypi test
 	@echo All tests passed
 test_ohi_latex:
@@ -10,4 +10,7 @@ test_ohi_latex:
 test_anemone:
 	ruff check anemone.py
 	python3 -m pytest test_anemone.py
-.PHONY: test test_ohi_latex test_anemone
+test_ebookonix:
+	ruff check ebookonix.py
+	python3 -m pytest test_ebookonix.py
+.PHONY: test test_ohi_latex test_anemone test_ebookonix

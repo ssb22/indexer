@@ -1,14 +1,17 @@
 """
-ebookonix v0.2
-Convenience functions to generate ONIX XML for zero-cost e-books.
-(Run from the command line to generate XML for a single book.)
+ebookonix v0.3 (c) 2025 Silas S. Brown.  License: Apache 2
+Generate ONIX XML for zero-cost e-books.
+Run from the command line to generate XML for a single book.
+Or use as a module (see doc strings).
 Not yet tested with a library, but validated with onixcheck"""
 
-import langcodes
+import langcodes # pip install langcodes
 import re, time
+from argparse import ArgumentParser
+from xml.sax.saxutils import escape as E
 
 def onix_message(products,
-                 sender="",name="",phone="",email=""):
+                 sender="",name="",phone="",email="") -> str:
    """Creates a complete ONIX For Books XML message.
    products is a list of return values of onix_product().
    Sender organisation, contact name, phone and email may
@@ -17,10 +20,10 @@ def onix_message(products,
 <ONIXMessage release="3.1" xmlns="http://ns.editeur.org/onix/3.1/reference">
  <Header>
   <Sender>
-    <SenderName>{sender}</SenderName>
-    <ContactName>{name}</ContactName>
-    {f'<TelephoneNumber>{phone}</TelephoneNumber>' if phone else ''}
-    {f'<EmailAddress>{email}</EmailAddress>' if email else ''}
+    <SenderName>{E(sender)}</SenderName>
+    <ContactName>{E(name)}</ContactName>
+    {f'<TelephoneNumber>{E(phone)}</TelephoneNumber>' if phone else ''}
+    {f'<EmailAddress>{E(email)}</EmailAddress>' if email else ''}
   </Sender>
   <MessageRepeat>1</MessageRepeat>
   <SentDateTime>{'%d%02d%02d' % time.localtime()[:3]}</SentDateTime>
@@ -29,19 +32,21 @@ def onix_message(products,
 </ONIXMessage>
 """)
 
-def onix_product(url,title,lang_iso="en",
+def onix_product(url,title:str,lang_iso:str="en",
                  date=2000, # year (4 digits), year-quarter (5 digits), year-month (6 digits) or year-month-day (8 digits)
-                 idCode="",
-                 idType="ISBN", # or ISSN, DOI etc (see below)
+                 idCode:str="",
+                 idType:str="ISBN", # ISSN, DOI etc (see below)
                  # and see https://ns.editeur.org/onix/en/5
                  # (if ISSN, we assume the issue is carried by the date)
-                 deweyCode="",deweyTxt="",
-                 publisher="",publisherWebsite=""):
+                 deweyCode:str="",deweyTxt:str="",
+                 publisher:str="",publisherWebsite:str="")->str:
     """Creates an ONIX XML fragment for a book product.
     We use ProductForm ED = digital download
     and UnpricedItemType 01 = free of charge.
     url is the EPUB URL, PDF URL, list of MP3 URLs, etc"""
-    if type(url)==list: urls = url
+    if isinstance(url,list):
+       if not url: raise Exception("url cannot be empty list")
+       urls = url
     else: urls = [url]
     def ext(u): return u.rsplit('.',1)[1]
     if not all(ext(u)==ext(urls[0]) for u in urls): raise Exception("URL list (e.g. MP3) must all be same extension")
@@ -56,15 +61,16 @@ def onix_product(url,title,lang_iso="en",
     elif idType.upper()=="DOI": idTypeCode = '06'
     elif idType.upper()[:4]=="ISSN": idTypeCode = '34'
     else: idTypeCode = '01' # proprietary, and idType specified
+    datelen2format = {4:'05',5:'03',6:'01',8:'00'}
     return _deBlank(f""" <Product>
-  <RecordReference>{idCode}-{lang_iso}-{date}-{format}</RecordReference>
+  <RecordReference>{E(idCode)}-{lang_iso}-{date}-{E(format)}</RecordReference>
   <NotificationType>03</NotificationType>
   <RecordSourceType>01</RecordSourceType>
-  <RecordSourceName>{publisher}</RecordSourceName>
+  <RecordSourceName>{E(publisher)}</RecordSourceName>
   <ProductIdentifier>
-    <ProductIDType>{idTypeCode}</ProductIDType>
-    {f'<IDTypeName>{idType}</IDTypeName>' if idTypeCode=='01' else ''}
-    <IDValue>{ensureIssnIs13(idCode) if idTypeCode=='34' else idCode}</IDValue>
+    <ProductIDType>{E(idTypeCode)}</ProductIDType>
+    {f'<IDTypeName>{E(idType)}</IDTypeName>' if idTypeCode=='01' else ''}
+    <IDValue>{ensureIssnIs13(idCode) if idTypeCode=='34' else E(idCode)}</IDValue>
   </ProductIdentifier>
   <DescriptiveDetail>
     <ProductComposition>00</ProductComposition>
@@ -74,7 +80,7 @@ def onix_product(url,title,lang_iso="en",
       <TitleType>01</TitleType>
       <TitleElement>
         <TitleElementLevel>01</TitleElementLevel>
-        <TitleText language="{langcodes.Language.get(lang_iso).to_alpha3()}">{title}</TitleText>
+        <TitleText language="{langcodes.Language.get(lang_iso).to_alpha3()}">{E(title)}</TitleText>
       </TitleElement>
     </TitleDetail>
     <NoEdition/>
@@ -85,28 +91,28 @@ def onix_product(url,title,lang_iso="en",
     {f'''<Subject>
       <MainSubject/>
       <SubjectSchemeIdentifier>01</SubjectSchemeIdentifier>
-      <SubjectCode>{deweyCode}</SubjectCode>
-      <SubjectHeadingText>{deweyTxt}</SubjectHeadingText>
+      <SubjectCode>{E(deweyCode)}</SubjectCode>
+      <SubjectHeadingText>{E(deweyTxt)}</SubjectHeadingText>
     </Subject>''' if deweyCode and deweyTxt else ''}
   </DescriptiveDetail>
   <PublishingDetail>
     <Publisher>
       <PublishingRole>01</PublishingRole>
-      <PublisherName>{publisher}</PublisherName>
+      <PublisherName>{E(publisher)}</PublisherName>
       {f'''<Website>
         <WebsiteRole>01</WebsiteRole>
-        <WebsiteLink>{publisherWebsite}</WebsiteLink>
+        <WebsiteLink>{E(publisherWebsite)}</WebsiteLink>
       </Website>''' if publisherWebsite else ''}
     </Publisher>
     <PublishingStatus>04</PublishingStatus>
     <PublishingDate>
       <PublishingDateRole>01</PublishingDateRole>
-      <Date dateformat="{{4:'05',5:'03',6:'01',8:'00'}[len(str(date))]}">{str(date).replace("-","")}</Date>
+      <Date dateformat="{datelen2format[len(str(date))]}">{str(date).replace("-","")}</Date>
     </PublishingDate>
     <CopyrightStatement>
       <CopyrightYear>{str(date)[:4]}</CopyrightYear>
       <CopyrightOwner>
-        <CorporateName>{publisher}</CorporateName>
+        <CorporateName>{E(publisher)}</CorporateName>
       </CopyrightOwner>
     </CopyrightStatement>
   </PublishingDetail>
@@ -115,7 +121,7 @@ def onix_product(url,title,lang_iso="en",
       <BodyManifest>
 {''.join(f'''
         <BodyResource>
-          <ResourceFileLink>{u}</ResourceFileLink>
+          <ResourceFileLink>{E(u)}</ResourceFileLink>
         </BodyResource>''' for u in urls)}
       </BodyManifest>
     </ProductionManifest>
@@ -132,10 +138,10 @@ def onix_product(url,title,lang_iso="en",
     <SupplyDetail>
       <Supplier>
         <SupplierRole>01</SupplierRole>
-        <SupplierName>{publisher}</SupplierName>
+        <SupplierName>{E(publisher)}</SupplierName>
         {f'''<Website>
           <WebsiteRole>01</WebsiteRole>
-          <WebsiteLink>{publisherWebsite}</WebsiteLink>
+          <WebsiteLink>{E(publisherWebsite)}</WebsiteLink>
         </Website>''' if publisherWebsite else ''}
       </Supplier>
       <ProductAvailability>21</ProductAvailability>
@@ -144,20 +150,21 @@ def onix_product(url,title,lang_iso="en",
   </ProductSupply>
  </Product>""")
 
-def ensureIssnIs13(issn):
+def ensureIssnIs13(issn:str) -> str:
    "Ensures that an ISSN code is in ISSN-13 format as required by ONIX"
    issn = issn.replace("-","")
    if len(issn)==8:
+      if not str(11-(sum(int(a)*b for a,b in zip(issn[:7],range(8,1,-1)))%11)).replace('10','X')==issn[7]:
+         raise Exception(f"wrong ISSN-8 checksum in {issn}")
       issn = "977"+issn[:7]
       return f"{issn}00{(10-(sum(int(c)*(3 if i%2 else 1) for i,c in enumerate(issn))%10))%10}"
    else: return issn
 
-def _deBlank(s):
+def _deBlank(s:str) -> str:
    "Remove blank lines from s"
    return re.sub("\n( *\n)+","\n",s)
 
-if __name__=="__main__":
-   from argparse import ArgumentParser
+def main():
    args = ArgumentParser(
       prog="ebookonix",description="generate ONIX XML for zero-cost e-books")
    args.add_argument("--sender",help="Sender organisation",required=True)
@@ -177,3 +184,9 @@ if __name__=="__main__":
    idType,idCode = args.code.split('=')
    if not args.publisher: args.publisher = args.sender
    print(onix_message([onix_product(args.url,args.title,args.lang,args.date,idCode,idType,args.deweyCode,args.deweyTxt,args.publisher,args.website)],args.sender,args.contact,args.phone,args.email))
+
+if __name__=="__main__": main()
+
+# ruff: noqa: E401 # multiple imports on one line
+# ruff: noqa: E701 # colon without newline
+# ruff: noqa: E702 # semicolon statements
