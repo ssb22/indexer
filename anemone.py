@@ -1,6 +1,6 @@
 #!/usr/bin/env python3
 """
-Anemone 1.9 (http://ssb22.user.srcf.net/anemone)
+Anemone 1.91 (http://ssb22.user.srcf.net/anemone)
 (c) 2023-25 Silas S. Brown.  License: Apache 2
 
 To use this module, either run it from the command
@@ -831,7 +831,7 @@ class Run():
                 nums=re.findall("[1-9][0-9]*",
                         textsAndTimes[first].text)
                 if len(nums)==1:
-                    textsAndTimes[first] = TagAndText(tag,textsAndTimes[first].text.replace(chr(160),' ')+" <br />"+text) # for document (nb content_fixes won't be run so close the br tag or EasyReader shows no text at all; include leading space because at least some versions of EasyReader ignore the br; replace any no-break space because 'Chapter N' is more likely to be a search query and EasyReader 12 can't match normal space to no-break space in search)
+                    textsAndTimes[first] = TagAndText(tag,textsAndTimes[first].text.replace(chr(160),' ').replace(chr(0x202F),' ')+" <br />"+text) # for document (nb content_fixes won't be run so close the br tag or EasyReader shows no text at all; include leading space because at least some versions of EasyReader ignore the br; replace any no-break space because 'Chapter N' is more likely to be a search query and EasyReader 12 can't match normal space to no-break space in search)
                     text=f"{nums[0]}: {text}" # for TOC
                     del textsAndTimes[first+1:v+1] ; v = first
             chapHeadings.append(ChapterTOCInfo(
@@ -922,6 +922,10 @@ class Run():
                                 f"{chapterNumberText}:{v}{'' if v==lastV else f'-{lastV}'}",
                                 first//2+v-1))
                     v = lastV + 1
+                # some readers can't search for c:v in the TOC, so ensure it's also in the text (with real space after, not just no-break, in case search implies word boundary and doesn't account for nbsp)
+                textsAndTimes[first]=TagAndText(textsAndTimes[first].tag,f"{chapterNumberText}:{'' if re.match(chr(92)+'s*[1-9]',textsAndTimes[first].text) else '1 '}{re.sub('^'+chr(92)+'s*([1-9][0-9]*)( |'+chr(0x202F)+'|'+chr(0xA0)+')*',chr(92)+'1 '+chr(92)+'2 ',textsAndTimes[first].text)}") # (1st vs might not be 1)
+                for f in range(first+2,len(textsAndTimes),2):
+                    textsAndTimes[f]=TagAndText(textsAndTimes[f].tag,re.sub("([1-9][0-9]*)( |\u202F|\xA0)*",chapterNumberText+r":\1 \2 ",textsAndTimes[f].text,1))
                 cvChaps.append(len(ret)+1)
         if R.bookTitlesAndNumChaps:
             chapHeadings=[
