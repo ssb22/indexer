@@ -1,6 +1,6 @@
 #!/usr/bin/env python3
 """
-Anemone 1.91 (http://ssb22.user.srcf.net/anemone)
+Anemone 1.92 (http://ssb22.user.srcf.net/anemone)
 (c) 2023-25 Silas S. Brown.  License: Apache 2
 
 To use this module, either run it from the command
@@ -905,24 +905,7 @@ class Run():
                                       first+4,
                                       len(textsAndTimes),
                                       2)
-                                       if not textsAndTimes[f].text))]: # looks like we're dealing with consecutive chapter and verse numbers with no other headings, so index the verse numbers (this is resilient to blank paragraphs due to an extra timing marker somewhere, but might cause incorrect numbering if that extra timing marker is not at the end)
-                v = 1
-                while v < (len(textsAndTimes)-first)//2+2:
-                    lastV = v
-                    while lastV < (len(textsAndTimes)-first)//2+1 and \
-                          (0 if v==1 else textsAndTimes[first+2*v-3])==textsAndTimes[first+2*lastV-1]: lastV += 1 # check for a span of them sharing a time
-                    if any(textsAndTimes
-                           [first+2*vv-2].text
-                           for vv in range(
-                                   v,lastV+1)):
-                        chapHeadings.append(
-                            ChapterTOCInfo(
-                                'div' if R.daisy3 or R.strict_ncc_divs
-                                else f'h{R.chapter_heading_level+1}',
-                                f"{chapterNumberText}:{v}{'' if v==lastV else f'-{lastV}'}",
-                                first//2+v-1))
-                    v = lastV + 1
-                # some readers can't search for c:v in the TOC, so ensure it's also in the text (with real space after, not just no-break, in case search implies word boundary and doesn't account for nbsp)
+                                       if not textsAndTimes[f].text))]: # looks like we're dealing with consecutive chapter and verse numbers with no other headings, so add chapter to the verse numbers for search
                 textsAndTimes[first]=TagAndText(textsAndTimes[first].tag,f"{chapterNumberText}:{'' if re.match(chr(92)+'s*[1-9]',textsAndTimes[first].text) else '1 '}{re.sub('^'+chr(92)+'s*([1-9][0-9]*)( |'+chr(0x202F)+'|'+chr(0xA0)+')*',chr(92)+'1 '+chr(92)+'2 ',textsAndTimes[first].text)}") # (1st vs might not be 1)
                 for f in range(first+2,len(textsAndTimes),2):
                     textsAndTimes[f]=TagAndText(textsAndTimes[f].tag,re.sub("([1-9][0-9]*)( |\u202F|\xA0)*",chapterNumberText+r":\1 \2 ",textsAndTimes[f].text,1))
@@ -944,7 +927,6 @@ class Run():
         ret.append(chapHeadings)
     if len(R.bookTitlesAndNumChaps)>1 or R.bookTitlesAndNumChaps and not chapNo==R.bookTitlesAndNumChaps[0][1]: R.warning("merge-books specified more files than given")
     if len(cvChaps) not in [0,len(ret)]: R.warning(f"Verse-indexed only {len(cvChaps)} of {len(ret)} chapters.  Missing: {', '.join(str(i) for i in range(1,len(ret)+1) if i not in cvChaps)}")
-    if cvChaps and not R.daisy3 and not R.strict_ncc_divs: R.warning("Verse-indexing in Daisy 2 can prevent EasyReader 10 from displaying the text: try Daisy 3 instead") # (and with strict_ncc_divs, verses are not shown in Book navigation in Daisy 2)
     return ret
   def ncc_html(self, headings = [],
              hasFullText:bool = False,

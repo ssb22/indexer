@@ -44,8 +44,9 @@ def test_verse_numbering(wav):
     ncx = z.open('navigation.ncx').read()
     del z ; os.remove("test_daisy.zip")
     assert b'<level1><h1 id="p1">47</h1>' in xml
-    assert b'<p id="p2">47:1 one</p>' in xml
-    assert b'<navLabel><text>47:2</text><audio src="0001.mp3" clipBegin="0:00:01.000" clipEnd="0:00:02.000"/></navLabel>' in ncx
+    assert b'<p id="p2">47:1 ' in xml
+    print(ncx)
+    assert b'<navLabel><text>47</text><audio src="0001.mp3" clipBegin="0:00:00.000" clipEnd="0:00:00.001"/></navLabel>' in ncx
 def test_errors(wav):
     with pytest.raises(anemone.AnemoneError) as e: anemone.anemone(wav,'<p data-pid="A">47 one</p><p data-pid="B">2 two</p><p data-pid="C">3 three</p>','{"markers":[{"id":"A","time":"0"},{"id":"B","time":"1"},{"id":"C","time":"2"}]}','test_daisy.zip',chapter_titles="Chapter 74",warnings_are_errors=True,ignore_chapter_skips=True,daisy3=True)
     assert "Title for chapter 47 is 'Chapter 74' which does not contain the expected '47' (extracted from '47 one')" in str(e.value)
