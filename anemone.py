@@ -1,6 +1,6 @@
 #!/usr/bin/env python3
 """
-Anemone 1.93 (http://ssb22.user.srcf.net/anemone)
+Anemone 1.94 (http://ssb22.user.srcf.net/anemone)
 (c) 2023-25 Silas S. Brown.  License: Apache 2
 
 To use this module, either run it from the command
@@ -110,6 +110,10 @@ the attribute used in the HTML to indicate a page number, default is data-no""")
 the attribute used in the HTML to indicate an
 absolute image URL to be included in the DAISY
 file, default is data-zoom""")
+    args.add_argument("--line-breaking-classes",
+                      default="",help="""
+comma-separated list of classes used in HTML SPAN
+tags to substitute for line and paragraph breaks""")
     args.add_argument("--refresh",
                       action="store_true",help="""
 if images etc have already been fetched from URLs, ask the server if they should be fetched again (use If-Modified-Since)""")
@@ -351,7 +355,8 @@ class Run():
         try: R.__dict__[k] = float(R.__dict__[k])
         except ValueError: error(f"{k} must be a number")
     R.__dict__['retries'] = int(R.__dict__['retries']) # "2.0" OK but "2.1" would loop if not take int
-    for k in ['merge_books','chapter_titles','toc_titles']:
+    for k in ['merge_books','chapter_titles','toc_titles',
+              'line_breaking_classes']:
         if not isinstance(R.__dict__[k],list):
             if not isinstance(R.__dict__[k],str): error(f"{k} must be Python list or comma-separated string")
             R.__dict__[k]=R.__dict__[k].split(',') # comma-separate if coming from the command line, but allow lists to be passed in to the module
@@ -1359,6 +1364,10 @@ class PidsExtractor:
             addTo = self.id_to_content[a][1]
         elif addTo is not None and tag in allowedInlineTags: addTo.append(f'<{allowedInlineTags[tag]}>')
         elif addTo is not None and tag=='a': self.lastAStart = len(addTo)
+        elif addTo is not None and tag=='span' and any(
+                c in self.R.line_breaking_classes for c in
+                attrs.get("class",[])):
+            addTo.append('<br>') # (not <p> because if the document is span-based we'll likely end up replacing it with a <br> below anyway, and most DAISY readers treat them the same)
         pageNo=attrs.get(self.R.page_attribute,"")
         if re.match("(?i)[ivxlm]",pageNo):
             self.R.warning("Support of Roman page numbers not yet implemented",f": ignoring page marker for {pageNo}") # we will need to change ncc_html to support 'front' pages (not just 'normal' pages) if supporting this
@@ -1836,7 +1845,13 @@ def er_book_info(durations:list[float]) -> str:
 </book_info>
 """
 
-d3css = """/* Simplified from Z39.86 committee CSS, removed non-dark background (allow custom) */
+d3css = """/* Simplified from Z39.86 committee CSS:
+  removed non-dark background (allow custom).
+
+  NOTE: most DAISY readers IGNORE this css.
+  We provide it to be standards compliant,
+  but customising it will likely NOT work.   */
+
 dtbook { display:block; width: 100% }
 head { display: none }
 book {
@@ -1864,6 +1879,7 @@ em { display: inline; font-style: italic }
 strong { display: inline; font-weight: bold }
 span { display: inline; }
 """
+# text.res also should not be customised:
 textres = """<?xml version="1.0" encoding="utf-8"?>
 <!DOCTYPE resources
   PUBLIC "-//NISO//DTD resource 2005-1//EN" "http://www.daisy.org/z3986/2005/resource-2005-1.dtd">
