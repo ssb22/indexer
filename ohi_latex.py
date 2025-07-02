@@ -2,7 +2,7 @@
 # (works on both Python 2 and Python 3)
 
 """ohi_latex: Offline HTML Indexer for LaTeX
-v1.41 (c) 2014-20,2023-24 Silas S. Brown
+v1.42 (c) 2014-20,2023-25 Silas S. Brown
 License: Apache 2""" # (see below)
 
 # Licensed under the Apache License, Version 2.0 (the "License");
@@ -789,6 +789,6 @@ if __name__ == "__main__":
   sys.stderr.write("done\n")
   pdffile = re.sub(r"tex$","pdf",outfile)
   if links_and_bookmarks: os.system('if which qpdf 2>/dev/null >/dev/null; then /bin/echo -n "Running qpdf..." >&2 && qpdf $(if qpdf --help=encryption 2>/dev/null|grep allow-weak-crypto >/dev/null; then echo --allow-weak-crypto; fi) --encrypt "" "" 128 --print=full --modify=all -- "'+pdffile+'" "/tmp/q'+pdffile+'" && mv "/tmp/q'+pdffile+'" "'+pdffile+'" && echo " done" >&2 ; fi') # this can help enable annotations on old versions of acroread (for some reason).  Doesn't really depend on links_and_bookmarks, but I'm assuming if you have links_and_bookmarks switched off you're sending it to printers and therefore don't need to enable annotations for people who have old versions of acroread
-  if sys.platform=="darwin" and not no_open:
+  if sys.platform=="darwin" and not no_open and not os.environ.get("SSH_CLIENT"):
     os.system('open "'+pdffile+'"') # (don't put this before the above qpdf: even though there's little chance of the race condition failing, Preview can still crash after qpdf finishes)
     import time ; time.sleep(1) # (give 'open' a chance to finish opening the file before returning control to the shell, in case the calling script renames the file or something)
