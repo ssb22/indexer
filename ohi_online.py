@@ -143,7 +143,7 @@ class LineMap(mmap.mmap): # might fail in old Python versions where mmap isn't a
             ret2 = self.lineStart(ret-1)
             if self[ret2:ret2+len(txt2)+1]==txt[:len(txt2)+1]: return ret2 # return previous line if they match that as well
             else: return ret
-        lWidth,uWidth = int((hi-lo)/2),int((hi-lo+1)/2)
+        lWidth = int((hi-lo)/2)
         lMid = self.lineStart(lo+lWidth)
         lLine = self.lineAt(lMid)
         if lLine < txt: return self.bisect(txt,lMid+len(lLine),hi)

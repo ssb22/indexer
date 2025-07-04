@@ -62,7 +62,7 @@ max_filesize = 64*1024 # of each HTML file
 
 # ---------------------------------------------------------------
 
-import re,sys,os,time
+import re,sys,os
 if type("")==type(u""): izip = zip # Python 3
 else: from itertools import izip # Python 2
 
