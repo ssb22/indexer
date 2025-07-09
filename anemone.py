@@ -1,6 +1,6 @@
 #!/usr/bin/env python3
 """
-Anemone 1.94 (http://ssb22.user.srcf.net/anemone)
+Anemone 1.95 (http://ssb22.user.srcf.net/anemone)
 (c) 2023-25 Silas S. Brown.  License: Apache 2
 
 To use this module, either run it from the command
@@ -171,26 +171,6 @@ readers but might cause older reading devices to
 give an error.  Without this option, headings are
 promoted where necessary to ensure only
 incremental depth increase.""") # might cause older reading devices to give an error: and is also flagged up by the validator
-    args.add_argument("--strict-ncc-divs",
-                      action="store_true",help="""
-When generating Daisy 2, avoid using a heading in
-the navigation control centre when there isn't a
-heading in the text.  This currently applies when
-spans with verse numbering are detected.  Turning
-on this option will make the DAISY more conformant
-to the specification, but some readers (EasyReader
-10, Thorium) won't show these headings in the
-navigation in Daisy 2 (but will show them anyway
-in Daisy 3, so this option is applied
-automatically in Daisy 3).  On the other hand,
-when using verse-numbered spans without this
-option, EasyReader 10 may not show any text at all
-in Daisy 2 (Anemone will warn if this is the
-case).  This setting cannot stop EasyReader
-promoting all verses to headings (losing paragraph
-formatting) in Daisy 3, which is the least bad
-option if you want these navigation points to
-work.""")
     args.add_argument("--merge-books",
                       default="",help="""
 Combine multiple books into one, for saving media
@@ -227,7 +207,6 @@ be taken from the full chapter titles instead.""")
     args.add_argument("--chapter-heading-level",default=1,help="Heading level to use for chapters that don't have titles")
     args.add_argument("--warnings-are-errors",action="store_true",help="Treat warnings as errors")
     args.add_argument("--ignore-chapter-skips",action="store_true",help="Don't emit warnings or errors about chapter numbers being skipped")
-    args.add_argument("--accept-malformed-markers",action="store_true",help="Make a completely malformed marker a warning, not an error (unless all warnings are errors).  Malformed markers usually indicate a serious issue which will not lead to a good DAISY file, so this option should be used for diagnostic purposes only.")
     args.add_argument("--dry-run",action="store_true",help="Don't actually output DAISY, just check the input and parameters")
     args.add_argument("--version",action="store_true",help="Just print version number and exit (takes effect only if called from the command line)")
 
@@ -598,7 +577,6 @@ class Run():
         for i,m in enumerate(markers):
             err = checkJsonAttr(m,"id")
             if err:
-                R.warnings_are_errors |= not R.accept_malformed_markers
                 R.warning(f"Cannot process JSON {len(recordingTexts)+1} marker {i+1}: {err}",".  Ignoring this marker.")
             else:
                 markerToWantPid[i] = len(want_pids)
@@ -612,7 +590,6 @@ class Run():
             if i not in markerToWantPid: continue # bad id on this one
             err = checkJsonAttr(markers[i],"time")
             if err:
-                R.warnings_are_errors |= not R.accept_malformed_markers
                 R.warning(f"Cannot process JSON {len(recordingTexts)+1} marker {i+1}: {err}",".  Ignoring this marker.")
                 continue
             try: rTxt.append(parseTime(jsonAttr(markers[i],"time")))
@@ -983,9 +960,7 @@ class Run():
     "audioFullText" if hasFullText else "audioNcc" }" />
     <meta name="{'dtb' if R.daisy3 else 'ncc'
     }:depth" content="{max(int(h.hTag[1:])
-    for h in headingsR if h.hTag.startswith('h'))
-    +(1 if any(h.hTag=='div' for h in headingsR)
-    else 0)}" />
+    for h in headingsR if h.hTag.startswith('h'))}" />
     <meta name="ncc:files" content="{ 2
     + sum(1 for a in R.audioData if a)
     + len(headings)*(2 if hasFullText else 1)
@@ -1753,17 +1728,12 @@ def numDaisy3NavpointsToClose(s:int, headingsR:list[BookTOCInfo]) -> int:
     points that need closing after index s"""
 
     thisTag = headingsR[s]
-    if thisTag.hTag.startswith('h'):
-        thisDepth = int(thisTag.hTag[1])
-    else: thisDepth = None # a div navpoint
+    thisDepth = int(thisTag.hTag[1])
     if s+1==len(headingsR): nextDepth = 1
     else:
         nextTag = headingsR[s+1]
-        if nextTag.hTag.startswith('h'):
-            nextDepth = int(nextTag.hTag[1])
-        else: nextDepth = None # another div
-    if thisDepth == nextDepth: return 1 # e.g. this is div and next is div, or same heading level
-    elif nextDepth is None: return 0 # never close if it's heading followed by div
+        nextDepth = int(nextTag.hTag[1])
+    if thisDepth == nextDepth: return 1 # same heading level
     headingNums_closed = ''.join(
         ('' if not i.hTag.startswith('h')
          else i.hTag[1]
