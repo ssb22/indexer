@@ -2,7 +2,7 @@
 # (works on both Python 2 and Python 3)
 
 """ohi_latex: Offline HTML Indexer for LaTeX
-v1.43 (c) 2014-20,2023-25 Silas S. Brown
+v1.44 (c) 2014-20,2023-25 Silas S. Brown
 License: Apache 2""" # (see below)
 
 # Licensed under the Apache License, Version 2.0 (the "License");
@@ -472,6 +472,7 @@ def makeLatex(unistr):
   if a5 and r"\chapter" in unistr: geometry=geometry.replace("lmargin=3mm,rmargin=3mm,tmargin=3mm,bmargin=3mm","lmargin=5mm,rmargin=5mm,tmargin=4mm,bmargin=4mm")
   ret += r'\usepackage['+geometry+']{geometry}'
   ret += '\n'.join(set(v for (k,v) in latex_preamble.items() if k in unistr))+'\n'
+  assert not (r'\usepackage{CJK}' in ret and (r'\em{' in unistr or r'\bf{' in unistr) and any(os.path.exists(f) and 'Version 4.8.4 (18-Apr-2015)' in open(f).read() for f in ["/usr/share/texmf/tex/latex/CJK/CJK.sty","/usr/share/texlive/texmf-dist/tex/latex/CJK/CJK.sty","/usr/share/texmf-texlive/tex/latex/CJK/CJK.sty"]) and not (os.path.exists(f) and not 'Version 4.8.4 (18-Apr-2015)' in open(f).read() for f in [os.environ.get("HOME")+"/texmf/tex/latex/CJK/CJK.sty"])), "CJK package is broken on systems like Ubuntu 22.04 LTS (fixed in 24.04 LTS): bold and emphasis will not work unless you override it with a newer CJK package in ~/texmf (or upgrade the distro)" # may also affect boldness of title etc
   if r'\title{' in unistr:
     if 'pdftitle' in os.environ: ret = ret.replace("hyperfootnotes=false]{hyperref}",("pdfauthor={"+os.environ['pdfauthor']+"}," if 'pdfauthor' in os.environ else '')+"pdftitle={"+os.environ['pdftitle']+"},hyperfootnotes=false]{hyperref}") # TODO: document that you can set pdfauthor and pdftitle in environment
     title = re.findall(r'\\title{.*?}%title',unistr,flags=re.DOTALL)[0] # might have <br>s in it
