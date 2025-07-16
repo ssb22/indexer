@@ -2,7 +2,7 @@
 # (works on both Python 2 and Python 3)
 
 """ohi_latex: Offline HTML Indexer for LaTeX
-v1.44 (c) 2014-20,2023-25 Silas S. Brown
+v1.45 (c) 2014-20,2023-25 Silas S. Brown
 License: Apache 2""" # (see below)
 
 # Licensed under the Apache License, Version 2.0 (the "License");
@@ -214,6 +214,7 @@ def makeLatex(unistr):
     '((https?|s?ftp|gemini)://[!-#%-(*-;=-Z^-z|~]*)':lambda m:"\\nolinkurl{"+m.group(1).replace("&amp;",r"\&").replace("%",r"\%").replace("_",r"\_").replace('#',r'\#')+"}", # matches only the characters we can handle (and additionally does not match close paren, since that's often not part of a URL when it's quoted in text; TODO: stop at &gt; ?)
     '([a-z][a-z.]+\\.(com|net|org)/[!-#%-(*-;=-Z^-z|~]*)':lambda m:"\\nolinkurl{"+m.group(1).replace("&amp;",r"\&").replace("%",r"\%").replace("_",r"\_").replace('#',r'\#')+"}",
     '<img src=["]([^"]*)["]>':r'\\includegraphics[width=0.9\\columnwidth]{\1}',
+    '<img src=["]([^"]*svg)["]>':r'\\resizebox{1\\columnwidth}{!}{\\includesvg{\1}}', # don't use \includesvg[width=] as that doesn't always resize all text used
     }
   global latex_special_chars
   latex_special_chars = dict((unichr(u),"\\usym{%X}" % u) for u in range(0x2600,0x27C0)) # utfsym fallback, TODO: add 1F000..1F0FF, 1F300..1F64F, 1F680..1F6FF, beware we might be on a narrow Python build
@@ -413,25 +414,27 @@ def makeLatex(unistr):
     # accidentally include a package not really needed)
     r"\CJKfamily":r"\usepackage{CJK}",
     r"\begin{multicols}":r"\usepackage{multicol}",
-    r"\braille":"\\usepackage[puttinydots]{braille}",
+    r"\braille":r"\usepackage[puttinydots]{braille}",
     r"\usym":r"\usepackage{utfsym}",
-    r"\sfrac":"\\usepackage{xfrac}",
-    r"\checkmark":"\\usepackage{amssymb}",
-    r'\rightleftarrows':"\\usepackage{amssymb}",
-    r"\euro":"\\usepackage{eurosym}",
-    r"\markboth":"\\usepackage{fancyhdr}", # TODO: what if page_headings is set on a document that contains no anchors and therefore can't be tested in unistr ?
-    r"\title":"\\usepackage[hyperfootnotes=false]{hyperref}", # as will get tableofcontents
-    r"\href":"\\usepackage[hyperfootnotes=false]{hyperref}",
-    r"\hyper":"\\usepackage[hyperfootnotes=false]{hyperref}",
-    r"\pdfbookmark":"\\usepackage[hyperfootnotes=false]{hyperref}",
-    r'\nolinkurl':"\\usepackage[hyperfootnotes=false]{hyperref}", # or "\\url":"\\usepackage{url}", but must use hyperref instead if might be using hyperref for other things (see comments above)
-    r"\includegraphics":"\\usepackage{graphicx}",
-    r'\sout':"\\usepackage[normalem]{ulem}",
+    r"\sfrac":r"\usepackage{xfrac}",
+    r"\checkmark":r"\usepackage{amssymb}",
+    r'\rightleftarrows':r"\usepackage{amssymb}",
+    r"\euro":r"\usepackage{eurosym}",
+    r"\markboth":r"\usepackage{fancyhdr}", # TODO: what if page_headings is set on a document that contains no anchors and therefore can't be tested in unistr ?
+    r"\title":r"\usepackage[hyperfootnotes=false]{hyperref}", # as will get tableofcontents
+    r"\href":r"\usepackage[hyperfootnotes=false]{hyperref}",
+    r"\hyper":r"\usepackage[hyperfootnotes=false]{hyperref}",
+    r"\pdfbookmark":r"\usepackage[hyperfootnotes=false]{hyperref}",
+    r'\nolinkurl':r"\usepackage[hyperfootnotes=false]{hyperref}", # or r"\url":r"\usepackage{url}", but must use hyperref instead if might be using hyperref for other things (see comments above)
+    r"\includegraphics":r"\usepackage{graphicx}",
+    r"\definecolor":r"\usepackage{xcolor}", # may be in tex-literal
+    r"\includesvg":r"\usepackage{svg}",
+    r'\sout':r"\usepackage[normalem]{ulem}",
     r'\stack':r"\newsavebox\stackBox\def\fitbox#1{\sbox\stackBox{#1}\ifdim \wd\stackBox >\columnwidth \vskip 0pt \resizebox*{\columnwidth}{!}{#1} \vskip 0pt \else{#1}\fi}\def\stack#1#2{\fitbox{\shortstack{\raisebox{0pt}[2.3ex][0ex]{#2} \\ \raisebox{0pt}[1.9ex][0.5ex]{#1}}}}", # (I also gave these measurements to Wenlin; they work for basic ruby with rb=hanzi rt=pinyin)
-    r'\sym':"\\usepackage{chessfss}",
-    r"\textipa":"\\usepackage[safe]{tipa}",
-    r'\text':"\\usepackage{textgreek} % sudo apt install texlive-science", # (if you don't have texlive-full, e.g. because it depends on vprerex and the QT libraries are messed up in Ubuntu 22)
-    r'\uline':"\\usepackage[normalem]{ulem}",
+    r'\sym':r"\usepackage{chessfss}",
+    r"\textipa":r"\usepackage[safe]{tipa}",
+    r'\text':r"\usepackage{textgreek} % sudo apt install texlive-science", # (if you don't have texlive-full, e.g. because it depends on vprerex and the QT libraries are messed up in Ubuntu 22)
+    r'\uline':r"\usepackage[normalem]{ulem}",
     }
   latex_special_chars.update(simple_html2latex_noregex)
   def handleV(k,v):
@@ -643,12 +646,12 @@ def subDict(d):
         # work out which key it matched, then redo the
         # sub so backslash replacements work
         for i in k2:
-            m=re.match(i,mg)
+            m=re.match(i,mg,re.DOTALL)
             if not m: continue
             if m.end()==len(mg):
-                return re.sub(i,d[i],match.group())
+                return re.sub(i,d[i],mg,flags=re.DOTALL)
         assert 0, "shouldn't get here, match="+repr(match.group())+" d="+repr(d.items())
-    return lambda txt: re.sub(u'|'.join(k),func,txt)
+    return lambda txt: re.sub(u'|'.join(k),func,txt,flags=re.DOTALL) # this and other DOTALLs needed for <tex-literal> to be able to span more than one line
 
 # -------------------------------------------------
 
@@ -787,7 +790,9 @@ if __name__ == "__main__":
     # ensure doesn't mess up new TeX run (e.g. if required packages for TOC have changed)
     try: os.remove(re.sub(r"tex$",ext,outfile))
     except: pass
-  r=os.system("&&".join(['pdflatex -draftmode -file-line-error -halt-on-error "'+outfile+'" >/dev/null']*(passes-1)+['pdflatex -file-line-error -halt-on-error "'+outfile+'" >/dev/null'])) # >/dev/null added because there'll likely be many hbox warnings; log file is more manageable than having them on-screen
+  args='-file-line-error -halt-on-error "'+outfile+'" >/dev/null' # >/dev/null added because there'll likely be many hbox warnings; log file is more manageable than having them on-screen
+  if r"\usepackage{svg}" in texDoc: args="--shell-escape "+args # so it can run inkscape to convert the svg
+  r=os.system("&&".join(['pdflatex -draftmode '+args]*(passes-1)+['pdflatex '+args]))
   assert not r, "pdflatex failure (see "+re.sub(r"tex$","log",outfile)+")"
   sys.stderr.write("done\n")
   pdffile = re.sub(r"tex$","pdf",outfile)
