@@ -3,6 +3,12 @@ macOS voices, using different voices for different
 characters in the dialogue
 
 v0.4 (c) 2024 Silas S. Brown.  License: Apache 2
+
+The Apple Software License Agreement says you may use
+macOS voices "to create your own original content and
+projects for your personal, non-commercial use", so you may
+want to take extra caution you're not getting any revenue.
+That doesn't affect your Apache 2 rights to this script of course.
 """
 
 # Licensed under the Apache License, Version 2.0 (the "License");
