@@ -2,7 +2,7 @@
 macOS voices, using different voices for different
 characters in the dialogue
 
-v0.4 (c) 2024 Silas S. Brown.  License: Apache 2
+v0.5 (c) 2024-25 Silas S. Brown.  License: Apache 2
 
 The Apple Software License Agreement says you may use
 macOS voices "to create your own original content and
@@ -30,7 +30,7 @@ That doesn't affect your Apache 2 rights to this script of course.
 # and at https://gitlab.developers.cam.ac.uk/ssb22/indexer
 # and in China: https://gitee.com/ssb22/indexer
 
-import tempfile, re, os, sys
+import tempfile, re, os, sys, time
 from mutagen.aiff import AIFF
 
 def getAIFF(voiceParams,text):
@@ -65,7 +65,9 @@ def getAIFF(voiceParams,text):
                 f0 = tempnam("txt")
                 open(f0,'w').write(text)
             r=os.system(f'say {voiceParams} -o {f} -f {f0}')
-        if r: print ("Retrying after failed say") # in case the voices got stuck and you had to do "killall say" e.g. after a laptop suspend
+        if r:
+            print ("Retrying after failed say") # in case the voices got stuck and you had to do "killall say" e.g. after a laptop suspend
+            time.sleep(3)
         else: break
     if f0: os.remove(f0)
     return f
