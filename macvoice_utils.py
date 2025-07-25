@@ -2,7 +2,7 @@
 macOS voices, using different voices for different
 characters in the dialogue
 
-v0.5 (c) 2024-25 Silas S. Brown.  License: Apache 2
+v0.6 (c) 2024-25 Silas S. Brown.  License: Apache 2
 
 The Apple Software License Agreement says you may use
 macOS voices "to create your own original content and
@@ -30,7 +30,7 @@ That doesn't affect your Apache 2 rights to this script of course.
 # and at https://gitlab.developers.cam.ac.uk/ssb22/indexer
 # and in China: https://gitee.com/ssb22/indexer
 
-import tempfile, re, os, sys, time
+import tempfile, re, os, sys, time, shutil
 from mutagen.aiff import AIFF
 
 def getAIFF(voiceParams,text):
@@ -76,12 +76,11 @@ def mixVoices(voiceParamList,text):
     """Synthesises text using one or more voice
     parameters simultaneously, for use when more
     than one character is speaking together; drops
-    through to single voice if there's just one.
-    Requires a sox binary in the PATH if voices
-    need to be mixed."""
+    through to single voice if there's just one."""
     aiffs = [getAIFF(p,text)
              for p in voiceParamList]
     if len(aiffs) > 1:
+        check_we_got_sox()
         a2 = tempnam("aiff")
         cmd(f'sox -m {" ".join(aiffs)} {a2}') # TODO: stereo positions? (but final output is currently mono) ; TODO: may need a small volume boost, especially if 3 voices mixed, but depends on the voices (mixing 3 identical copies seems to get the same)
         for a in aiffs: os.remove(a)
@@ -218,6 +217,7 @@ def catAndDelete(output, iterable):
     at this point in the audio.  The function
     returns a list of collected timestamps if any.
     """
+    check_we_got_sox()
     l = list(iterable)
     if not(all(i.endswith(".aiff") for i in l if i)):
         # not all is aiff: standardise on stereo
@@ -341,6 +341,15 @@ def readSentenceLabelPageNosFromAux(aux_filename):
     SentenceBreakCount objects (you might need
     custom logic for headings etc)"""
     return [l[l.index("}{{")+3:].split('}{')[1:3] for l in open(aux_filename) if l.startswith(r'\newlabel{SentenceLabel')] # (if any chapters are not numbered, their chapter numbers will be incorrect here, so use chapter names)
+
+def check_we_got_sox():
+    "Installs sox from static-sox if not on system"
+    if not shutil.which("sox"):
+        try: import static_sox
+        except ImportError:
+            cmd("pip3 install static-sox")
+            import static_sox
+        static_sox.add_paths()
 
 def tempnam(extension):
     "Get a temporary filename with the given extension (adds dot before it)"
