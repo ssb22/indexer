@@ -2,7 +2,7 @@
 macOS voices, using different voices for different
 characters in the dialogue
 
-v0.6 (c) 2024-25 Silas S. Brown.  License: Apache 2
+v0.7 (c) 2024-25 Silas S. Brown.  License: Apache 2
 
 The Apple Software License Agreement says you may use
 macOS voices "to create your own original content and
@@ -32,6 +32,7 @@ That doesn't affect your Apache 2 rights to this script of course.
 
 import tempfile, re, os, sys, time, shutil
 from mutagen.aiff import AIFF
+from mutagen import File
 
 def getAIFF(voiceParams,text):
     """Clean up text, speak it using given voice
@@ -249,6 +250,30 @@ def catAndDelete(output, iterable):
         catted = [f"{len(catted)}.aiff"]+catted[50:]
     cmd(f"sox {' '.join(catted)} {output}.wav")
     return timestamps
+
+def catAndDelete_toRef(reference_recording,output,iterable,
+                       delete_iterable_files = True):
+    """Concatenates files from iterable, saving the result
+    to {output}.wav, with silence added in between files as
+    necessary (or, as a last resort, tempo changed) to ensure
+    total length matches that of reference_recording.
+    For playing a (recorded or synthesised) simultaneous
+    translation reading during a pre-recorded original."""
+    l = list(iterable) ; totLen=sum(File(i).info.length for i in l)
+    refLen = File(reference_recording).info.length
+    fmt = "-t raw -r 22050 -c 1 -e signed-integer -b 16"
+    check_we_got_sox()
+    o = os.popen(f'sox {fmt} - "{output}"','w')
+    for num,i in enumerate(l):
+        if len(l)==1 or totLen > refLen:
+            # Inserting pauses can't fix: need speed change
+            speedTweak = f" tempo {totLen/refLen}"
+        else: speedTweak = ""
+        p=os.popen(f'sox "{i}" {fmt} -{speedTweak}')
+        o.buffer.write(p.buffer.read() + (b'\x00'*2*(int(22050*max(0,refLen-totLen)/(len(l)-1)) if num<len(l)-1 else 0)))
+        p.close()
+        if delete_iterable_files: os.remove(i)
+    o.close()
 
 class SentenceBreakCount:
     r"""Class of objects to be used in
