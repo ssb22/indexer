@@ -2,7 +2,7 @@
 # (works on both Python 2 and Python 3)
 
 """ohi_latex: Offline HTML Indexer for LaTeX
-v1.45 (c) 2014-20,2023-25 Silas S. Brown
+v1.46 (c) 2014-20,2023-25 Silas S. Brown
 License: Apache 2""" # (see below)
 
 # Licensed under the Apache License, Version 2.0 (the "License");
@@ -37,7 +37,8 @@ opts.add_option("--createspace",action="store_true",default=False,help="Use page
 opts.add_option("--a4compact",action="store_true",default=False,help="Use page settings that should work on most laser printers and MIGHT be ok for binding depending on who's doing it")
 opts.add_option("--a5",action="store_true",default=False,help="Use page settings intended for 'on-screen only' use on small devices")
 opts.add_option("--compromise",action="store_true",default=False,help="Use page settings intended for compromise between A4 and Letter, with a more spacious layout")
-opts.add_option("--trade",action="store_true",default=False,help="Use page settings intended for US Trade (6x9in), with the same pagination as --compromise but smaller margins") # (pagination should be the same if system still has same versions of all LaTeX packages)
+opts.add_option("--trade",action="store_true",default=False,help="Use page settings intended for US Trade (6x9in), with the same pagination as --compromise but smaller margins") # (pagination should be the same if system still has same versions of all LaTeX packages) - could be a risk to send this to Lulu which recommends safety margins 0.5in from the trim edge: are they really that bad at trimming?
+opts.add_option("--no-qpdf",action="store_true",default=False,help="Never run qpdf and don't enable links and bookmarks (use this when submitting to a print bureau; implied by --lulu and --createspace)")
 opts.add_option("--dry-run",action="store_true",default=False,help="Don't run pdflatex or qpdf")
 opts.add_option("--no-open",action="store_true",default=False,help="Don't open the resulting PDF on Mac")
 opts.add_option("--version",action="store_true",default=False,help="Show version number and exit")
@@ -81,7 +82,7 @@ elif a5:
   twocol_columns = 2
   page_headings = False
   whole_doc_in_footnotesize=False
-  links_and_bookmarks = True
+  links_and_bookmarks = not no_qpdf
   remove_adjacent_see = 0
   suppress_adjacent_see = 0
   class_options="12pt"
@@ -90,7 +91,7 @@ elif compromise or trade:
   else: geometry = "a4paper,paperheight=11in,lmargin=38mm,rmargin=38mm,tmargin=30mm,bmargin=46mm,columnsep=10mm"
   multicol="" ; twocol_columns = 2
   page_headings=whole_doc_in_footnotesize=False
-  links_and_bookmarks = True
+  links_and_bookmarks = not no_qpdf
   remove_adjacent_see=suppress_adjacent_see=0
   class_options="12pt"
 else:
@@ -100,7 +101,7 @@ else:
   twocol_columns = 2
   page_headings = False # TODO: ?  (add includehead to the geometry if setting True)
   whole_doc_in_footnotesize=False
-  links_and_bookmarks = True
+  links_and_bookmarks = not no_qpdf
   remove_adjacent_see = 0
   suppress_adjacent_see = 0
   class_options="12pt"
