@@ -2,7 +2,7 @@
 # (works on both Python 2 and Python 3)
 
 """ohi_latex: Offline HTML Indexer for LaTeX
-v1.46 (c) 2014-20,2023-25 Silas S. Brown
+v1.47 (c) 2014-20,2023-25 Silas S. Brown
 License: Apache 2""" # (see below)
 
 # Licensed under the Apache License, Version 2.0 (the "License");
@@ -37,7 +37,7 @@ opts.add_option("--createspace",action="store_true",default=False,help="Use page
 opts.add_option("--a4compact",action="store_true",default=False,help="Use page settings that should work on most laser printers and MIGHT be ok for binding depending on who's doing it")
 opts.add_option("--a5",action="store_true",default=False,help="Use page settings intended for 'on-screen only' use on small devices")
 opts.add_option("--compromise",action="store_true",default=False,help="Use page settings intended for compromise between A4 and Letter, with a more spacious layout")
-opts.add_option("--trade",action="store_true",default=False,help="Use page settings intended for US Trade (6x9in), with the same pagination as --compromise but smaller margins") # (pagination should be the same if system still has same versions of all LaTeX packages) - could be a risk to send this to Lulu which recommends safety margins 0.5in from the trim edge: are they really that bad at trimming?
+opts.add_option("--trade",action="store_true",default=False,help="Use page settings intended for US Trade (6x9in), with the same pagination as --compromise but smaller margins.  You may combine this with --lulu for even smaller margins via magstep without pagination change.") # (pagination should be the same if system still has same versions of all LaTeX packages)
 opts.add_option("--no-qpdf",action="store_true",default=False,help="Never run qpdf and don't enable links and bookmarks (use this when submitting to a print bureau; implied by --lulu and --createspace)")
 opts.add_option("--dry-run",action="store_true",default=False,help="Don't run pdflatex or qpdf")
 opts.add_option("--no-open",action="store_true",default=False,help="Don't open the resulting PDF on Mac")
@@ -48,7 +48,7 @@ assert not args,"Unknown arguments: "+repr(args)
 globals().update(options.__dict__)
 if outfile=="-": outfile = None
 
-if lulu:
+if lulu and not trade:
   if outfile=="index.tex":
     outfile = "index-lulu.tex"
   geometry = "paperwidth=8.5in,paperheight=11in,twoside,inner=0.8in,outer=0.5in,tmargin=0.5in,bmargin=0.5in,columnsep=8mm,includehead,headsep=0pt" # TODO: reduce headheight ?
@@ -87,11 +87,12 @@ elif a5:
   suppress_adjacent_see = 0
   class_options="12pt"
 elif compromise or trade:
-  if trade: geometry="paperwidth=6in,paperheight=9in,lmargin=9.2mm,rmargin=9.2mm,tmargin=10mm,bmargin=15.2mm,columnsep=10mm"
+  if trade and lulu: geometry="paperwidth=171.236mm,paperheight=256.854mm,twoside,inner=22.832mm,outer=14.404mm,tmargin=24.27mm,bmargin=29.184mm,columnsep=11.236mm" # for \mag=890
+  elif trade: geometry="paperwidth=6in,paperheight=9in,lmargin=9.2mm,rmargin=9.2mm,tmargin=10mm,bmargin=15.2mm,columnsep=10mm"
   else: geometry = "a4paper,paperheight=11in,lmargin=38mm,rmargin=38mm,tmargin=30mm,bmargin=46mm,columnsep=10mm"
   multicol="" ; twocol_columns = 2
   page_headings=whole_doc_in_footnotesize=False
-  links_and_bookmarks = not no_qpdf
+  links_and_bookmarks = not no_qpdf and not lulu
   remove_adjacent_see=suppress_adjacent_see=0
   class_options="12pt"
 else:
@@ -475,6 +476,7 @@ def makeLatex(unistr):
   global geometry
   if a5 and r"\chapter" in unistr: geometry=geometry.replace("lmargin=3mm,rmargin=3mm,tmargin=3mm,bmargin=3mm","lmargin=5mm,rmargin=5mm,tmargin=4mm,bmargin=4mm")
   ret += r'\usepackage['+geometry+']{geometry}'
+  if trade and lulu: ret += r'\mag=890'
   ret += '\n'.join(set(v for (k,v) in latex_preamble.items() if k in unistr))+'\n'
   assert not (r'\usepackage{CJK}' in ret and (r'\em{' in unistr or r'\bf{' in unistr) and any(os.path.exists(f) and 'Version 4.8.4 (18-Apr-2015)' in open(f).read() for f in ["/usr/share/texmf/tex/latex/CJK/CJK.sty","/usr/share/texlive/texmf-dist/tex/latex/CJK/CJK.sty","/usr/share/texmf-texlive/tex/latex/CJK/CJK.sty"]) and not (os.path.exists(f) and not 'Version 4.8.4 (18-Apr-2015)' in open(f).read() for f in [os.environ.get("HOME")+"/texmf/tex/latex/CJK/CJK.sty"])), "CJK package is broken on systems like Ubuntu 22.04 LTS (fixed in 24.04 LTS): bold and emphasis will not work unless you override it with a newer CJK package in ~/texmf (or upgrade the distro)" # may also affect boldness of title etc
   if r'\title{' in unistr:
