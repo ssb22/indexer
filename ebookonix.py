@@ -1,5 +1,5 @@
 """
-ebookonix v0.3 (c) 2025 Silas S. Brown.  License: Apache 2
+ebookonix v0.4 (c) 2025 Silas S. Brown.  License: Apache 2
 Generate ONIX XML for zero-cost e-books.
 Run from the command line to generate XML for a single book.
 Or use as a module (see doc strings).
@@ -37,9 +37,15 @@ def onix_product(url,title:str,lang_iso:str="en",
                  idCode:str="",
                  idType:str="ISBN", # ISSN, DOI etc (see below)
                  # and see https://ns.editeur.org/onix/en/5
-                 # (if ISSN, we assume the issue is carried by the date)
+                 issn:str="",
+                 issnTitlePrefix:str="",
+                 issnTitleWithoutPrefix:str="",
                  deweyCode:str="",deweyTxt:str="",
-                 publisher:str="",publisherWebsite:str="")->str:
+                 bisacHeadings:[str]=[],
+                 keywords:str="",
+                 hasImageDescriptions=False,
+                 publisher:str="",copyright:str="",
+                 publisherWebsite:str="")->str:
     """Creates an ONIX XML fragment for a book product.
     We use ProductForm ED = digital download
     and UnpricedItemType 01 = free of charge.
@@ -76,6 +82,24 @@ def onix_product(url,title:str,lang_iso:str="en",
     <ProductComposition>00</ProductComposition>
     <ProductForm>ED</ProductForm>
     <ProductFormDetail>{list175.get(format.lower(),"E100")}</ProductFormDetail>
+    {'''<ProductFormFeature>
+      <ProductFormFeatureType>09</ProductFormFeatureType>
+      <ProductFormFeatureValue>15</ProductFormFeatureValue>
+    </ProductFormFeature>''' if hasImageDescriptions else ''}
+    {f'''<Collection>
+      <CollectionType>10</CollectionType>
+      <CollectionIdentifier>
+        <CollectionIDType>02</CollectionIDType>
+        <CollectionIDValue>{issn}</CollectionIDValue>
+      </CollectionIdentifier>
+      <TitleDetail>
+        <TitleType>02</TitleType>
+        <TitleElement>
+          {f'<TitlePrefix language="{langcodes.Language.get(lang_iso).to_alpha3()}">{issnTitlePrefix}</TitlePrefix>' if issnTitlePrefix else '<NoPrefix/>'}
+          <TitleWithoutPrefix language="{langcodes.Language.get(lang_iso).to_alpha3()}">{issnTitleWithoutPrefix}</TitleWithoutPrefix>
+        </TitleElement>
+      </TitleDetail>
+    </Collection>''' if issn and issnTitleWithoutPrefix else ''}
     <TitleDetail>
       <TitleType>01</TitleType>
       <TitleElement>
@@ -93,6 +117,16 @@ def onix_product(url,title:str,lang_iso:str="en",
       <SubjectSchemeIdentifier>01</SubjectSchemeIdentifier>
       <SubjectCode>{E(deweyCode)}</SubjectCode>
       <SubjectHeadingText>{E(deweyTxt)}</SubjectHeadingText>
+    </Subject>''' if deweyCode and deweyTxt else ''}
+    {''.join(f'''<Subject>
+      {'<MainSubject/>' if b==bisacHeadings[0] else ''}
+      <SubjectSchemeIdentifier>10</SubjectSchemeIdentifier>
+      <SubjectSchemeVersion>2016</SubjectSchemeVersion>
+      <SubjectCode>{E(b)}</SubjectCode>
+    </Subject>''' for b in bisacHeadings) if bisacHeadings else ''}
+    {f'''<Subject>
+      <SubjectSchemeIdentifier>20</SubjectSchemeIdentifier>
+      <SubjectHeadingText>{E(keywords)}</SubjectHeadingText>
     </Subject>''' if deweyCode and deweyTxt else ''}
   </DescriptiveDetail>
   <PublishingDetail>
@@ -112,7 +146,7 @@ def onix_product(url,title:str,lang_iso:str="en",
     <CopyrightStatement>
       <CopyrightYear>{str(date)[:4]}</CopyrightYear>
       <CopyrightOwner>
-        <CorporateName>{E(publisher)}</CorporateName>
+        <CorporateName>{E(copyright)}</CorporateName>
       </CopyrightOwner>
     </CopyrightStatement>
   </PublishingDetail>
@@ -169,6 +203,7 @@ def main():
       prog="ebookonix",description="generate ONIX XML for zero-cost e-books")
    args.add_argument("--sender",help="Sender organisation",required=True)
    args.add_argument("--publisher",help="Publisher organisation (default same as sender)",default="")
+   args.add_argument("--copyright",help="Copyright holder (default same as publisher)",default="")
    args.add_argument("--website",help="Publisher website",default="")
    args.add_argument("--contact",help="Contact person",required=True)
    args.add_argument("--phone",help="Contact phone",default="")
@@ -178,12 +213,27 @@ def main():
    args.add_argument("--lang",help="language ISO code",default="en")
    args.add_argument("--date",help="publication date as year (4 digits), year-quarter (5 digits), year-month (6 digits) or year-month-day (8 digits)",default=str(time.localtime()[0]))
    args.add_argument("--code",help="ID code (ISBN=..., ISSN=..., DOI=..., other=...)",required=True)
+   args.add_argument("--issn",help="ISSN code of surrounding collection (used with issnTitle options)",default="")
+   args.add_argument("--issnTitlePrefix",help="ISSN title prefix e.g. The",default="")
+   args.add_argument("--issnTitleWithoutPrefix",help="rest of ISSN title",default="")
    args.add_argument("--deweyCode",help="Dewey code",default="")
    args.add_argument("--deweyTxt",help="Dewey code text",default="")
+   args.add_argument("--bisacHeadings",help="Comma-separated list of BISAC heading codes, main heading first")
+   args.add_argument("--keywords",help="Semicolon-separated list of keywords for the subject")
+   args.add_argument("--hasImageDescriptions",default=False,action='store_true',help="Declare that image descriptions are provided")
    args = args.parse_args()
    idType,idCode = args.code.split('=')
    if not args.publisher: args.publisher = args.sender
-   print(onix_message([onix_product(args.url,args.title,args.lang,args.date,idCode,idType,args.deweyCode,args.deweyTxt,args.publisher,args.website)],args.sender,args.contact,args.phone,args.email))
+   if not args.copyright: args.copyright = args.publisher
+   print(onix_message([onix_product(
+      args.url,args.title,args.lang,args.date,
+      idCode,idType,
+      args.issn,args.issnTitlePrefix,args.issnTitleWithoutPrefix,
+      args.deweyCode,args.deweyTxt,
+      args.bisacHeadings.split(','),args.keywords,
+      args.hasImageDescriptions,
+      args.publisher,args.copyright,
+      args.website)],args.sender,args.contact,args.phone,args.email))
 
 if __name__=="__main__": main()
 
