@@ -1,5 +1,5 @@
 """
-ebookonix v0.4 (c) 2025 Silas S. Brown.  License: Apache 2
+ebookonix v0.5 (c) 2025 Silas S. Brown.  License: Apache 2
 Generate ONIX XML for zero-cost e-books.
 Run from the command line to generate XML for a single book.
 Or use as a module (see doc strings).
@@ -33,6 +33,8 @@ def onix_message(products,
 """)
 
 def onix_product(url,title:str,lang_iso:str="en",
+                 author:str="",
+                 authorIsCorporate:bool=False,
                  date=2000, # year (4 digits), year-quarter (5 digits), year-month (6 digits) or year-month-day (8 digits)
                  idCode:str="",
                  idType:str="ISBN", # ISSN, DOI etc (see below)
@@ -43,7 +45,7 @@ def onix_product(url,title:str,lang_iso:str="en",
                  deweyCode:str="",deweyTxt:str="",
                  bisacHeadings:[str]=[],
                  keywords:str="",
-                 hasImageDescriptions=False,
+                 hasImageDescriptions:bool=False,
                  publisher:str="",copyright:str="",
                  publisherWebsite:str="")->str:
     """Creates an ONIX XML fragment for a book product.
@@ -90,11 +92,12 @@ def onix_product(url,title:str,lang_iso:str="en",
       <CollectionType>10</CollectionType>
       <CollectionIdentifier>
         <CollectionIDType>02</CollectionIDType>
-        <CollectionIDValue>{issn}</CollectionIDValue>
+        <IDValue>{issn}</IDValue>
       </CollectionIdentifier>
       <TitleDetail>
         <TitleType>02</TitleType>
         <TitleElement>
+          <TitleElementLevel>02</TitleElementLevel>
           {f'<TitlePrefix language="{langcodes.Language.get(lang_iso).to_alpha3()}">{issnTitlePrefix}</TitlePrefix>' if issnTitlePrefix else '<NoPrefix/>'}
           <TitleWithoutPrefix language="{langcodes.Language.get(lang_iso).to_alpha3()}">{issnTitleWithoutPrefix}</TitleWithoutPrefix>
         </TitleElement>
@@ -107,6 +110,10 @@ def onix_product(url,title:str,lang_iso:str="en",
         <TitleText language="{langcodes.Language.get(lang_iso).to_alpha3()}">{E(title)}</TitleText>
       </TitleElement>
     </TitleDetail>
+    {f'''<Contributor>
+      <ContributorRole>A01</ContributorRole>
+      <{'Corporate' if authorIsCorporate else 'Person'}Name>{author}</{'Corporate' if authorIsCorporate else 'Person'}Name>
+    </Contributor>''' if author else '<NoContributor/>'}
     <NoEdition/>
     <Language>
       <LanguageRole>01</LanguageRole>
@@ -210,6 +217,8 @@ def main():
    args.add_argument("--email",help="Contact email",default="")
    args.add_argument("--url",help="book URL",required=True)
    args.add_argument("--title",help="book title",required=True)
+   args.add_argument("--author",help="book author (if known)")
+   args.add_argument("--authorIsCorporate",default=False,action='store_true',help="specifies that the author is a corporation not a person")
    args.add_argument("--lang",help="language ISO code",default="en")
    args.add_argument("--date",help="publication date as year (4 digits), year-quarter (5 digits), year-month (6 digits) or year-month-day (8 digits)",default=str(time.localtime()[0]))
    args.add_argument("--code",help="ID code (ISBN=..., ISSN=..., DOI=..., other=...)",required=True)
@@ -227,6 +236,7 @@ def main():
    if not args.copyright: args.copyright = args.publisher
    print(onix_message([onix_product(
       args.url,args.title,args.lang,args.date,
+      args.author,args.authorIsCorporate,
       idCode,idType,
       args.issn,args.issnTitlePrefix,args.issnTitleWithoutPrefix,
       args.deweyCode,args.deweyTxt,
