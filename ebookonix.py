@@ -1,5 +1,5 @@
 """
-ebookonix v0.5 (c) 2025 Silas S. Brown.  License: Apache 2
+ebookonix v0.6 (c) 2025 Silas S. Brown.  License: Apache 2
 Generate ONIX XML for zero-cost e-books.
 Run from the command line to generate XML for a single book.
 Or use as a module (see doc strings).
@@ -44,7 +44,7 @@ def onix_product(url,title:str,lang_iso:str="en",
                  issnTitleWithoutPrefix:str="",
                  deweyCode:str="",deweyTxt:str="",
                  bisacHeadings:[str]=[],
-                 keywords:str="",
+                 keywords:str="",synopsis:str="",
                  hasImageDescriptions:bool=False,
                  publisher:str="",copyright:str="",
                  publisherWebsite:str="")->str:
@@ -136,6 +136,13 @@ def onix_product(url,title:str,lang_iso:str="en",
       <SubjectHeadingText>{E(keywords)}</SubjectHeadingText>
     </Subject>''' if deweyCode and deweyTxt else ''}
   </DescriptiveDetail>
+  {f'''<CollateralDetail>
+    <TextContent>
+      <TextType>03</TextType>
+      <ContentAudience>03</ContentAudience>
+      <Text>{E(synopsis)}</Text>
+    </TextContent>
+  </CollateralDetail>''' if synopsis else ''}
   <PublishingDetail>
     <Publisher>
       <PublishingRole>01</PublishingRole>
@@ -229,6 +236,7 @@ def main():
    args.add_argument("--deweyTxt",help="Dewey code text",default="")
    args.add_argument("--bisacHeadings",help="Comma-separated list of BISAC heading codes, main heading first")
    args.add_argument("--keywords",help="Semicolon-separated list of keywords for the subject")
+   args.add_argument("--synopsis",help="Synopsis text")
    args.add_argument("--hasImageDescriptions",default=False,action='store_true',help="Declare that image descriptions are provided")
    args = args.parse_args()
    idType,idCode = args.code.split('=')
@@ -241,6 +249,7 @@ def main():
       args.issn,args.issnTitlePrefix,args.issnTitleWithoutPrefix,
       args.deweyCode,args.deweyTxt,
       args.bisacHeadings.split(','),args.keywords,
+      args.synopsis,
       args.hasImageDescriptions,
       args.publisher,args.copyright,
       args.website)],args.sender,args.contact,args.phone,args.email))
