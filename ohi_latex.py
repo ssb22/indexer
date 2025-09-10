@@ -129,6 +129,8 @@ except ImportError: # Python 3
 import unicodedata,re,sys,os
 try: from string import letters # Python 2
 except: from string import ascii_letters as letters # Python 3
+try: reduce # Python 2
+except: from functools import reduce # Python 3
 
 def makeLatex(unistr):
   "Convert unistr into a LaTeX document"
@@ -382,7 +384,10 @@ def makeLatex(unistr):
     })
   latex_special_chars.update(dict((c,'$'+c+'$') for c in '|<>[]')) # always need math mode
   latex_special_chars.update(dict((c,'\\'+c) for c in '%&#$_{}')) # always need \ escape
-  latex_special_chars.update(dict((unichr(0x2800+p),"\\braillebox{"+"".join(chr(ord('1')+b) for b in range(8) if p & (1<<b))+"}"+("" if p else r"\allowbreak{}")) for p in xrange(256))) # Braille - might as well
+  latex_special_chars.update(dict( # Braille patterns
+    (unichr(0x2800+p),"\\braillebox{"+"".join(
+      chr(ord('1')+b) for b in range(8) if p & (1<<b))+"}"
+     +("" if p else r"\allowbreak{}")) for p in xrange(256)))
   for c in list(range(0x3b1,0x3ca))+list(range(0x391,0x3aa)): # Greek stuff:
     if c==0x3a2: continue
     if c>=0x3b1: textGreek=lambda c:'\\text'+unicodedata.name(unichr(c)).replace('FINAL ','VAR').split()[-1].lower().replace('cron','kron').replace('amda','ambda')+'{}'
@@ -394,8 +399,92 @@ def makeLatex(unistr):
         latex_special_chars[my_normalize(c2)]="\\shortstack{\\raisebox{-1.5ex}[0pt][0pt]{\\"+accent+r"{}}\\"+textGreek(c)+"}"
   # For pinyin, use pinyin package (it has kerning tweaks)
   # (leaving out rare syllables like "den" from below because it's not always defined and it seems to cause more trouble than it's worth)
-  toned_pinyin_syllables = "a ai an ang ao ba bai ban bang bao bei ben beng bi bian biao bie bin bing bo bu ca cai can cang cao ce cen ceng cha chai chan chang chao che chen cheng chi chong chou chu chua chuai chuan chuang chui chun chuo ci cong cou cu cuan cui cun cuo da dai dan dang dao de dei deng di dian diao die ding diu dong dou du duan dui dun duo e ei en eng er fa fan fang fei fen feng fiao fo fou fu ga gai gan gang gao ge gei gen geng gong gou gu gua guai guan guang gui gun guo ha hai han hang hao he hei hen heng hong hou hu hua huai huan huang hui hun huo ji jia jian jiang jiao jie jin jing jiong jiu ju juan jue jun ka kai kan kang kao ke kei ken keng kong kou ku kua kuai kuan kuang kui kun kuo la lai lan lang lao le lei leng li lia lian liang liao lie lin ling liu long lou lu luan lun luo lv lve ma mai man mang mao mei men meng mi mian miao mie min ming miu mo mou mu na nai nan nang nao ne nei nen neng ni nian niang niao nie nin ning niu nong nou nu nuan nuo nv nve o ou pa pai pan pang pao pei pen peng pi pian piao pie pin ping po pou pu qi qia qian qiang qiao qie qin qing qiong qiu qu quan que qun ran rang rao re ren reng ri rong rou ru rua ruan rui run ruo sa sai san sang sao se sen seng sha shai shan shang shao she shei shen sheng shi shou shu shua shuai shuan shuang shui shun shuo si song sou su suan sui sun suo ta tai tan tang tao te tei teng ti tian tiao tie ting tong tou tu tuan tui tun tuo wa wai wan wang wei wen weng wo wu xi xia xian xiang xiao xie xin xing xiong xiu xu xuan xue xun ya yan yang yao ye yi yin ying yo yong you yu yuan yue yun za zai zan zang zao ze zei zen zeng zha zhai zhan zhang zhao zhe zhei zhen zheng zhi zhong zhou zhu zhua zhuai zhuan zhuang zhui zhun zhuo zi zong zou zu zuan zui zun zuo".split()
-  def num2marks(o): return o.replace("a1",u'\u0101').replace("ai1",u'\u0101i').replace("ao1",u'\u0101o').replace("an1",u'\u0101n').replace("ang1",u'\u0101ng').replace("o1",u'\u014d').replace("ou1",u'\u014du').replace("e1",u'\u0113').replace("ei1",u'\u0113i').replace("en1",u'\u0113n').replace("eng1",u'\u0113ng').replace("i1",u'\u012b').replace("in1",u'\u012bn').replace("ing1",u'\u012bng').replace("ong1",u'\u014dng').replace("ou1",u'\u014du').replace("u1",u'\u016b').replace("un1",u'\u016bn').replace("v1",u'\u01d6').replace("a2",u'\xe1').replace("ai2",u'\xe1i').replace("ao2",u'\xe1o').replace("an2",u'\xe1n').replace("ang2",u'\xe1ng').replace("o2",u'\xf3').replace("ou2",u'\xf3u').replace("e2",u'\xe9').replace("ei2",u'\xe9i').replace("en2",u'\xe9n').replace("eng2",u'\xe9ng').replace("i2",u'\xed').replace("in2",u'\xedn').replace("ing2",u'\xedng').replace("o2",u'\xf3').replace("ong2",u'\xf3ng').replace("ou2",u'\xf3u').replace("u2",u'\xfa').replace("un2",u'\xfan').replace("v2",u'\u01d8').replace("a3",u'\u01ce').replace("ai3",u'\u01cei').replace("ao3",u'\u01ceo').replace("an3",u'\u01cen').replace("ang3",u'\u01ceng').replace("o3",u'\u01d2').replace("ou3",u'\u01d2u').replace("e3",u'\u011b').replace("ei3",u'\u011bi').replace("en3",u'\u011bn').replace("eng3",u'\u011bng').replace("er1",u'\u0113r').replace("er2",u'\xe9r').replace("er3",u'\u011br').replace("er4",u'\xe8r').replace("Er1",u'\u0112r').replace("Er2",u'\xc9r').replace("Er3",u'\u011ar').replace("Er4",u'\xc8r').replace("i3",u'\u01d0').replace("in3",u'\u01d0n').replace("ing3",u'\u01d0ng').replace("o3",u'\u01d2').replace("ong3",u'\u01d2ng').replace("ou3",u'\u01d2u').replace("u3",u'\u01d4').replace("un3",u'\u01d4n').replace("v3",u'\u01da').replace("a4",u'\xe0').replace("ai4",u'\xe0i').replace("ao4",u'\xe0o').replace("an4",u'\xe0n').replace("ang4",u'\xe0ng').replace("o4",u'\xf2').replace("ou4",u'\xf2u').replace("e4",u'\xe8').replace("ei4",u'\xe8i').replace("en4",u'\xe8n').replace("eng4",u'\xe8ng').replace("i4",u'\xec').replace("in4",u'\xecn').replace("ing4",u'\xecng').replace("o4",u'\xf2').replace("ong4",u'\xf2ng').replace("ou4",u'\xf2u').replace("u4",u'\xf9').replace("un4",u'\xf9n').replace("v4",u'\u01dc').replace("A1",u'\u0100').replace("Ai1",u'\u0100i').replace("Ao1",u'\u0100o').replace("An1",u'\u0100n').replace("Ang1",u'\u0100ng').replace("O1",u'\u014c').replace("Ou1",u'\u014cu').replace("E1",u'\u0112').replace("Ei1",u'\u0112i').replace("En1",u'\u0112n').replace("Eng1",u'\u0112ng').replace("Ou1",u'\u014cu').replace("A2",u'\xc1').replace("Ai2",u'\xc1i').replace("Ao2",u'\xc1o').replace("An2",u'\xc1n').replace("Ang2",u'\xc1ng').replace("O2",u'\xd3').replace("Ou2",u'\xd3u').replace("E2",u'\xc9').replace("Ei2",u'\xc9i').replace("En2",u'\xc9n').replace("Eng2",u'\xc9ng').replace("Ou2",u'\xd3u').replace("A3",u'\u01cd').replace("Ai3",u'\u01cdi').replace("Ao3",u'\u01cdo').replace("An3",u'\u01cdn').replace("Ang3",u'\u01cdng').replace("O3",u'\u01d1').replace("Ou3",u'\u01d1u').replace("E3",u'\u011a').replace("Ei3",u'\u011ai').replace("En3",u'\u011an').replace("Eng3",u'\u011ang').replace("Ou3",u'\u01d1u').replace("A4",u'\xc0').replace("Ai4",u'\xc0i').replace("Ao4",u'\xc0o').replace("An4",u'\xc0n').replace("Ang4",u'\xc0ng').replace("O4",u'\xd2').replace("Ou4",u'\xd2u').replace("E4",u'\xc8').replace("Ei4",u'\xc8i').replace("En4",u'\xc8n').replace("Eng4",u'\xc8ng').replace("Ou4",u'\xd2u').replace("v5",u"\xfc").replace("ve5",u"\xfce")
+  toned_pinyin_syllables = """a ai an ang ao ba
+    bai ban bang bao bei ben beng bi bian biao bie
+    bin bing bo bu ca cai can cang cao ce cen ceng
+    cha chai chan chang chao che chen cheng chi
+    chong chou chu chua chuai chuan chuang chui
+    chun chuo ci cong cou cu cuan cui cun cuo da
+    dai dan dang dao de dei deng di dian diao die
+    ding diu dong dou du duan dui dun duo e ei en
+    eng er fa fan fang fei fen feng fiao fo fou fu
+    ga gai gan gang gao ge gei gen geng gong gou
+    gu gua guai guan guang gui gun guo ha hai han
+    hang hao he hei hen heng hong hou hu hua huai
+    huan huang hui hun huo ji jia jian jiang jiao
+    jie jin jing jiong jiu ju juan jue jun ka kai
+    kan kang kao ke kei ken keng kong kou ku kua
+    kuai kuan kuang kui kun kuo la lai lan lang
+    lao le lei leng li lia lian liang liao lie lin
+    ling liu long lou lu luan lun luo lv lve ma
+    mai man mang mao mei men meng mi mian miao mie
+    min ming miu mo mou mu na nai nan nang nao ne
+    nei nen neng ni nian niang niao nie nin ning
+    niu nong nou nu nuan nuo nv nve o ou pa pai
+    pan pang pao pei pen peng pi pian piao pie pin
+    ping po pou pu qi qia qian qiang qiao qie qin
+    qing qiong qiu qu quan que qun ran rang rao re
+    ren reng ri rong rou ru rua ruan rui run ruo
+    sa sai san sang sao se sen seng sha shai shan
+    shang shao she shei shen sheng shi shou shu
+    shua shuai shuan shuang shui shun shuo si song
+    sou su suan sui sun suo ta tai tan tang tao te
+    tei teng ti tian tiao tie ting tong tou tu
+    tuan tui tun tuo wa wai wan wang wei wen weng
+    wo wu xi xia xian xiang xiao xie xin xing
+    xiong xiu xu xuan xue xun ya yan yang yao ye
+    yi yin ying yo yong you yu yuan yue yun za zai
+    zan zang zao ze zei zen zeng zha zhai zhan
+    zhang zhao zhe zhei zhen zheng zhi zhong zhou
+    zhu zhua zhuai zhuan zhuang zhui zhun zhuo zi
+    zong zou zu zuan zui zun zuo""".split()
+  def num2marks(o): return reduce(lambda s,x:s.replace(*x),[
+      ("a1",u'\u0101'),("ai1",u'\u0101i'),("ao1",u'\u0101o'),
+      ("an1",u'\u0101n'),("ang1",u'\u0101ng'),("o1",u'\u014d'),
+      ("ou1",u'\u014du'),("e1",u'\u0113'),("ei1",u'\u0113i'),
+      ("en1",u'\u0113n'),("eng1",u'\u0113ng'),("i1",u'\u012b'),
+      ("in1",u'\u012bn'),("ing1",u'\u012bng'),("ong1",u'\u014dng'),
+      ("ou1",u'\u014du'),("u1",u'\u016b'),("un1",u'\u016bn'),
+      ("v1",u'\u01d6'),("a2",u'\xe1'),("ai2",u'\xe1i'),
+      ("ao2",u'\xe1o'),("an2",u'\xe1n'),("ang2",u'\xe1ng'),
+      ("o2",u'\xf3'),("ou2",u'\xf3u'),("e2",u'\xe9'),("ei2",u'\xe9i'),
+      ("en2",u'\xe9n'),("eng2",u'\xe9ng'),("i2",u'\xed'),
+      ("in2",u'\xedn'),("ing2",u'\xedng'),("o2",u'\xf3'),
+      ("ong2",u'\xf3ng'),("ou2",u'\xf3u'),("u2",u'\xfa'),
+      ("un2",u'\xfan'),("v2",u'\u01d8'),("a3",u'\u01ce'),
+      ("ai3",u'\u01cei'),("ao3",u'\u01ceo'),("an3",u'\u01cen'),
+      ("ang3",u'\u01ceng'),("o3",u'\u01d2'),("ou3",u'\u01d2u'),
+      ("e3",u'\u011b'),("ei3",u'\u011bi'),("en3",u'\u011bn'),
+      ("eng3",u'\u011bng'),("er1",u'\u0113r'),("er2",u'\xe9r'),
+      ("er3",u'\u011br'),("er4",u'\xe8r'),("Er1",u'\u0112r'),
+      ("Er2",u'\xc9r'),("Er3",u'\u011ar'),("Er4",u'\xc8r'),
+      ("i3",u'\u01d0'),("in3",u'\u01d0n'),("ing3",u'\u01d0ng'),
+      ("o3",u'\u01d2'),("ong3",u'\u01d2ng'),("ou3",u'\u01d2u'),
+      ("u3",u'\u01d4'),("un3",u'\u01d4n'),("v3",u'\u01da'),
+      ("a4",u'\xe0'),("ai4",u'\xe0i'),("ao4",u'\xe0o'),
+      ("an4",u'\xe0n'),("ang4",u'\xe0ng'),("o4",u'\xf2'),
+      ("ou4",u'\xf2u'),("e4",u'\xe8'),("ei4",u'\xe8i'),
+      ("en4",u'\xe8n'),("eng4",u'\xe8ng'),("i4",u'\xec'),
+      ("in4",u'\xecn'),("ing4",u'\xecng'),("o4",u'\xf2'),
+      ("ong4",u'\xf2ng'),("ou4",u'\xf2u'),("u4",u'\xf9'),
+      ("un4",u'\xf9n'),("v4",u'\u01dc'),("A1",u'\u0100'),
+      ("Ai1",u'\u0100i'),("Ao1",u'\u0100o'),("An1",u'\u0100n'),
+      ("Ang1",u'\u0100ng'),("O1",u'\u014c'),("Ou1",u'\u014cu'),
+      ("E1",u'\u0112'),("Ei1",u'\u0112i'),("En1",u'\u0112n'),
+      ("Eng1",u'\u0112ng'),("Ou1",u'\u014cu'),("A2",u'\xc1'),
+      ("Ai2",u'\xc1i'),("Ao2",u'\xc1o'),("An2",u'\xc1n'),
+      ("Ang2",u'\xc1ng'),("O2",u'\xd3'),("Ou2",u'\xd3u'),
+      ("E2",u'\xc9'),("Ei2",u'\xc9i'),("En2",u'\xc9n'),
+      ("Eng2",u'\xc9ng'),("Ou2",u'\xd3u'),("A3",u'\u01cd'),
+      ("Ai3",u'\u01cdi'),("Ao3",u'\u01cdo'),("An3",u'\u01cdn'),
+      ("Ang3",u'\u01cdng'),("O3",u'\u01d1'),("Ou3",u'\u01d1u'),
+      ("E3",u'\u011a'),("Ei3",u'\u011ai'),("En3",u'\u011an'),
+      ("Eng3",u'\u011ang'),("Ou3",u'\u01d1u'),("A4",u'\xc0'),
+      ("Ai4",u'\xc0i'),("Ao4",u'\xc0o'),("An4",u'\xc0n'),
+      ("Ang4",u'\xc0ng'),("O4",u'\xd2'),("Ou4",u'\xd2u'),
+      ("E4",u'\xc8'),("Ei4",u'\xc8i'),("En4",u'\xc8n'),
+      ("Eng4",u'\xc8ng'),("Ou4",u'\xd2u'),("v5",u"\xfc"),
+      ("ve5",u"\xfce")],o)
   py_protected = "a chi cong ding ge hang le min mu ne ni nu o O pi Pi Re tan xi Xi".split()
   for p in toned_pinyin_syllables+[(x[0].upper()+x[1:]) for x in toned_pinyin_syllables]:
     for t in "1 2 3 4 5".split():
@@ -478,7 +567,17 @@ def makeLatex(unistr):
   ret += r'\usepackage['+geometry+']{geometry}'
   if trade and lulu: ret += r'\mag=890'
   ret += '\n'.join(set(v for (k,v) in latex_preamble.items() if k in unistr))+'\n'
-  assert not (r'\usepackage{CJK}' in ret and (r'\em{' in unistr or r'\bf{' in unistr) and any(os.path.exists(f) and 'Version 4.8.4 (18-Apr-2015)' in open(f).read() for f in ["/usr/share/texmf/tex/latex/CJK/CJK.sty","/usr/share/texlive/texmf-dist/tex/latex/CJK/CJK.sty","/usr/share/texmf-texlive/tex/latex/CJK/CJK.sty"]) and not (os.path.exists(f) and not 'Version 4.8.4 (18-Apr-2015)' in open(f).read() for f in [os.environ.get("HOME")+"/texmf/tex/latex/CJK/CJK.sty"])), "CJK package is broken on systems like Ubuntu 22.04 LTS (fixed in 24.04 LTS): bold and emphasis will not work unless you override it with a newer CJK package in ~/texmf (or upgrade the distro)" # may also affect boldness of title etc
+  assert not (r'\usepackage{CJK}' in ret and (r'\em{' in unistr or r'\bf{' in unistr)
+              and any(os.path.exists(f) and
+                      'Version 4.8.4 (18-Apr-2015)' in open(f).read()
+                      for f in [
+                          "/usr/share/texmf/tex/latex/CJK/CJK.sty",
+                          "/usr/share/texlive/texmf-dist/tex/latex/CJK/CJK.sty",
+                          "/usr/share/texmf-texlive/tex/latex/CJK/CJK.sty"])
+              and not (os.path.exists(f) and not
+                       'Version 4.8.4 (18-Apr-2015)' in open(f).read()
+                       for f in [os.environ.get("HOME")+"/texmf/tex/latex/CJK/CJK.sty"])
+              ), "CJK package is broken on systems like Ubuntu 22.04 LTS (fixed in 24.04 LTS): bold and emphasis will not work unless you override it with a newer CJK package in ~/texmf (or upgrade the distro)" # may also affect boldness of title etc
   if r'\title{' in unistr:
     if 'pdftitle' in os.environ: ret = ret.replace("hyperfootnotes=false]{hyperref}",("pdfauthor={"+os.environ['pdfauthor']+"}," if 'pdfauthor' in os.environ else '')+"pdftitle={"+os.environ['pdftitle']+"},hyperfootnotes=false]{hyperref}") # TODO: document that you can set pdfauthor and pdftitle in environment
     title = re.findall(r'\\title{.*?}%title',unistr,flags=re.DOTALL)[0] # might have <br>s in it
@@ -799,7 +898,17 @@ if __name__ == "__main__":
   assert not r, "pdflatex failure (see "+re.sub(r"tex$","log",outfile)+")"
   sys.stderr.write("done\n")
   pdffile = re.sub(r"tex$","pdf",outfile)
-  if links_and_bookmarks: os.system('if which qpdf 2>/dev/null >/dev/null; then /bin/echo -n "Running qpdf..." >&2 && qpdf $(if qpdf --help=encryption 2>/dev/null|grep allow-weak-crypto >/dev/null; then echo --allow-weak-crypto; fi) --encrypt "" "" 128 --print=full --modify=all -- "'+pdffile+'" "/tmp/q'+pdffile+'" && mv "/tmp/q'+pdffile+'" "'+pdffile+'" && echo " done" >&2 ; fi') # this can help enable annotations on old versions of acroread (for some reason).  Doesn't really depend on links_and_bookmarks, but I'm assuming if you have links_and_bookmarks switched off you're sending it to printers and therefore don't need to enable annotations for people who have old versions of acroread
+  if links_and_bookmarks: os.system('''
+  # this can help enable annotations on old versions of acroread
+  # (for some reason).  Doesn't really depend on links_and_bookmarks
+  # but I'm assuming if you have links_and_bookmarks switched off
+  # you're sending it to printers and therefore don't need to enable
+  # annotations for people who have old versions of acroread
+  
+  if which qpdf 2>/dev/null >/dev/null; then
+  /bin/echo -n "Running qpdf..." >&2 &&
+  qpdf $(if qpdf --help=encryption 2>/dev/null|grep allow-weak-crypto >/dev/null; then echo --allow-weak-crypto; fi) --encrypt "" "" 128 --print=full --modify=all -- "'''+pdffile+'" "/tmp/q'+pdffile+'''" &&
+  mv "/tmp/q'''+pdffile+'" "'+pdffile+'" && echo " done" >&2 ; fi')
   if sys.platform=="darwin" and not no_open and not os.environ.get("SSH_CLIENT"):
     os.system('open "'+pdffile+'"') # (don't put this before the above qpdf: even though there's little chance of the race condition failing, Preview can still crash after qpdf finishes)
     import time ; time.sleep(1) # (give 'open' a chance to finish opening the file before returning control to the shell, in case the calling script renames the file or something)
