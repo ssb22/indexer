@@ -13,17 +13,33 @@ set -e
 export PLATFORM=$(find "$ANDROID_HOME"/platforms -maxdepth 1|grep platforms/android-|sort -n|tail -1)
 export BUILD_TOOLS=$(find "$ANDROID_HOME"/build-tools -maxdepth 1|sort -n|tail -1)
 
+java_version=$(javac --version|head -1|sed -e 's/javac //' -e 's/[.].*//')
+if [ java_version -gt 17 ]; then
+    JAVAC=/usr/lib/jvm/java-11-openjdk-amd64/bin/javac
+    if ! [ -e $JAVAC ]; then
+        echo "javac seems too new for Android's d8, try apt install openjdk-11-jdk (set JAVA_HOME or use update-java-alternatives if necessary)" # this can happen on Ubuntu 24.04 which has 21 (22.04 has 11)
+        exit 1
+    fi
+elif [ java_version -gt 11 ]; then
+    JAVAC="javac -source 1.8 -target 1.8" # Debian 12 "Bookworm"
+else JAVAC=javac; fi
+
+if [ "$PACKAGE_NAME" == "$(echo -n org/ucam/ssb22/;echo html)" ]; then  # (split so you can still use sed -e on the script)
+   echo Please change PACKAGE_NAME before using this script
+   exit 1
+fi
+
 cd "$APP_WORKSPACE"
 
 sed -e 's/tagetSdkVersion="[0-9]*"/targetSdkVersion="35"/' < AndroidManifest.xml > n && mv n AndroidManifest.xml
 
 rm -rf bin gen && mkdir bin gen
 "$BUILD_TOOLS"/aapt package -v -f -I "$PLATFORM"/android.jar -M AndroidManifest.xml -A assets -S res -m -J gen -F bin/resources.ap_
-javac -classpath "$PLATFORM"/android.jar -sourcepath "src;gen" -d "bin" src/$PACKAGE_NAME/*.java gen/$PACKAGE_NAME/R.java
+$JAVAC -classpath "$PLATFORM"/android.jar -sourcepath "src;gen" -d "bin" src/$PACKAGE_NAME/*.java gen/$PACKAGE_NAME/R.java
 if "$BUILD_TOOLS"/dx --help 2>&1 >/dev/null | grep min-sdk-version >/dev/null; then
     "$BUILD_TOOLS"/dx --min-sdk-version=1 --dex --output=bin/classes.dex bin/ 
 elif [ -e "$BUILD_TOOLS"/dx ]; then "$BUILD_TOOLS"/dx --dex --output=bin/classes.dex bin/
-else "$BUILD_TOOLS"/d8 --min-api 1 --output bin $(find bin -type f -name '*.class'); fi
+else "$BUILD_TOOLS"/d8 --lib "$PLATFORM"/android.jar --min-api 1 --output bin $(find bin -type f -name '*.class'); fi
 cp bin/resources.ap_ bin/$APPNAME.ap_ && # change $APPNAME here and all instances below
 cd bin
 "$BUILD_TOOLS"/aapt add $APPNAME.ap_ classes.dex
