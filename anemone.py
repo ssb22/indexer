@@ -1,6 +1,6 @@
 #!/usr/bin/env python3
 """
-Anemone 1.95 (http://ssb22.user.srcf.net/anemone)
+Anemone 1.96 (http://ssb22.user.srcf.net/anemone)
 (c) 2023-25 Silas S. Brown.  License: Apache 2
 
 To use this module, either run it from the command
@@ -600,6 +600,7 @@ class Run():
                 tag,content = extractor.id_to_content[want_pids[markerToWantPid[i]]]
                 content = ''.join(content).strip()
                 rTxt.append(TagAndText(tag,content_fixes(content)))
+                if want_pids[markerToWantPid[i]] in want_pids[:markerToWantPid[i]]: R.warning(f"In JSON {len(recordingTexts)+1}, paragraph ID {want_pids[markerToWantPid[i]]} is tied to multiple markers.  Did you forget to start a new document in the marker list?")
             else:
                 R.warning(f"JSON {len(recordingTexts)+1} marker {i+1} marks paragraph ID {want_pids[markerToWantPid[i]]} which is not present in HTML {len(recordingTexts)+1}",".  Anemone will make this a blank paragraph.")
                 rTxt.append(TagAndText('p',''))
