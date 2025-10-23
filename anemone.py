@@ -1,6 +1,6 @@
 #!/usr/bin/env python3
 """
-Anemone 1.96 (http://ssb22.user.srcf.net/anemone)
+Anemone 1.97 (http://ssb22.user.srcf.net/anemone)
 (c) 2023-25 Silas S. Brown.  License: Apache 2
 
 To use this module, either run it from the command
@@ -56,6 +56,7 @@ def anemone(*files,**options) -> list[str]:
     try:
         R=Run(*files,**options)
         R.check() ; R.import_libs(files)
+        R.set_thread_limit()
         R.write_all(R.get_texts())
         return R.warnings
     except AnemoneError: raise
@@ -92,6 +93,14 @@ the ISO 639 language code of the publication (defaults to en for English)""")
                       help="""
 the name of the reader who voiced the recordings, if known""")
     args.add_argument("--date",help="the publication date as YYYY-MM-DD, default is current date")
+    args.add_argument("--auto-markers-model",
+                      default="",help="""
+instead of accepting JSON timing markers, guess
+them using speech recognition with the
+whisper-cli command and this voice model
+(currently only at paragraph level, and
+every paragraph matching marker-attribute
+will be included)""")
     args.add_argument("--marker-attribute",
                       default="data-pid",help="""
 the attribute used in the HTML to indicate a
@@ -229,7 +238,7 @@ def get_argument_parser():
     populate_argument_parser(args)
     return args
 
-import time, sys, os, re, json, traceback
+import time, sys, os, re, json, traceback, tempfile, difflib
 
 if __name__ == "__main__" and "--version" in sys.argv:
     print (generator)
@@ -238,7 +247,7 @@ if __name__ == "__main__" and "--version" in sys.argv:
 import textwrap, inspect
 from collections import namedtuple as NT
 from functools import reduce
-from subprocess import run, PIPE
+from subprocess import run, PIPE, getoutput
 from zipfile import ZipFile, ZIP_DEFLATED
 from concurrent.futures import ThreadPoolExecutor
 from multiprocessing import cpu_count
@@ -408,11 +417,15 @@ class Run():
             R.jsonData=[None]*len(R.htmlData)
         if not R.audioData:
             R.audioData=[None]*len(R.htmlData)
+            R.filenameTitles=[""]*len(R.htmlData)
+            R.filenameExt=[""]*len(R.htmlData)
     # and check for full-text part-audio DAISY:
     if len(R.jsonData) > len(R.audioData):
         for c,i in enumerate(R.jsonData):
             if i is None:
                 R.audioData.insert(c,None)
+                R.filenameTitles.insert(c,"")
+                R.filenameExt.insert(c,"")
     if not R.outputFile:
         R.outputFile=f"output_daisy{os.extsep}zip"
     if not R.title: R.title=re.sub("(?i)[ _-]daisy[0-9]?$","",R.outputFile.replace(f"{os.extsep}zip",""))
@@ -422,7 +435,7 @@ class Run():
     a temporary Run just to call something like
     check_for_JSON_transcript and get its HTML."""
     R = self
-    if R.htmlData and any(a and not j for a,j in zip(R.audioData,R.jsonData)): error("Full text and audio without time markers is not yet implemented (but you can give an empty markers list if you want to combine a whole chapter into one navigation point)")
+    if R.htmlData and not R.auto_markers_model and any(a and not j for a,j in zip(R.audioData,R.jsonData)): error("Full text and audio without time markers is not yet implemented (but you can give an empty markers list if you want to combine a whole chapter into one navigation point)")
     if R.jsonData and not R.htmlData: error("Time markers without full text is not implemented")
     if R.htmlData and R.textData: error("Combining full text with title-only text files is not yet implemented.  Please specify full text for everything or just titles for everything, not both.")
     if R.jsonData and not len(R.audioData)==len(R.jsonData): error(f"If JSON marker files are specified, there must be exactly one JSON file for each recording file.  We got f{len(R.jsonData)} JSON files and f{len(R.audioData)} recording files.")
@@ -450,6 +463,12 @@ class Run():
     if not re.sub("[._-]","",filename.replace("daisy","")): R.warning(f"Output filename {outRpt} does not seem to contain any meaningful publication identifier")
     if re.search('[%&?@*#{}<>!:+`=|$]',filename): R.warning(f"Output filename {outRpt} contains characters not allowed on Microsoft Windows")
     if re.search('[ "'+"']",filename): R.warning(f"Space or quote in output filename may complicate things for command-line users: {outRpt}")
+  def set_thread_limit(self) -> None:
+    "Set max_threads for MP3 recoding or speech recognition"
+    if self.max_threads:
+        # allow override by ANEMONE_THREAD_LIMIT, but only if max_threads is actually set (otherwise we'll use the shared worker with that limit)
+        self.max_threads = int(os.environ.get("ANEMONE_THREAD_LIMIT",self.max_threads))
+        if self.max_threads < 1: error(f"max-threads, if specified, should be at least 1: {self.max_threads}")
   def import_libs(self,files) -> None:
     """Checks availability of, and imports, the
        libraries necessary for our run.  Not all
@@ -470,6 +489,8 @@ class Run():
                            for f in files
                            if isinstance(f,str)):
         check_we_got_LAME()
+    if R.auto_markers_model and not which('whisper-cli'):
+        error("auto-markers-model requires whisper-cli in PATH")
   def warning(self,warningText:str,action:str="") -> None:
     """Logs a warning (or an error if
        warnings_are_errors is set)"""
@@ -564,7 +585,7 @@ class Run():
     if R.textData: return R.textData # section titles only, from text files
     elif not R.htmlData: return R.filenameTitles # section titles only, from sound filenames
     recordingTexts = []
-    for h,j in zip(R.htmlData,R.jsonData):
+    for h,j,audioData,filenameExt in zip(R.htmlData,R.jsonData,R.audioData,R.filenameExt):
         if j is None: # skip audio this chapter
             j = R.get_null_jsonData(h)
             include_alt_tags_in_text = True
@@ -604,6 +625,7 @@ class Run():
             else:
                 R.warning(f"JSON {len(recordingTexts)+1} marker {i+1} marks paragraph ID {want_pids[markerToWantPid[i]]} which is not present in HTML {len(recordingTexts)+1}",".  Anemone will make this a blank paragraph.")
                 rTxt.append(TagAndText('p',''))
+        if R.auto_markers_model: fixup_times(rTxt,R.auto_markers_model,audioData,filenameExt,R.max_threads if R.max_threads else shared_executor_maxWorkers)
         recordingTexts.append(
             TextsAndTimesWithPages(rTxt,extractor.pageNos))
     return recordingTexts
@@ -629,9 +651,7 @@ class Run():
         if not __name__=="__main__":
             R.info(
                 f"Making {R.outputFile}...") # especially if repeatedly called as a module, better print which outputFile we're working on BEFORE the mp3s as well as after
-        R.max_threads = int(os.environ.get("ANEMONE_THREAD_LIMIT",R.max_threads))
         if R.max_threads:
-            if R.max_threads < 1: error(f"max-threads, if specified, should be at least 1: {R.max_threads}")
             executor = ThreadPoolExecutor(max_workers=R.max_threads)
             cCount = cpu_count()
             if cCount and R.max_threads > cCount:
@@ -1384,6 +1404,45 @@ def delimited(s,start:int,end:int) -> bool:
         s = s.strip()
         return s.startswith(start) and s.endswith(end)
 
+def fixup_times(textsAndTimes,model,audioData,filenameExt,numCPUs):
+    if not isinstance(textsAndTimes[0],float):
+        textsAndTimes.insert(0, 0.0)
+    check = ''.join(i[1] for i in textsAndTimes[1::2]).lower()
+    looks_alphabetic = len(re.findall('[a-z]',check)) > len(check)/2
+    if looks_alphabetic: make_tokens = lambda x:re.findall('[a-z]+',x.lower())
+    elif len(check.split())>5: make_tokens = lambda x:x.split()
+    else: make_tokens = lambda x:list(x) # CJK?
+    parasTokens = [make_tokens(re.sub('<[^>]*>','',i[1])) for i in textsAndTimes[1::2]]
+    tFile=tempfile.NamedTemporaryFile(suffix=os.extsep+filenameExt,delete=False).name
+    open(tFile,'wb').write(audioData)
+    recogTokens,tokenNo_to_time = [], {}
+    cmd = f'whisper-cli -p {numCPUs} -m "{model}" -f "{tFile}" -ml 1 -sow'
+    sys.stderr.write(f"Running {cmd}... "),sys.stderr.flush()
+    out = getoutput(cmd)
+    for L in out.split("\n"):
+        m = re.match(r"\[([0-9]{2}:[0-5][0-9]:[0-5][0-9]\.[0-9]{3}) --> ([0-9]{2}:[0-5][0-9]:[0-5][0-9]\.[0-9]{3})\]  (.*)$",L.rstrip())
+        if m:
+            startTime,endTime,word = m.groups()
+            tokenNo_to_time[len(recogTokens)] = startTime
+            recogTokens += make_tokens(word)
+            tokenNo_to_time[len(recogTokens)] = endTime
+    sys.stderr.write("done\n")
+    if not recogTokens: error(f"auto-markers-model: no words recognised, whisper-cli output was: {out}")
+    known_tokens,known_breaks = [],[]
+    for p in parasTokens:
+        known_tokens += p
+        known_breaks.append(len(known_tokens))
+    del known_breaks[-1] # end of text is obvious
+    matches = difflib.SequenceMatcher(a=known_tokens,b=recogTokens).get_matching_blocks()
+    n = 2
+    for m in matches:
+        while known_breaks and m.a+m.size >= known_breaks[0]:
+            s = m.b+max(0,known_breaks.pop(0)-m.a)
+            while s and s not in tokenNo_to_time: s -= 1
+            textsAndTimes[n] = parseTime(tokenNo_to_time[s])
+            n += 2
+    os.remove(tFile)
+
 def load_miniaudio_and_lameenc() -> bool:
     """Tries to load the miniaudio and lameenc
     libraries.  If this fails (returning False)
@@ -1510,7 +1569,7 @@ def merge0lenSpans(recordingTexts:list, headings:list, hasAudio:list) -> None:
             (0 if i==0 else textsAndTimes[i-1])>=\
             textsAndTimes[i+1]: # 0-length, or -ve due to 0.001 below
               if textsAndTimes[i].tag==textsAndTimes[i+2].tag: # tag identical
-                textsAndTimes[i] = TagAndText(textsAndTimes[i].tag, f"{textsAndTimes[i].text}{' ' if textsAndTimes[i].tag=='span' else '<br>'}{textsAndTimes[i+2].text}") # new combined item
+                textsAndTimes[i] = TagAndText(textsAndTimes[i].tag, f"{textsAndTimes[i].text}{' ' if textsAndTimes[i].tag=='span' else '<br />'}{textsAndTimes[i+2].text}") # new combined item
                 del textsAndTimes[i+1:i+3] # old
                 for hI,hV in enumerate(cH):
                     if hV.itemNo > i//2: cH[hI]=ChapterTOCInfo(hV.hTag,hV.hLine,hV.itemNo-1)
@@ -1894,3 +1953,4 @@ __all__ = sorted(n for n,s in globals().items()
 # ruff: noqa: E701 # colon without newline
 # - sorry, coding in large print with wraparound on means newlines are more of an overhead
 # ruff: noqa: E702 # semicolon statements - ditto
+# ruff: noqa: E731 # I can assign a lambda if it's brief can't I?
