@@ -2,7 +2,7 @@
 # (works on both Python 2 and Python 3)
 
 """ohi_latex: Offline HTML Indexer for LaTeX
-v1.47 (c) 2014-20,2023-25 Silas S. Brown
+v1.48 (c) 2014-20,2023-25 Silas S. Brown
 License: Apache 2""" # (see below)
 
 # Licensed under the Apache License, Version 2.0 (the "License");
@@ -221,7 +221,40 @@ def makeLatex(unistr):
     '<img src=["]([^"]*svg)["]>':r'\\resizebox{1\\columnwidth}{!}{\\includesvg{\1}}', # don't use \includesvg[width=] as that doesn't always resize all text used
     }
   global latex_special_chars
-  latex_special_chars = dict((unichr(u),"\\usym{%X}" % u) for u in range(0x2600,0x27C0)) # utfsym fallback, TODO: add 1F000..1F0FF, 1F300..1F64F, 1F680..1F6FF, beware we might be on a narrow Python build
+  latex_special_chars = dict((nonBMPstr(u),r"\protect\usym{%X}" % u) for L,H in [(0x2600,0x27C0),(0x1F000,0x1F100),(0x1F300,0x1F650),(0x1F680,0x1F700)] for u in range(L,H)) # utfsym fallback
+  for L in range(26): # mathematical letters often misused by "write fancy fonts on social media" utilities:
+    latex_special_chars[nonBMPstr(0x1D400+L)]=r"$\mathbf{"+chr(ord('A')+L)+"}$"
+    latex_special_chars[nonBMPstr(0x1D41A+L)]=r"$\mathbf{"+chr(ord('a')+L)+"}$"
+    latex_special_chars[nonBMPstr(0x1D434+L)]=r"$\mathit{"+chr(ord('A')+L)+"}$"
+    latex_special_chars[nonBMPstr(0x1D44E+L)]=r"$\mathit{"+chr(ord('a')+L)+"}$"
+    latex_special_chars[nonBMPstr(0x1D468+L)]=r"$\boldsymbol{"+chr(ord('A')+L)+"}$"
+    latex_special_chars[nonBMPstr(0x1D482+L)]=r"$\boldsymbol{"+chr(ord('a')+L)+"}$"
+    latex_special_chars[nonBMPstr(0x1D49C+L)]=r"$\mathcal{"+chr(ord('A')+L)+"}$"
+    latex_special_chars[nonBMPstr(0x1D4B6+L)]=r"$\mathcal{"+chr(ord('a')+L)+"}$"
+    latex_special_chars[nonBMPstr(0x1D4D0+L)]=r"$\mathbfcal{"+chr(ord('A')+L)+"}$"
+    latex_special_chars[nonBMPstr(0x1D4EA+L)]=r"$\mathbfcal{"+chr(ord('a')+L)+"}$"
+    latex_special_chars[nonBMPstr(0x1D504+L)]=r"$\mathfrak{"+chr(ord('A')+L)+"}$"
+    latex_special_chars[nonBMPstr(0x1D51E+L)]=r"$\mathfrak{"+chr(ord('a')+L)+"}$"
+    latex_special_chars[nonBMPstr(0x1D538+L)]=r"$\mathbb{"+chr(ord('A')+L)+"}$"
+    latex_special_chars[nonBMPstr(0x1D552+L)]=r"$\mathbb{"+chr(ord('a')+L)+"}$"
+    latex_special_chars[nonBMPstr(0x1D56C+L)]=r"$\mathbffrak{"+chr(ord('A')+L)+"}$"
+    latex_special_chars[nonBMPstr(0x1D586+L)]=r"$\mathbffrak{"+chr(ord('a')+L)+"}$"
+    latex_special_chars[nonBMPstr(0x1D5A0+L)]=r"$\mathsf{"+chr(ord('A')+L)+"}$"
+    latex_special_chars[nonBMPstr(0x1D5BA+L)]=r"$\mathsf{"+chr(ord('a')+L)+"}$"
+    latex_special_chars[nonBMPstr(0x1D5D4+L)]=r"$\mathbf{\mathsf{"+chr(ord('A')+L)+"}}$"
+    latex_special_chars[nonBMPstr(0x1D5EE+L)]=r"$\mathbf{\mathsf{"+chr(ord('a')+L)+"}}$"
+    latex_special_chars[nonBMPstr(0x1D608+L)]=r"$\mathsfit{"+chr(ord('A')+L)+"}$"
+    latex_special_chars[nonBMPstr(0x1D622+L)]=r"$\mathsfit{"+chr(ord('a')+L)+"}$"
+    latex_special_chars[nonBMPstr(0x1D63C+L)]=r"$\mathbfsfit{"+chr(ord('A')+L)+"}$"
+    latex_special_chars[nonBMPstr(0x1D656+L)]=r"$\mathbfsfit{"+chr(ord('a')+L)+"}$"
+    latex_special_chars[nonBMPstr(0x1D670+L)]=r"$\mathtt{"+chr(ord('A')+L)+"}$"
+    latex_special_chars[nonBMPstr(0x1D68A+L)]=r"$\mathtt{"+chr(ord('a')+L)+"}$"
+    if L<10:
+      latex_special_chars[nonBMPstr(0x1D7CE+L)]=r"$\mathbf{"+chr(ord('0')+L)+"}$"
+      latex_special_chars[nonBMPstr(0x1D7D8+L)]=r"$\mathbb{"+chr(ord('0')+L)+"}$"
+      latex_special_chars[nonBMPstr(0x1D7E2+L)]=r"$\mathsf{"+chr(ord('0')+L)+"}$"
+      latex_special_chars[nonBMPstr(0x1D7EC+L)]=r"$\mathbf{\mathsf{"+chr(ord('0')+L)+"}}$"
+      latex_special_chars[nonBMPstr(0x1D7F6+L)]=r"$\mathtt{"+chr(ord('0')+L)+"}$"
   latex_special_chars.update({
     '\\':r"$\backslash$",
     '~':r"$\sim$",u"\u223c":r"$\sim$",
@@ -325,6 +358,11 @@ def makeLatex(unistr):
     u"\u2078":r"\raisebox{-0.3ex}{$^8$}",
     u"\u2079":r"\raisebox{-0.3ex}{$^9$}",
     u"\u20AC":r"\euro{}",
+    u"\u210D":r"$\mathbb{H}$",
+    u"\u210E":r"$h$",
+    u"\u2115":r"$\mathbb{N}$",
+    u"\u2119":r"$\mathbb{P}$",
+    u"\u211D":r"$\mathbb{R}$",
     u"\u2122":r"\textsuperscript{TM}",
     u"\u2150":r"\sfrac17",
     u"\u2151":r"\sfrac19",
@@ -503,6 +541,15 @@ def makeLatex(unistr):
   latex_preamble = {
     # TODO: if not odd number of \'s before?  (but OK if
     # accidentally include a package not really needed)
+    r"\boldsymbol":r"\usepackage{amsmath}",
+    r"\mathfrak":r"\usepackage{amsmath}",
+    r"\mathbb":r"\usepackage{amssymb}",
+    r"\mathbfsfit":r"\usepackage[cal=dutchcal]{mathalpha}",
+    r"\mathbffrak":r"\usepackage[cal=dutchcal]{mathalpha}",
+    r"\mathbfcal":r"\usepackage[cal=dutchcal]{mathalpha}",
+    r"\mathsfit":r"\usepackage[cal=dutchcal]{mathalpha}",
+    r"\mathcal":r"\usepackage[cal=dutchcal]{mathalpha}",
+    r"\calligra":r"\usepackage{calligra}",
     r"\CJKfamily":r"\usepackage{CJK}",
     r"\begin{multicols}":r"\usepackage{multicol}",
     r"\braille":r"\usepackage[puttinydots]{braille}",
@@ -513,6 +560,7 @@ def makeLatex(unistr):
     r"\euro":r"\usepackage{eurosym}",
     r"\markboth":r"\usepackage{fancyhdr}", # TODO: what if page_headings is set on a document that contains no anchors and therefore can't be tested in unistr ?
     r"\title":r"\usepackage[hyperfootnotes=false]{hyperref}", # as will get tableofcontents
+    r"\texorpdfstring":r"\usepackage[hyperfootnotes=false]{hyperref}",
     r"\href":r"\usepackage[hyperfootnotes=false]{hyperref}",
     r"\hyper":r"\usepackage[hyperfootnotes=false]{hyperref}",
     r"\pdfbookmark":r"\usepackage[hyperfootnotes=false]{hyperref}",
@@ -544,7 +592,7 @@ def makeLatex(unistr):
   latex_regex1[u'[A-Za-z0-9][\u0300-\u036f]+']=matchAccentedLatin ; latex_regex1[u'[\u02b0-\u036f]']=lambda m:TeX_unhandled_accent(m.group())
   # and figure out the range of all other non-ASCII chars:
   needToMatch = []
-  taken=sorted([ord(k) for k in latex_special_chars.keys() if len(k)==1 and ord(k)>=0x80]+list(range(0x2b0,0x370)))
+  taken=sorted([ord(k) for k in latex_special_chars.keys() if len(k)==1 and 0x80<=ord(k)<0xfffd]+list(range(0x2b0,0x370)))
   start=0x80 ; taken.append(0xfffd)
   while taken:
       if start<taken[0]:
@@ -552,13 +600,20 @@ def makeLatex(unistr):
           else: needToMatch.append(unichr(start)+'-'+unichr(taken[0]-1)) # (OK in some cases we can also dispense with the '-' but let's not worry too much about that)
       start = taken[0]+1 ; taken=taken[1:]
   latex_regex1['['+''.join(needToMatch)+']+']=matchAllCJK
-  latex_regex1['[^'+unichr(0)+'-'+unichr(0xFFFF)+']+']=matchAllCJK # we also want to catch non-BMP with this on non-narrow builds
+  latex_regex1['[^'+unichr(0)+'-'+unichr(0xFFFF)+']+']=matchAllCJK # we also want to catch non-BMP with this on non-narrow builds (this will overmatch, but we fix this in matchAllCJK)
   # done init
   sys.stderr.write("making tex... ")
   unistr = my_normalize(decode_entities(unistr)) # TODO: even in anchors etc? (although hopefully remove_utf8_diacritics is on)
   global used_cjk,emphasis ; used_cjk=emphasis=False
   mySubDict = subDict(latex_regex1)
   unistr = mySubDict(unistr)
+  for m in ['mathbf','mathit','boldsymbol','mathcal',
+            'mathfrak','mathbb','mathbffrak','mathsf',
+            r'boldsymbol{\mathcal',
+            r'mathbf{\mathsf','mathsfit','mathbfsfit','mathtt']:
+    # combine multiple letters in maths fonts:
+    unistr=re.sub('('+re.escape('$\\'+m+'{')+'[A-Za-z0-9]'+re.escape('}}$' if '{' in m else '}$')+')+',lambda M:M.group().replace(('}' if '{' in m else '')+'}$$\\'+m+'{',''),unistr)
+  unistr = unistr.replace('$$','') # we don't use display-math, so $$ must mean two adjacent bits of maths
   ret = r'\documentclass['+class_options+(((',' if class_options else '')+'twoside') if r'\chapter' in unistr else '')+']{'+('report' if r'\chapter' in unistr else 'article')+r'}\usepackage[T1]{fontenc}\usepackage{pinyin}\PYdeactivate\usepackage{parskip}'
   ret += r'\IfFileExists{microtype.sty}{\usepackage{microtype}}{\pdfadjustspacing=2\pdfprotrudechars=2}' # nicer line breaking (but the PDFs may be larger)
   ret += r'\raggedbottom'
@@ -660,7 +715,7 @@ def codeMatchLen(hanziStr,code):
 TeX_unhandled_codes = set()
 def TeX_unhandled_code(u):
     TeX_unhandled_codes.add(u)
-    return r"\thinspace\allowbreak{\footnotesize\fbox{$^{\rm ?}$%04X}}\thinspace\allowbreak{}" % u
+    return r"\thinspace\allowbreak{\footnotesize\texorpdfstring{\fbox{$^{\rm ?}$%04X}}{[?%04X]}}\thinspace\allowbreak{}" % (u,u)
 def TeX_unhandled_accent(combining_or_modifier_unichr):
     TeX_unhandled_codes.add(ord(combining_or_modifier_unichr)) # for the warning
     return "" # but don't write anything to the document (TODO: or do we?  if so, change explain_unhandled also)
@@ -727,9 +782,17 @@ def matchAllCJK(match):
               if 0xD800 <= high <= 0xDBFF and 0xDC00 <= low <= 0xDFFF:
                 code = (high-0xD800)*0x400+low-0xDC00+0x10000
                 mLen = 2
-            r.append(TeX_unhandled_code(code))
+            if nonBMPstr(code) in latex_special_chars: # overmatched non-BMP to work around narrow build: fix up here
+              r.append(latex_special_chars[nonBMPstr(code)])
+              mLen = len(nonBMPstr(code))
+            else:
+              r.append(TeX_unhandled_code(code))
         hanziStr = hanziStr[mLen:]
     return u"".join(r)
+
+def nonBMPstr(c):
+  try: return unichr(c)
+  except: return unichr(int((c-0x10000)/0x400)+0xD800)+unichr((c%0x400)+0xDC00) # surrogate pair on narrow build
 
 def subDict(d):
     "Returns a function on txt which replaces all keys in d with their values (keys are regexps and values are regexp-substitutes or callables)"
