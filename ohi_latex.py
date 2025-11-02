@@ -2,7 +2,7 @@
 # (works on both Python 2 and Python 3)
 
 """ohi_latex: Offline HTML Indexer for LaTeX
-v1.48 (c) 2014-20,2023-25 Silas S. Brown
+v1.49 (c) 2014-20,2023-25 Silas S. Brown
 License: Apache 2""" # (see below)
 
 # Licensed under the Apache License, Version 2.0 (the "License");
@@ -255,6 +255,8 @@ def makeLatex(unistr):
       latex_special_chars[nonBMPstr(0x1D7E2+L)]=r"$\mathsf{"+chr(ord('0')+L)+"}$"
       latex_special_chars[nonBMPstr(0x1D7EC+L)]=r"$\mathbf{\mathsf{"+chr(ord('0')+L)+"}}$"
       latex_special_chars[nonBMPstr(0x1D7F6+L)]=r"$\mathtt{"+chr(ord('0')+L)+"}$"
+  latex_special_chars[nonBMPstr(0x1F912)]=latex_special_chars[nonBMPstr(0x1F321)] # face with thermometer -> thermometer
+  latex_special_chars[nonBMPstr(0x1F916)]=r"\mbox{\raisebox{-0.3ex}{\begin{tikzpicture}[x=0.8ex,y=0.8ex,baseline=0pt]\draw[rounded corners=0.5pt] (0,0) rectangle (2,2);\fill (0.6,1.3) circle (0.2);\fill (1.4,1.3) circle (0.2);\end{tikzpicture}}}" # some approximation of the "robot" emoji
   latex_special_chars.update({
     '\\':r"$\backslash$",
     '~':r"$\sim$",u"\u223c":r"$\sim$",
@@ -336,6 +338,7 @@ def makeLatex(unistr):
     u"\u02CC":r"\textipa{\textsecstress}",
     u"\u02D0":r"\textipa{:}",
     u"\u02D1":r"\textipa{;}",
+    u"\u1D17":r"\tikz[baseline=-0.5ex]{\draw[line width=0.4pt, line cap=round] (0,0) arc[start angle=180, end angle=360, radius=0.4ex];}",
     u"\u2002":r"\hskip 1ex {}", # ?
     u"\u2003":r"\hskip 1em {}",
     u"\u2009":r"\thinspace{}",
@@ -541,14 +544,15 @@ def makeLatex(unistr):
   latex_preamble = {
     # TODO: if not odd number of \'s before?  (but OK if
     # accidentally include a package not really needed)
+    r"\tikz":r"\usepackage{tikz}",
     r"\boldsymbol":r"\usepackage{amsmath}",
     r"\mathfrak":r"\usepackage{amsmath}",
-    r"\mathbb":r"\usepackage{amssymb}",
-    r"\mathbfsfit":r"\usepackage[cal=dutchcal]{mathalpha}",
-    r"\mathbffrak":r"\usepackage[cal=dutchcal]{mathalpha}",
-    r"\mathbfcal":r"\usepackage[cal=dutchcal]{mathalpha}",
-    r"\mathsfit":r"\usepackage[cal=dutchcal]{mathalpha}",
-    r"\mathcal":r"\usepackage[cal=dutchcal]{mathalpha}",
+    r"\mathbb":    r"\usepackage[cal=dutchcal,bb=libus]{mathalpha}",
+    r"\mathbfsfit":r"\usepackage[cal=dutchcal,bb=libus]{mathalpha}",
+    r"\mathbffrak":r"\usepackage[cal=dutchcal,bb=libus]{mathalpha}",
+    r"\mathbfcal": r"\usepackage[cal=dutchcal,bb=libus]{mathalpha}",
+    r"\mathsfit":  r"\usepackage[cal=dutchcal,bb=libus]{mathalpha}",
+    r"\mathcal":   r"\usepackage[cal=dutchcal,bb=libus]{mathalpha}",
     r"\calligra":r"\usepackage{calligra}",
     r"\CJKfamily":r"\usepackage{CJK}",
     r"\begin{multicols}":r"\usepackage{multicol}",
