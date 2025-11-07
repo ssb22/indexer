@@ -3,31 +3,37 @@
 
 """ohi_latex: Offline HTML Indexer for LaTeX
 v1.49 (c) 2014-20,2023-25 Silas S. Brown
-License: Apache 2""" # (see below)
+License: Apache 2
 
-# Licensed under the Apache License, Version 2.0 (the "License");
-# you may not use this file except in compliance with the License.
-# You may obtain a copy of the License at
-# 
-#     http://www.apache.org/licenses/LICENSE-2.0
-# 
-# Unless required by applicable law or agreed to in writing, software
-# distributed under the License is distributed on an "AS IS" BASIS,
-# WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
-# See the License for the specific language governing permissions and
-# limitations under the License.
+Standard input HTML can be same as for ohi.py i.e. place
+<a name="word-goes-here"></a> before each dictionary entry
+and an extra anchor at the end of the text (header comes
+before the first and footer follows the last).
+Anchors may be linked from other entries.
 
-# See comments in ohi.py for what this is about.
-# This version basically takes the same input and uses
-# pdflatex to make a PDF from it instead of HTML fragments.
+Output is a PDF file via pdflatex.
 
-# Includes a simple HTML to LaTeX converter with support for
-# CJK (including Pinyin), Greek, Braille, IPA, Latin diacritics
-# and miscellaneous symbols.  You could use this alone by
-# giving standard input without any 'a name' tags.
+Includes a simple HTML to LaTeX converter with support for
+CJK (including Pinyin), Greek, Braille, IPA, Latin diacritics,
+mathematical Latin alphabets and miscellaneous symbols/emoji.
+You can use this alone by giving standard input without any
+'a name' tags.  Books can use <title> and <chapter>.
+
+Licensed under the Apache License, Version 2.0 (the "License");
+you may not use this file except in compliance with the License.
+You may obtain a copy of the License at
+
+    http://www.apache.org/licenses/LICENSE-2.0
+
+Unless required by applicable law or agreed to in writing, software
+distributed under the License is distributed on an "AS IS" BASIS,
+WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
+See the License for the specific language governing permissions and
+limitations under the License.
+"""
 
 from optparse import OptionParser
-opts = OptionParser()
+opts = OptionParser(description=__doc__[:__doc__.index("Licensed under")])
 opts.add_option("--infile",
                 help="Input file (defaults to standard input)")
 opts.add_option("--outfile",default="index.tex",
@@ -826,7 +832,7 @@ def subDict(d):
 
 if __name__ == "__main__":
  if version:
-   print(__doc__) ; sys.exit(0)
+   print(__doc__.split("\n\n")[0]) ; sys.exit(0)
  if infile:
     sys.stderr.write("Reading from "+infile+"... ")
     infile = open(infile)
