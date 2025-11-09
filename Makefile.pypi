@@ -3,7 +3,7 @@
 # This file contains rules to update the anemone and macvoice-utils PyPI packages.
 # It is run automatically by my homepage update scripts before a commit.
 
-all: test check-if-anemone-version-is-changing check-if-macvoice-utils-version-is-changing check-if-ebookonix-version-is-changing
+all: test check-if-anemone-version-is-changing check-if-macvoice-utils-version-is-changing check-if-ebookonix-version-is-changing check-if-ohi-latex-version-is-changing
 test:
 	@if python3 anemone.py --version|grep '[.][0-9][0-9][0-9]'; then echo "3+ decimal digits in anemone version number will now need another -e 's/[.][0-9][0-9]$$/&0/' in Makefile.pypi's sed expression"; false; fi
 	@for N in macvoice_utils ebookonix; do if grep '^v[0-9][^.]*[.][0-9][0-9]' $$N.py; then echo "2+ decimal digits in $$N version number will need another -e 's/[.][1-9]$$/&0/' in Makefile.pypi's sed expression"; exit 1; fi; done
@@ -13,6 +13,8 @@ check-if-macvoice-utils-version-is-changing:
 	if (git diff macvoice_utils.py;git diff --staged macvoice_utils.py)|grep '^[+]v[0-9]' || ! grep '^v[0-9][^ ]* .c' < macvoice_utils.py | grep "$$(pip index versions macvoice-utils 2>/dev/null|grep ^macvoice-utils|sed -e 's/.* ./^v/' -e 's/.$$/ /')" >/dev/null; then make -f Makefile.pypi update-macvoice-utils-pypi; else true; fi
 check-if-ebookonix-version-is-changing:
 	if (git diff ebookonix.py;git diff --staged ebookonix.py)|grep '^[+]ebookonix v[0-9]' || ! grep '^ebookonix v[0-9][^ ]* .c' < ebookonix.py | grep "$$(pip index versions ebookonix 2>/dev/null|grep ^ebookonix|sed -e 's/.* ./^ebookonix v/' -e 's/.$$/ /')" >/dev/null; then make -f Makefile.pypi update-ebookonix-pypi; else true; fi
+check-if-ohi-latex-version-is-changing:
+	if (git diff ohi_latex.py;git diff --staged ohi_latex.py)|grep '^[+]v[0-9]' || ! grep '^v[0-9][^ ]* .c' < ohi_latex.py | grep "$$(pip index versions ohi-latex 2>/dev/null|grep ^ohi-latex|sed -e 's/.* ./^v/' -e 's/.$$/ /')" >/dev/null; then make -f Makefile.pypi update-ohi-latex-pypi; else true; fi
 update-anemone-pypi:
 	mkdir -p anemone/tests
 	cp test_anemone.py anemone/tests/
@@ -58,10 +60,10 @@ update-ohi-latex-pypi:
 	mkdir ohi_latex
 	cp ohi_latex.py ohi_latex/__init__.py
 	cp ohi_latex.py ohi_latex/__main__.py
-	echo "from setuptools import setup, find_packages;setup(name='ohi_latex',version='$$(grep ^v[0-9] ohi_latex.py|sed -e 's/v//' -e 's/ .*//')',entry_points={'console_scripts':['ohi-latex=ohi_latex.__main__']},license='Apache 2',platforms='any',author='Silas S. Brown',author_email='ssb$$(echo 22@ca)m.ac.uk',description='Converts offline HTML/Unicode indices and books to pdflatex',long_description='Command line tool to convert simple HTML to LaTeX, used for dictionaries and novels, includes conversion from many Unicode characters to classic pdflatex with microtype (does not require XeLaTeX or LuaTeX)',long_description_content_type='text/markdown',packages=find_packages(),classifiers=['Programming Language :: Python :: 2','Programming Language :: Python :: 3','License :: OSI Approved :: Apache Software License','Operating System :: OS Independent'],python_requires='>=2.7')" > setup.py
+	echo "from setuptools import setup, find_packages;setup(name='ohi_latex',version='$$(grep ^v[0-9] ohi_latex.py|sed -e 's/v//' -e 's/ .*//' -e 's/[.][1-9]$$/&0/')',entry_points={'console_scripts':['ohi-latex=ohi_latex.__main__']},license='Apache 2',platforms='any',author='Silas S. Brown',author_email='ssb$$(echo 22@ca)m.ac.uk',description='Converts offline HTML/Unicode indices and books to pdflatex',long_description='Command line tool to convert simple HTML to LaTeX, used for dictionaries and novels, includes conversion from many Unicode characters to classic pdflatex with microtype (does not require XeLaTeX or LuaTeX)',long_description_content_type='text/markdown',packages=find_packages(),classifiers=['Programming Language :: Python :: 2','Programming Language :: Python :: 3','License :: OSI Approved :: Apache Software License','Operating System :: OS Independent'],python_requires='>=2.7')" > setup.py
 	mv README.md ..
 	python3 setup.py sdist
 	twine upload dist/*
 	mv ../README.md .
 	rm -r ohi_latex.egg-info dist ohi_latex setup.py
-.PHONY: test check-if-anemone-version-is-changing check-if-macvoice-utils-version-is-changing check-if-ebookonix-version-is-changing update-anemone-pypi update-macvoice-utils-pypi update-rtfuc-pypi update-ohi-latex-pypi update-ebookonix-pypi all
+.PHONY: test check-if-anemone-version-is-changing check-if-macvoice-utils-version-is-changing check-if-ebookonix-version-is-changing check-if-ohi-latex-version-is-changing update-anemone-pypi update-macvoice-utils-pypi update-rtfuc-pypi update-ohi-latex-pypi update-ebookonix-pypi all
