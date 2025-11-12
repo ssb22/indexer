@@ -1,6 +1,6 @@
 #!/usr/bin/env python3
 """
-Anemone 1.97 (http://ssb22.user.srcf.net/anemone)
+Anemone 1.98 (http://ssb22.user.srcf.net/anemone)
 (c) 2023-25 Silas S. Brown.  License: Apache 2
 
 To use this module, either run it from the command
@@ -857,6 +857,12 @@ class Run():
                 nums = [] ; first = 0 ; textsAndTimes.append(TagAndText('p',''))
             chapterNumberTextFull = chapterNumberText = nums[0] if len(nums)==1 and not nums[0]=="1" else str(chapNo)
             if int(chapterNumberText) > chapNo:
+                if R.bookTitlesAndNumChaps:
+                    # Must keep this in sync with the skip
+                    R.bookTitlesAndNumChaps[0] = [
+                        R.bookTitlesAndNumChaps[0][0],
+                        R.bookTitlesAndNumChaps[0][1] +
+                        int(chapterNumberText)-chapNo]
                 if not R.ignore_chapter_skips:
                     R.warning(f"""Skipping chapter{
                     f' {chapNo}'
