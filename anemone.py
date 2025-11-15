@@ -1,6 +1,6 @@
 #!/usr/bin/env python3
 """
-Anemone 1.98 (http://ssb22.user.srcf.net/anemone)
+Anemone 1.99 (http://ssb22.user.srcf.net/anemone)
 (c) 2023-25 Silas S. Brown.  License: Apache 2
 
 To use this module, either run it from the command
@@ -357,6 +357,11 @@ class Run():
                      else b.split('/'))
                     for b in R.merge_books if b]]
     except: error(f"Unable to parse merge-books={R.merge_books}") # noqa: E722
+    # also ensure merge_books extra headings sync'd with toc_titles:
+    insertPt = 0
+    for _,nc in R.bookTitlesAndNumChaps:
+        R.toc_titles.insert(insertPt,"")
+        insertPt += nc+1
     R.progress_loopStart(len(R.files),15)
     htmlSeen = {}
     for i,f in enumerate(R.files):
