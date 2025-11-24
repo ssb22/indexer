@@ -2,7 +2,7 @@
 // Version 1.4
 
 // See website for setup instructions:
-// http://ssb22.user.srcf.net/gradint/html2apk.html
+// https://ssb22.user.srcf.net/indexer/html2apk.html
 // See comments in the code
 // for details of the extra Javascript callbacks
 

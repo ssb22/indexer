@@ -1,6 +1,6 @@
 # indexer
-This repository contains various indexing utilities from http://ssb22.user.srcf.net/indexer/
-(also mirrored at http://ssb22.gitlab.io/indexer/ just in case)
+This repository contains various indexing utilities from https://ssb22.user.srcf.net/indexer/
+(also [mirrored on GitLab Pages](https://ssb22.gitlab.io/indexer/) just in case)
 the main ones being:
 1. Offline HTML Indexer
 2. Online version of OHI
@@ -18,12 +18,12 @@ By default, the input HTML is read from standard input, and the output is writte
 
 As an example, `c2h.py` is a simple CEDICT to HTML script can produce offline HTML files for CEDICT.
 
-Users of the Android platform might also wish to make an APK from the HTML. `ohi-addCopy.sh` is a shell script to add Copy buttons to any hanzi strings to the HTML files, which should work when it’s put into an APK using [html2apk](http://ssb22.user.srcf.net/indexer/html2apk.html) (but they won’t work in standalone HTML).
+Users of the Android platform might also wish to make an APK from the HTML. `ohi-addCopy.sh` is a shell script to add Copy buttons to any hanzi strings to the HTML files, which should work when it’s put into an APK using [html2apk](https://ssb22.user.srcf.net/indexer/html2apk.html) (but they won’t work in standalone HTML).
 
 Online version
 --------------
 
-Although the offline files will also work online, in bandwidth-limited situations you might be better using the `ohi_online.py` lookup CGI which works from the same input as ohi.py (see start of file for configuration, and there are options for running it as a [Web Adjuster](http://ssb22.user.srcf.net/adjuster/) extension if desired). This version can also take multiple adjacent anchors, giving alternate labels to the same fragment; there should not be any whitespace between adjacent anchors.
+Although the offline files will also work online, in bandwidth-limited situations you might be better using the `ohi_online.py` lookup CGI which works from the same input as ohi.py (see start of file for configuration, and there are options for running it as a [Web Adjuster](https://ssb22.user.srcf.net/adjuster/) extension if desired). This version can also take multiple adjacent anchors, giving alternate labels to the same fragment; there should not be any whitespace between adjacent anchors.
 
 Print version
 -------------
@@ -31,8 +31,8 @@ The script `ohi_latex.py` works from the same input as `ohi.py` and can be used 
 
 Anemone DAISY maker
 -------------------
-from http://ssb22.user.srcf.net/indexer/anemone.html
-(also mirrored at http://ssb22.gitlab.io/indexer/anemone.html just in case, plus you can access Anemone via `pip install anemone-daisy-maker` or `pipx run anemone-daisy-maker`)
+from https://ssb22.user.srcf.net/indexer/anemone.html
+(also [mirrored on GitLab Pages](https://ssb22.gitlab.io/indexer/anemone.html) just in case, plus you can access Anemone via `pip install anemone-daisy-maker` or `pipx run anemone-daisy-maker`)
 
 `anemone.py` is a Python 3 script to put together a DAISY digital talking book, from HTML text and MP3 audio recordings.  It can generate the time index data via Whisper's speech recognition in some languages (this process is resilient to transcription errors and reader deviations as it checks only for paragraph-change times), or you can supply timestamps yourself in separate JSON files.  Anemone produces DAISY 2.02 files by default, or DAISY 3 (i.e. ANSI/NISO Z39.86) if an option is set.  It can produce four different types of digital talking book:
 

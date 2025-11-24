@@ -1,6 +1,6 @@
 #!/usr/bin/env python3
 """
-Anemone 1.99 (http://ssb22.user.srcf.net/anemone)
+Anemone 1.99 (https://ssb22.user.srcf.net/anemone)
 (c) 2023-25 Silas S. Brown.  License: Apache 2
 
 To use this module, either run it from the command
