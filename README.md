@@ -18,7 +18,7 @@ By default, the input HTML is read from standard input, and the output is writte
 
 As an example, `c2h.py` is a simple CEDICT to HTML script can produce offline HTML files for CEDICT.
 
-Users of the Android platform might also wish to make an APK from the HTML. `ohi-addCopy.sh` is a shell script to add Copy buttons to any hanzi strings to the HTML files, which should work when it’s put into an APK using [html2apk](https://ssb22.user.srcf.net/indexer/html2apk.html) (but they won’t work in standalone HTML).
+Users of the Android platform might also wish to make an APK from the HTML. `ohi-addCopy.sh` is a shell script to add Copy buttons to any hanzi strings to the HTML files, which should work when it’s put into an APK using [html2apk](html2apk/) (but they won’t work in standalone HTML).
 
 Online version
 --------------
@@ -44,9 +44,47 @@ from https://ssb22.user.srcf.net/indexer/anemone.html
 
 4. Text with some audio: this is a combination of the above two methods, and you’ll need to specify `skip` in the JSON file list for the chapters that do not yet have recorded audio
 
-All files are placed on the command line (or in parameters if you’re using Anemone as a module), and Anemone assumes the correspondences are ordered.  So for example if MP3, HTML and JSON files are given, Anemone assumes the first-listed MP3 file corresponds with the first-listed HTML file and the first-listed JSON file, and so on for the second, third, etc.  With most sensible file naming schemes, you should be able to use shell wildcards like `*` when passing the files to Anemone.  You may also set the name of an output file ending `zip`; the suffix `_daisy.zip` is common.  The title, publisher, language etc of the book should be set via options: run the program with `--help` to see all.
+All files are placed on the command line, or in parameters if you’re using Anemone as a module, and Anemone assumes the correspondences are ordered.  So for example if MP3, HTML and JSON files are given, Anemone assumes the first-listed MP3 file corresponds with the first-listed HTML file and the first-listed JSON file, and so on for the second, third, etc.  With most sensible file naming schemes, you should be able to use shell wildcards like `*` when passing the files to Anemone.  You can specify a JSON dictionary instead of the name of a JSON file, and/or an HTML string instead of the name of an HTML file, either when calling `anemone()` as a library or on the command line with careful quoting.
+
+You may also set the name of an output file ending `zip`; the suffix `_daisy.zip` is common.  The title, publisher, language etc of the book should be set via options (see below).
 
 The daisy anemone is a sea creature on the rocky Western shores of Britain and Ireland; the Dorset Wildlife Trust says it’s “usually found in deep pools or hiding in holes or crevices, or buried in the sediment with only tentacles displayed”.  Similarly this script has no interactive user interface; it hides away on the command line, or as a library module for your Python program.
+
+### Anemone options
+If calling the program as a library, call the `anemone()` function with files as detailed above and options as keyword arguments (removing the leading `--` and converting other `-` to `_` throughout); if using the command line (or calling `anemone()` with no arguments, which reads the system command line) use options as below:
+* `--lang`: the ISO 639 language code of the publication (defaults to en for English)
+* `--title`: the title of the publication
+* `--url`: the URL or ISBN of the publication
+* `--creator`: the creator name, if known
+* `--publisher`: the publisher name, if known
+* `--reader`: the name of the reader who voiced the recordings, if known
+* `--date`: the publication date as YYYY-MM-DD, default is current date
+* `--auto-markers-model`: instead of accepting JSON timing markers, guess them using speech recognition with the `whisper-cli` command and this voice model (currently only at paragraph level, and every paragraph matching `marker-attribute` below will be included)
+* `--marker-attribute`: the attribute used in the HTML to indicate a segment number corresponding to a JSON time marker entry, default is `data-pid`
+* `--marker-attribute-prefix`: When extracting all text for chapters that don’t have timings, ignore any marker attributes whose values don’t start with the given prefix
+* `--page-attribute`: the attribute used in the HTML to indicate a page number, default is `data-no`
+* `--image-attribute`: the attribute used in the HTML to indicate an absolute image URL to be included in the DAISY file, default is `data-zoom`
+* `--line-breaking-classes`: comma-separated list of classes used in HTML SPAN tags to substitute for line and paragraph breaks
+* `--refresh`: if images etc have already been fetched from URLs, ask the server if they should be fetched again (use `If-Modified-Since`)
+* `--cache`: path name for the URL-fetching cache (default `cache` in the current directory; set to empty string if you don’t want to save anything); when using anemone as a module, you can instead pass in a `requests_cache` session object if you want that to do it instead
+* `--reload`: if images etc have already been fetched from URLs, fetch them again without `If-Modified-Since`
+* `--delay`: minimum number of seconds between URL fetches (default none)
+* `--retries`: number of times to retry URL fetches on timeouts and unhandled exceptions (default no retries)
+* `--user-agent`: User-Agent string to send for URL fetches
+* `--daisy3`: Use the Daisy 3 format (ANSI/NISO Z39.86) instead of the Daisy 2.02 format. This may require more modern reader software, and Anemone does not yet support Daisy 3 only features like tables.
+* `--mp3-recode`: re-code the MP3 files to ensure they are constant bitrate and more likely to work with the more limited DAISY-reading programs like FSReader 3 (this requires LAME or miniaudio/lameenc)
+* `--max-threads`: Maximum number of threads to use for MP3 re-coding. If set to 0 (default), the number of CPU cores is detected and used, and, if called as a module, multiple threads calling `anemone()` share the same pool of MP3 re-coding threads. This is usually most efficient. If set to anything other than 0, a local pool of threads is used for MP3 re-coding (instead of sharing the pool with any other `anemone()` instances) and it is limited to the number of threads you specify. If calling anemone as a module and you want to limit the pool size but still have a shared pool, then don’t set this but instead call `set_max_shared_workers()`.
+* `--allow-jumps`: Allow jumps in heading levels e.g. h1 to h3 if the input HTML does it. This seems OK on modern readers but might cause older reading devices to give an error. Without this option, headings are promoted where necessary to ensure only incremental depth increase.
+* `--merge-books`: Combine multiple books into one, for saving media on CD-based DAISY players that cannot handle more than one book. The format of this option is `book1/N1,book2/N2,`etc where `book1` is the book title and `N1` is the number of MP3 files to group into it (or if passing the option into the anemone module, you may use a list of tuples). All headings are pushed down one level and book name headings are added at top level.
+* `--chapter-titles`: Comma-separated list of titles to use for chapters that don’t have titles, e.g. ‘Chapter N’ in the language of the book (this can help for search-based navigation). If passing this option into the anemone module, you may use a list instead of a comma-separated string, which might be useful if there are commas in some chapter titles. Use blank titles for chapters that already have them in the markup.
+* `--toc-titles`: Comma-separated list of titles to use for the table of contents. This can be set if you need more abbreviated versions of the chapter titles in the table of contents, while leaving the full versions in the chapters themselves. Again you may use a list instead of a comma-separated string if using the module. Any titles missing or blank in this list will be taken from the full chapter titles instead.
+* `--chapter-heading-level`: Heading level to use for chapters that don’t have titles
+* `--warnings-are-errors`: Treat warnings as errors
+* `--ignore-chapter-skips`: Don’t emit warnings or errors about chapter numbers being skipped
+* `--dry-run`: Don’t actually output DAISY, just check the input and parameters
+* `--version`: Just print version number and exit (takes effect only if called from the command line)
+
+If using the module, you can additionally set the options `warning_callback`, `info_callback` and/or `progress_callback`.  These are Python callables to log an in-progress conversion (useful for multi-threaded UIs).  `warning_callback` and `info_callback` each take a string, and `progress_callback` takes an integer percentage.  If `warning_callback` or `info_callback` is set, the corresponding information is not written to standard error.
 
 ### Behaviour of DAISY readers in 2024
 
@@ -80,25 +118,14 @@ Copyright and Trademarks
 ------------------------
 
 © Silas S. Brown, licensed under Apache 2.
-
-* Android is a trademark of Google LLC.
-
-* Apache is a registered trademark of The Apache Software Foundation.
-
-* Javascript is a trademark of Oracle Corporation in the US.
-
-* Linux is the registered trademark of Linus Torvalds in the U.S. and other countries.
-
-* Mac is a trademark of Apple Inc.
-
-* Microsoft is a registered trademark of Microsoft Corp.
-
-* MP3 is a trademark that was registered in Europe to Hypermedia GmbH Webcasting but I was unable to confirm its current holder.
-
-* Python is a trademark of the Python Software Foundation.
-
-* Unicode is a registered trademark of Unicode, Inc. in the United States and other countries.
-
-* Windows is a registered trademark of Microsoft Corp.
-
-* Any other trademarks I mentioned without realising are trademarks of their respective holders.
+Android is a trademark of Google LLC.
+Apache is a registered trademark of The Apache Software Foundation, which from February to July 2023 acknowledged the Chiricahua Apache, the Choctaw Apache, the Fort Sill Apache, the Jicarilla Apache, the Mescalero Apache, the Lipan Apache, the Apache Tribe of Oklahoma, the Plains Apache, the San Carlos Apache, the Tonto Apache, the White Mountain Apache, the Yavapai Apache and the Apache Alliance.
+Javascript is a trademark of Oracle Corporation in the US.
+Linux is the registered trademark of Linus Torvalds in the U.S. and other countries.
+Mac is a trademark of Apple Inc.
+Microsoft is a registered trademark of Microsoft Corp.
+MP3 is a trademark that was registered in Europe to Hypermedia GmbH Webcasting but I was unable to confirm its current holder.
+Python is a trademark of the Python Software Foundation.
+Unicode is a registered trademark of Unicode, Inc. in the United States and other countries.
+Windows is a registered trademark of Microsoft Corp.
+Any other trademarks I mentioned without realising are trademarks of their respective holders.
