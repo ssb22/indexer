@@ -52,37 +52,68 @@ The daisy anemone is a sea creature on the rocky Western shores of Britain and I
 
 ### Anemone options
 If calling the program as a library, call the `anemone()` function with files as detailed above and options as keyword arguments (removing the leading `--` and converting other `-` to `_` throughout); if using the command line (or calling `anemone()` with no arguments, which reads the system command line) use options as below:
-* `--lang`: the ISO 639 language code of the publication (defaults to en for English)
-* `--title`: the title of the publication
-* `--url`: the URL or ISBN of the publication
-* `--creator`: the creator name, if known
-* `--publisher`: the publisher name, if known
-* `--reader`: the name of the reader who voiced the recordings, if known
-* `--date`: the publication date as YYYY-MM-DD, default is current date
-* `--auto-markers-model`: instead of accepting JSON timing markers, guess them using speech recognition with the `whisper-cli` command and this voice model (currently only at paragraph level, and every paragraph matching `marker-attribute` below will be included)
-* `--marker-attribute`: the attribute used in the HTML to indicate a segment number corresponding to a JSON time marker entry, default is `data-pid`
-* `--marker-attribute-prefix`: When extracting all text for chapters that don’t have timings, ignore any marker attributes whose values don’t start with the given prefix
-* `--page-attribute`: the attribute used in the HTML to indicate a page number, default is `data-no`
-* `--image-attribute`: the attribute used in the HTML to indicate an absolute image URL to be included in the DAISY file, default is `data-zoom`
-* `--line-breaking-classes`: comma-separated list of classes used in HTML SPAN tags to substitute for line and paragraph breaks
-* `--refresh`: if images etc have already been fetched from URLs, ask the server if they should be fetched again (use `If-Modified-Since`)
-* `--cache`: path name for the URL-fetching cache (default `cache` in the current directory; set to empty string if you don’t want to save anything); when using anemone as a module, you can instead pass in a `requests_cache` session object if you want that to do it instead
-* `--reload`: if images etc have already been fetched from URLs, fetch them again without `If-Modified-Since`
-* `--delay`: minimum number of seconds between URL fetches (default none)
-* `--retries`: number of times to retry URL fetches on timeouts and unhandled exceptions (default no retries)
-* `--user-agent`: User-Agent string to send for URL fetches
-* `--daisy3`: Use the Daisy 3 format (ANSI/NISO Z39.86) instead of the Daisy 2.02 format. This may require more modern reader software, and Anemone does not yet support Daisy 3 only features like tables.
-* `--mp3-recode`: re-code the MP3 files to ensure they are constant bitrate and more likely to work with the more limited DAISY-reading programs like FSReader 3 (this requires LAME or miniaudio/lameenc)
-* `--max-threads`: Maximum number of threads to use for MP3 re-coding. If set to 0 (default), the number of CPU cores is detected and used, and, if called as a module, multiple threads calling `anemone()` share the same pool of MP3 re-coding threads. This is usually most efficient. If set to anything other than 0, a local pool of threads is used for MP3 re-coding (instead of sharing the pool with any other `anemone()` instances) and it is limited to the number of threads you specify. If calling anemone as a module and you want to limit the pool size but still have a shared pool, then don’t set this but instead call `set_max_shared_workers()`.
-* `--allow-jumps`: Allow jumps in heading levels e.g. h1 to h3 if the input HTML does it. This seems OK on modern readers but might cause older reading devices to give an error. Without this option, headings are promoted where necessary to ensure only incremental depth increase.
-* `--merge-books`: Combine multiple books into one, for saving media on CD-based DAISY players that cannot handle more than one book. The format of this option is `book1/N1,book2/N2,`etc where `book1` is the book title and `N1` is the number of MP3 files to group into it (or if passing the option into the anemone module, you may use a list of tuples). All headings are pushed down one level and book name headings are added at top level.
-* `--chapter-titles`: Comma-separated list of titles to use for chapters that don’t have titles, e.g. ‘Chapter N’ in the language of the book (this can help for search-based navigation). If passing this option into the anemone module, you may use a list instead of a comma-separated string, which might be useful if there are commas in some chapter titles. Use blank titles for chapters that already have them in the markup.
-* `--toc-titles`: Comma-separated list of titles to use for the table of contents. This can be set if you need more abbreviated versions of the chapter titles in the table of contents, while leaving the full versions in the chapters themselves. Again you may use a list instead of a comma-separated string if using the module. Any titles missing or blank in this list will be taken from the full chapter titles instead.
-* `--chapter-heading-level`: Heading level to use for chapters that don’t have titles
-* `--warnings-are-errors`: Treat warnings as errors
-* `--ignore-chapter-skips`: Don’t emit warnings or errors about chapter numbers being skipped
-* `--dry-run`: Don’t actually output DAISY, just check the input and parameters
-* `--version`: Just print version number and exit (takes effect only if called from the command line)
+
+`--lang`: the ISO 639 language code of the publication (defaults to en for English)
+
+`--title`: the title of the publication
+
+`--url`: the URL or ISBN of the publication
+
+`--creator`: the creator name, if known
+
+`--publisher`: the publisher name, if known
+
+`--reader`: the name of the reader who voiced the recordings, if known
+
+`--date`: the publication date as YYYY-MM-DD, default is current date
+
+`--auto-markers-model`: instead of accepting JSON timing markers, guess them using speech recognition with the `whisper-cli` command and this voice model (currently only at paragraph level, and every paragraph matching `marker-attribute` below will be included)
+
+`--marker-attribute`: the attribute used in the HTML to indicate a segment number corresponding to a JSON time marker entry, default is `data-pid`
+
+`--marker-attribute-prefix`: When extracting all text for chapters that don’t have timings, ignore any marker attributes whose values don’t start with the given prefix
+
+`--page-attribute`: the attribute used in the HTML to indicate a page number, default is `data-no`
+
+`--image-attribute`: the attribute used in the HTML to indicate an absolute image URL to be included in the DAISY file, default is `data-zoom`
+
+`--line-breaking-classes`: comma-separated list of classes used in HTML SPAN tags to substitute for line and paragraph breaks
+
+`--refresh`: if images etc have already been fetched from URLs, ask the server if they should be fetched again (use `If-Modified-Since`)
+
+`--cache`: path name for the URL-fetching cache (default `cache` in the current directory; set to empty string if you don’t want to save anything); when using anemone as a module, you can instead pass in a `requests_cache` session object if you want that to do it instead
+
+`--reload`: if images etc have already been fetched from URLs, fetch them again without `If-Modified-Since`
+
+`--delay`: minimum number of seconds between URL fetches (default none)
+
+`--retries`: number of times to retry URL fetches on timeouts and unhandled exceptions (default no retries)
+
+`--user-agent`: User-Agent string to send for URL fetches
+
+`--daisy3`: Use the Daisy 3 format (ANSI/NISO Z39.86) instead of the Daisy 2.02 format. This may require more modern reader software, and Anemone does not yet support Daisy 3 only features like tables.
+
+`--mp3-recode`: re-code the MP3 files to ensure they are constant bitrate and more likely to work with the more limited DAISY-reading programs like FSReader 3 (this requires LAME or miniaudio/lameenc)
+
+`--max-threads`: Maximum number of threads to use for MP3 re-coding. If set to 0 (default), the number of CPU cores is detected and used, and, if called as a module, multiple threads calling `anemone()` share the same pool of MP3 re-coding threads. This is usually most efficient. If set to anything other than 0, a local pool of threads is used for MP3 re-coding (instead of sharing the pool with any other `anemone()` instances) and it is limited to the number of threads you specify. If calling anemone as a module and you want to limit the pool size but still have a shared pool, then don’t set this but instead call `set_max_shared_workers()`.
+
+`--allow-jumps`: Allow jumps in heading levels e.g. h1 to h3 if the input HTML does it. This seems OK on modern readers but might cause older reading devices to give an error. Without this option, headings are promoted where necessary to ensure only incremental depth increase.
+
+`--merge-books`: Combine multiple books into one, for saving media on CD-based DAISY players that cannot handle more than one book. The format of this option is `book1/N1,book2/N2,`etc where `book1` is the book title and `N1` is the number of MP3 files to group into it (or if passing the option into the anemone module, you may use a list of tuples). All headings are pushed down one level and book name headings are added at top level.
+
+`--chapter-titles`: Comma-separated list of titles to use for chapters that don’t have titles, e.g. ‘Chapter N’ in the language of the book (this can help for search-based navigation). If passing this option into the anemone module, you may use a list instead of a comma-separated string, which might be useful if there are commas in some chapter titles. Use blank titles for chapters that already have them in the markup.
+
+`--toc-titles`: Comma-separated list of titles to use for the table of contents. This can be set if you need more abbreviated versions of the chapter titles in the table of contents, while leaving the full versions in the chapters themselves. Again you may use a list instead of a comma-separated string if using the module. Any titles missing or blank in this list will be taken from the full chapter titles instead.
+
+`--chapter-heading-level`: Heading level to use for chapters that don’t have titles
+
+`--warnings-are-errors`: Treat warnings as errors
+
+`--ignore-chapter-skips`: Don’t emit warnings or errors about chapter numbers being skipped
+
+`--dry-run`: Don’t actually output DAISY, just check the input and parameters
+
+`--version`: Just print version number and exit (takes effect only if called from the command line)
 
 If using the module, you can additionally set the options `warning_callback`, `info_callback` and/or `progress_callback`.  These are Python callables to log an in-progress conversion (useful for multi-threaded UIs).  `warning_callback` and `info_callback` each take a string, and `progress_callback` takes an integer percentage.  If `warning_callback` or `info_callback` is set, the corresponding information is not written to standard error.
 
@@ -97,8 +128,6 @@ If using the module, you can additionally set the options `warning_callback`, `i
 * JAWS FSReader 3 (Windows): is able to play audio while highlighting paragraphs in both Daisy 2 and Daisy 3, but ZIP needs to be unpacked separately and NCC or OPF file opened; may work better without JAWS running; synchronisation with audio seems to require `--mp3-recode`; images are not scaled to fit; tested working with a Braille display and audio speed changes; not tested with very large books (1GB+)
 
 * HumanWare Brailliant: does not show text if there is audio (hopefully it can still be used for navigation); ZIP needs to be unpacked; tested both Daisy 2 and Daisy 3 (which the device calls "Niso" format)
-
-does not show text if there is audio (hopefully it can still be used for navigation) in both Daisy 2 and Daisy 3
 
 * Pronto Notetaker: ZIP needs to be unpacked to a “Daisy” folder on SD or USB, and the device just plays the audio; tested only with Daisy 2
 

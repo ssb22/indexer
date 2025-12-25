@@ -1,6 +1,6 @@
 #!/usr/bin/env python3
 """
-Anemone 1.99 (https://ssb22.user.srcf.net/anemone)
+Anemone 1.991 (https://ssb22.user.srcf.net/anemone)
 (c) 2023-25 Silas S. Brown.  License: Apache 2
 
 To use this module, either run it from the command
@@ -599,13 +599,13 @@ class Run():
         if not markers: # empty markers list
             markers = R.get_null_jsonData(h)['markers']
             # - rely on merge0lenSpans to merge whole chapter
-        want_pids, markerToWantPid = [], {}
+        want_pids, markerDxToWantPidDx = [], {}
         for i,m in enumerate(markers):
             err = checkJsonAttr(m,"id")
             if err:
                 R.warning(f"Cannot process JSON {len(recordingTexts)+1} marker {i+1}: {err}",".  Ignoring this marker.")
             else:
-                markerToWantPid[i] = len(want_pids)
+                markerDxToWantPidDx[i] = len(want_pids)
                 want_pids.append(jsonAttr(m,"id"))
         extractor = PidsExtractor(R,want_pids)
         extractor.handle_soup(
@@ -613,7 +613,7 @@ class Run():
             include_alt=include_alt_tags_in_text)
         rTxt = []
         for i in range(len(markers)):
-            if i not in markerToWantPid: continue # bad id on this one
+            if i not in markerDxToWantPidDx: continue # bad id on this one
             err = checkJsonAttr(markers[i],"time")
             if err:
                 R.warning(f"Cannot process JSON {len(recordingTexts)+1} marker {i+1}: {err}",".  Ignoring this marker.")
@@ -622,13 +622,15 @@ class Run():
             except ValueError:
                 R.warning(f"JSON {len(recordingTexts)+1} marker {i+1} has invalid timestamp",".  Ignoring this marker.")
                 continue
-            if want_pids[markerToWantPid[i]] in extractor.id_to_content:
-                tag,content = extractor.id_to_content[want_pids[markerToWantPid[i]]]
+            if want_pids[markerDxToWantPidDx[i]] in extractor.id_to_content:
+                tag,content = extractor.id_to_content[want_pids[markerDxToWantPidDx[i]]]
                 content = ''.join(content).strip()
                 rTxt.append(TagAndText(tag,content_fixes(content)))
-                if want_pids[markerToWantPid[i]] in want_pids[:markerToWantPid[i]]: R.warning(f"In JSON {len(recordingTexts)+1}, paragraph ID {want_pids[markerToWantPid[i]]} is tied to multiple markers.  Did you forget to start a new document in the marker list?")
+                if want_pids[markerDxToWantPidDx[i]] in want_pids[:markerDxToWantPidDx[i]]:
+                    warnList = [str(x+1) for x in range(len(markers)) if want_pids[markerDxToWantPidDx[x]]==want_pids[markerDxToWantPidDx[i]]]
+                    R.warning(f"In JSON {len(recordingTexts)+1}, paragraph ID {want_pids[markerDxToWantPidDx[i]]} has {len(warnList)} markers ({', '.join(warnList)}), should be only one. Check for wrong IDs or missing new document.")
             else:
-                R.warning(f"JSON {len(recordingTexts)+1} marker {i+1} marks paragraph ID {want_pids[markerToWantPid[i]]} which is not present in HTML {len(recordingTexts)+1}",".  Anemone will make this a blank paragraph.")
+                R.warning(f"JSON {len(recordingTexts)+1} marker {i+1} marks paragraph ID {want_pids[markerDxToWantPidDx[i]]} which is not present in HTML {len(recordingTexts)+1}",".  Anemone will make this a blank paragraph.")
                 rTxt.append(TagAndText('p',''))
         if R.auto_markers_model: fixup_times(rTxt,R.auto_markers_model,audioData,filenameExt,R.max_threads if R.max_threads else shared_executor_maxWorkers)
         recordingTexts.append(
@@ -1474,14 +1476,12 @@ def check_we_got_LAME() -> None:
 
     if which('lame'): return
     if load_miniaudio_and_lameenc(): return
-    if sys.platform=='win32':
+    if sys.platform=='win32': # some machines have it here:
         os.environ["PATH"] += r";C:\Program Files (x86)\Lame for Audacity;C:\Program Files\Lame for Audacity"
         if which('lame'): return
-    error(f"""Anemone requires the LAME program to encode/recode MP3s.
+    error("""Anemone requires the LAME program to encode/recode MP3s.
 Please either install the miniaudio and lameenc pip libraries,
-or {'run the exe installer from lame.buanzo.org'
-    if sys.platform=='win32' else 'install lame'
-}, and then try again.""")
+or make the 'lame' binary available, and then try again.""")
 
 tagRewrite = { # used by get_texts
     'legend':'h3', # used in fieldset
