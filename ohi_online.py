@@ -100,7 +100,7 @@ except ImportError: ohi_config = None
 
 gemini_mode = os.environ.get("SERVER_PROTOCOL","")=="GEMINI"
 
-import cgi # used only for cgi.parse().  if this fails (Python 3.13+, e.g. expected in Ubuntu 26.04 LTS) then you might want: pip install legacy-cgi
+import cgi # used only for cgi.parse().  if this fails (Python 3.13+, e.g. Debian 13 + expected in Ubuntu 26.04 LTS) then you might want "pip install legacy-cgi" or "sudo apt install python3-legacy-cgi"
 
 if not web_adjuster_extension_mode and not gemini_mode:
     import cgitb ; cgitb.enable() # remove this if you don't want tracebacks in the browser
