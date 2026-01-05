@@ -1,8 +1,9 @@
 #!/usr/bin/env python
+# -*- coding: utf-8 -*-
 # (works on both Python 2 and Python 3)
 
 """ohi_latex: Offline HTML Indexer for LaTeX
-v1.49 (c) 2014-20,2023-25 Silas S. Brown
+v1.5 (c) 2014-20,2023-26 Silas S. Brown
 License: Apache 2
 
 Standard input HTML can be same as for ohi.py i.e. place
@@ -45,6 +46,7 @@ opts.add_option("--a5",action="store_true",default=False,help="Use page settings
 opts.add_option("--compromise",action="store_true",default=False,help="Use page settings intended for compromise between A4 and Letter, with a more spacious layout")
 opts.add_option("--trade",action="store_true",default=False,help="Use page settings intended for US Trade (6x9in), with the same pagination as --compromise but smaller margins.  You may combine this with --lulu for even smaller margins via magstep without pagination change.") # (pagination should be the same if system still has same versions of all LaTeX packages)
 opts.add_option("--no-qpdf",action="store_true",default=False,help="Never run qpdf and don't enable links and bookmarks (use this when submitting to a print bureau; implied by --lulu and --createspace)")
+opts.add_option("--chinese-book",action="store_true",default=False,help="Use a Chinese-style table of contents for books with chapters (currently turns off hyperref as it's too fragile for CJK tables of contents)")
 opts.add_option("--dry-run",action="store_true",default=False,help="Don't run pdflatex or qpdf")
 opts.add_option("--no-open",action="store_true",default=False,help="Don't open the resulting PDF on Mac")
 opts.add_option("--version",action="store_true",default=False,help="Show version number and exit")
@@ -647,15 +649,22 @@ def makeLatex(unistr):
     if 'pdftitle' in os.environ: ret = ret.replace("hyperfootnotes=false]{hyperref}",("pdfauthor={"+os.environ['pdfauthor']+"}," if 'pdfauthor' in os.environ else '')+"pdftitle={"+os.environ['pdftitle']+"},hyperfootnotes=false]{hyperref}") # TODO: document that you can set pdfauthor and pdftitle in environment
     title = re.findall(r'\\title{.*?}%title',unistr,flags=re.DOTALL)[0] # might have <br>s in it
     ret += title[:title.rindex('%')]+r"\date{}\usepackage{tocloft}\usepackage{fancyhdr}\clubpenalty1000\widowpenalty1000\advance\cftchapnumwidth 0.5em\hypersetup{pdfborder={0 0 0},linktoc=all}"
+    if chinese_book:
+      ret=re.sub(r'\\usepackage.*?{hyperref}','',ret).replace(r'\hypersetup{pdfborder={0 0 0},linktoc=all}','').replace(r'\nolinkurl',r'\url')+r"\usepackage{url}\usepackage{CJKnumb}\setlength{\cftchapnumwidth}{4.5em}\setlength{\cftpartnumwidth}{4em}\renewcommand{\contentsname}{目录}\renewcommand{\thechapter}{第\arabic{chapter}章}\renewcommand{\thepart}{卷\CJKnumber{\arabic{part}}}\renewcommand{\partname}{}\renewcommand{\chaptername}{}"
+      unistr = unistr.replace(r'\nolinkurl',r'\url')
+      title = title.replace(r'\nolinkurl',r'\url')
     unistr = unistr.replace(title+'\n',"",1)
   else: title = None
   ret += r'\begin{document}'
+  if used_cjk and chinese_book:
+    ret += r"\begin{CJK}{UTF8}{gbsn}"
+    unistr = re.sub(r"\\(part|chapter)(\[[^]]*\])?{[^}]*}",lambda m:m.group().replace(chr(0),''),unistr.replace(r'\CJKfamily{gbsn}',chr(0))).replace(chr(0),r'\CJKfamily{gbsn}')
   if r"\chapter" in unistr: ret += r'\pagestyle{fancy}\fancyhf{}\renewcommand{\headrulewidth}{0pt}\fancyfoot[LE,RO]{\thepage}\fancypagestyle{plain}{\fancyhf{}\renewcommand{\headrulewidth}{0pt}\fancyhf[lef,rof]{\thepage}}'
   if title: ret += r'\maketitle\renewcommand{\cftchapleader}{\cftdotfill{\cftdotsep}}\tableofcontents\renewcommand{\baselinestretch}{1.1}\selectfont'
   if page_headings: ret += r'\pagestyle{fancy}\fancyhead{}\fancyfoot{}\fancyhead[LE]{\rightmark}\fancyhead[RO]{\leftmark}\thispagestyle{empty}'
   elif not r"\chapter" in unistr: ret += r'\pagestyle{empty}'
   # else: ret += r'\pagestyle{plain}'
-  if used_cjk: ret += r"\begin{CJK}{UTF8}{}"
+  if used_cjk and not chinese_book: ret+=r"\begin{CJK}{UTF8}{}"
   if whole_doc_in_footnotesize: ret += r'\footnotesize'
   if not ret[-1]=='}': ret += '{}'
   ret += unistr # the document itself
