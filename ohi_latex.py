@@ -3,7 +3,7 @@
 # (works on both Python 2 and Python 3)
 
 """ohi_latex: Offline HTML Indexer for LaTeX
-v1.5 (c) 2014-20,2023-26 Silas S. Brown
+v1.51 (c) 2014-20,2023-26 Silas S. Brown
 License: Apache 2
 
 Standard input HTML can be same as for ohi.py i.e. place
@@ -46,7 +46,9 @@ opts.add_option("--a5",action="store_true",default=False,help="Use page settings
 opts.add_option("--compromise",action="store_true",default=False,help="Use page settings intended for compromise between A4 and Letter, with a more spacious layout")
 opts.add_option("--trade",action="store_true",default=False,help="Use page settings intended for US Trade (6x9in), with the same pagination as --compromise but smaller margins.  You may combine this with --lulu for even smaller margins via magstep without pagination change.") # (pagination should be the same if system still has same versions of all LaTeX packages)
 opts.add_option("--no-qpdf",action="store_true",default=False,help="Never run qpdf and don't enable links and bookmarks (use this when submitting to a print bureau; implied by --lulu and --createspace)")
-opts.add_option("--chinese-book",action="store_true",default=False,help="Use a Chinese-style table of contents for books with chapters (currently turns off hyperref as it's too fragile for CJK tables of contents)")
+opts.add_option("--chinese-book",action="store_true",default=False,help="Use a Chinese-style table of contents for books with chapters; to use this, either enable --lualatex as well, or it turns off links (as hyperref is too fragile for CJK tables of contents without LuaLaTeX)")
+opts.add_option("--fanti-book",action="store_true",default=False,help="as --chinese-book but use Traditional instead of Simplified")
+opts.add_option('--lualatex',action="store_true",default=False,help="Use LuaLaTeX instead of pdflatex (results in different Chinese fonts, pinyin kerning differences, etc)") # (and slower to compile but that's not a major problem)
 opts.add_option("--dry-run",action="store_true",default=False,help="Don't run pdflatex or qpdf")
 opts.add_option("--no-open",action="store_true",default=False,help="Don't open the resulting PDF on Mac")
 opts.add_option("--version",action="store_true",default=False,help="Show version number and exit")
@@ -55,6 +57,7 @@ options, args = opts.parse_args()
 assert not args,"Unknown arguments: "+repr(args)
 globals().update(options.__dict__)
 if outfile=="-": outfile = None
+chinese_book = chinese_book or fanti_book
 
 if lulu and not trade:
   if outfile=="index.tex":
@@ -447,6 +450,7 @@ def makeLatex(unistr):
         except KeyError: continue
         latex_special_chars[my_normalize(c2)]="\\shortstack{\\raisebox{-1.5ex}[0pt][0pt]{\\"+accent+r"{}}\\"+textGreek(c)+"}"
   # For pinyin, use pinyin package (it has kerning tweaks)
+  # unless we're in LuaLaTeX which doesn't have it.
   # (leaving out rare syllables like "den" from below because it's not always defined and it seems to cause more trouble than it's worth)
   toned_pinyin_syllables = """a ai an ang ao ba
     bai ban bang bao bei ben beng bi bian biao bie
@@ -536,6 +540,7 @@ def makeLatex(unistr):
       ("ve5",u"\xfce")],o)
   py_protected = "a chi cong ding ge hang le min mu ne ni nu o O pi Pi Re tan xi Xi".split()
   for p in toned_pinyin_syllables+[(x[0].upper()+x[1:]) for x in toned_pinyin_syllables]:
+   if not lualatex:
     for t in "1 2 3 4 5".split():
         m = num2marks(p+t)
         if m==p+t: continue
@@ -626,7 +631,8 @@ def makeLatex(unistr):
     # combine multiple letters in maths fonts:
     unistr=re.sub('('+re.escape('$\\'+m+'{')+'[A-Za-z0-9]'+re.escape('}}$' if '{' in m else '}$')+')+',lambda M:M.group().replace(('}' if '{' in m else '')+'}$$\\'+m+'{',''),unistr)
   unistr = unistr.replace('$$','') # we don't use display-math, so $$ must mean two adjacent bits of maths
-  ret = r'\documentclass['+class_options+(((',' if class_options else '')+'twoside') if r'\chapter' in unistr else '')+']{'+('report' if r'\chapter' in unistr else 'article')+r'}\usepackage[T1]{fontenc}\usepackage{pinyin}\PYdeactivate\usepackage{parskip}'
+  ret = r'\documentclass['+class_options+(((',' if class_options else '')+'twoside') if r'\chapter' in unistr else '')+']{'+('report' if r'\chapter' in unistr else 'article')+r'}\usepackage{parskip}'
+  if not lualatex: ret += r'\usepackage[T1]{fontenc}\usepackage{pinyin}\PYdeactivate'
   ret += r'\IfFileExists{microtype.sty}{\usepackage{microtype}}{\pdfadjustspacing=2\pdfprotrudechars=2}' # nicer line breaking (but the PDFs may be larger)
   ret += r'\raggedbottom'
   global geometry
@@ -650,25 +656,28 @@ def makeLatex(unistr):
     title = re.findall(r'\\title{.*?}%title',unistr,flags=re.DOTALL)[0] # might have <br>s in it
     ret += title[:title.rindex('%')]+r"\date{}\usepackage{tocloft}\usepackage{fancyhdr}\clubpenalty1000\widowpenalty1000\advance\cftchapnumwidth 0.5em\hypersetup{pdfborder={0 0 0},linktoc=all}"
     if chinese_book:
-      ret=re.sub(r'\\usepackage.*?{hyperref}','',ret).replace(r'\hypersetup{pdfborder={0 0 0},linktoc=all}','').replace(r'\nolinkurl',r'\url')+r"\usepackage{url}\usepackage{CJKnumb}\setlength{\cftchapnumwidth}{4.5em}\setlength{\cftpartnumwidth}{4em}\renewcommand{\contentsname}{目录}\renewcommand{\thechapter}{第\arabic{chapter}章}\renewcommand{\thepart}{卷\CJKnumber{\arabic{part}}}\renewcommand{\partname}{}\renewcommand{\chaptername}{}"
+      if lualatex: ret += r"\usepackage{ctex}\setCJKmainfont{Noto Serif CJK TC}" # TC finds Simplified characters as well as Traditional, and lacks the too-much spacing between full-width ? and close quote, which is also present if we set it to {AR PL UMing TW} (or CN or HK: finds traditional / simplified anyway); could also use {WenQuanYi Micro Hei} (。 on baseline, …… spaced better) but that one has collision between ） and 。, the Noto TC almost has a collision between 。 and ） but less bad
+      else: ret=re.sub(r'\\usepackage.*?{hyperref}','',ret).replace(r'\hypersetup{pdfborder={0 0 0},linktoc=all}','').replace(r'\nolinkurl',r'\url')+r"\usepackage{url}\usepackage{CJKnumb}"
+      ret += r"\setlength{\cftchapnumwidth}{4.5em}\setlength{\cftpartnumwidth}{4em}\renewcommand{\contentsname}{目"+("錄" if fanti_book else "录")+r"}\renewcommand{\thechapter}{第\arabic{chapter}章}\renewcommand{\thepart}{卷"+("" if lualatex else r"\CJKnumber")+r"{\arabic{part}}}\renewcommand{\partname}{}\renewcommand{\chaptername}{}"
       unistr = unistr.replace(r'\nolinkurl',r'\url')
       title = title.replace(r'\nolinkurl',r'\url')
     unistr = unistr.replace(title+'\n',"",1)
   else: title = None
+  if used_cjk and lualatex and not "{ctex}" in ret: ret += r"\usepackage{ctex}" # MUST have this if using ANY CJK in LuaLaTeX (its default Unicode handling doesn't just provide it automatically: will get blank space)
   ret += r'\begin{document}'
   if used_cjk and chinese_book:
-    ret += r"\begin{CJK}{UTF8}{gbsn}"
+    if not lualatex: ret += r"\begin{CJK}{UTF8}{gbsn}"
     unistr = re.sub(r"\\(part|chapter)(\[[^]]*\])?{[^}]*}",lambda m:m.group().replace(chr(0),''),unistr.replace(r'\CJKfamily{gbsn}',chr(0))).replace(chr(0),r'\CJKfamily{gbsn}')
   if r"\chapter" in unistr: ret += r'\pagestyle{fancy}\fancyhf{}\renewcommand{\headrulewidth}{0pt}\fancyfoot[LE,RO]{\thepage}\fancypagestyle{plain}{\fancyhf{}\renewcommand{\headrulewidth}{0pt}\fancyhf[lef,rof]{\thepage}}'
   if title: ret += r'\maketitle\renewcommand{\cftchapleader}{\cftdotfill{\cftdotsep}}\tableofcontents\renewcommand{\baselinestretch}{1.1}\selectfont'
   if page_headings: ret += r'\pagestyle{fancy}\fancyhead{}\fancyfoot{}\fancyhead[LE]{\rightmark}\fancyhead[RO]{\leftmark}\thispagestyle{empty}'
   elif not r"\chapter" in unistr: ret += r'\pagestyle{empty}'
   # else: ret += r'\pagestyle{plain}'
-  if used_cjk and not chinese_book: ret+=r"\begin{CJK}{UTF8}{}"
+  if used_cjk and not chinese_book and not lualatex: ret+=r"\begin{CJK}{UTF8}{}"
   if whole_doc_in_footnotesize: ret += r'\footnotesize'
   if not ret[-1]=='}': ret += '{}'
   ret += unistr # the document itself
-  if used_cjk: ret += r"\end{CJK}"
+  if used_cjk and not lualatex: ret += r"\end{CJK}"
   ret += r'\end{document}'+'\n'
   sys.stderr.write('done\n')
   def explain_unhandled(c):
@@ -789,7 +798,7 @@ def matchAllCJK(match):
           else: family=family[0]
         mLen = codeMatchLen(hanziStr,code)
         if mLen:
-            r.append(r"\CJKfamily{"+family+"}") # (don't try to check if it's already that: this can go wrong if it gets reset at the end of an environment like in an href)
+            if not lualatex: r.append(r"\CJKfamily{"+family+"}") # (don't try to check if it's already that: this can go wrong if it gets reset at the end of an environment like in an href)
             r.append(hanziStr[:mLen])
             global used_cjk ; used_cjk = True
         elif not ord(hanziStr[0])==0x200b:
@@ -805,7 +814,8 @@ def matchAllCJK(match):
               r.append(latex_special_chars[nonBMPstr(code)])
               mLen = len(nonBMPstr(code))
             else:
-              r.append(TeX_unhandled_code(code))
+              if lualatex: r.append(hanziStr[0]) # delegate to LuaLaTeX font setup: system might have more complete Chinese fonts
+              else: r.append(TeX_unhandled_code(code))
         hanziStr = hanziStr[mLen:]
     return u"".join(r)
 
@@ -969,15 +979,16 @@ if __name__ == "__main__":
   if r'\tableofcontents' in texDoc: passes=3
   elif r'\hyper' in texDoc: passes=2
   else: passes=1 # TODO: any other values? (below line supports any)
-  sys.stderr.write("Running pdflatex... ")
+  program = "lualatex" if lualatex else "pdflatex"
+  sys.stderr.write("Running "+program+"... ")
   for ext in ["aux","log","toc","out","pdf"]:
     # ensure doesn't mess up new TeX run (e.g. if required packages for TOC have changed)
     try: os.remove(re.sub(r"tex$",ext,outfile))
     except: pass
   args='-file-line-error -halt-on-error "'+outfile+'" >/dev/null' # >/dev/null added because there'll likely be many hbox warnings; log file is more manageable than having them on-screen
   if r"\usepackage{svg}" in texDoc: args="--shell-escape "+args # so it can run inkscape to convert the svg
-  r=os.system("&&".join(['pdflatex -draftmode '+args]*(passes-1)+['pdflatex '+args]))
-  assert not r, "pdflatex failure (see "+re.sub(r"tex$","log",outfile)+")"
+  r=os.system("&&".join([program+' -draftmode '+args]*(passes-1)+[program+' '+args]))
+  assert not r, program+" failure (see "+re.sub(r"tex$","log",outfile)+")"
   sys.stderr.write("done\n")
   pdffile = re.sub(r"tex$","pdf",outfile)
   if links_and_bookmarks: os.system('''
