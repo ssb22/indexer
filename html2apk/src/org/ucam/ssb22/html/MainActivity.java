@@ -1,4 +1,5 @@
-// Android HTML wrapper - Silas Brown 2013,2014 - Public Domain
+// Android HTML wrapper
+// Silas S. Brown 2013,2014 - public domain - no warranty
 // Version 1.4
 
 // See website for setup instructions:
