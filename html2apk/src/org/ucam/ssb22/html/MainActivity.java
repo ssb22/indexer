@@ -1,6 +1,6 @@
 // Android HTML wrapper
-// Silas S. Brown 2013,2014 - public domain - no warranty
-// Version 1.4
+// Silas S. Brown 2013,2014,2026 - public domain - no warranty
+// Version 1.5
 
 // See website for setup instructions:
 // https://ssb22.user.srcf.net/indexer/html2apk.html
@@ -8,10 +8,7 @@
 // for details of the extra Javascript callbacks
 
 package org.ucam.ssb22.html;
-import android.webkit.WebView;
-import android.webkit.WebViewClient;
-import android.webkit.WebChromeClient;
-import android.webkit.JavascriptInterface;
+import android.webkit.*;
 import android.app.Activity;
 import android.os.Bundle;
 import android.view.KeyEvent;
@@ -19,10 +16,10 @@ import android.net.Uri;
 import android.content.Intent;
 import android.annotation.TargetApi;
 import android.os.Build;
+@SuppressWarnings("deprecation") // for conditional SDK below
 public class MainActivity extends Activity {
     @Override
     @TargetApi(3) // for conditional setBuiltInZoomControls below
-    @SuppressWarnings("deprecation") // for conditional SDK below
     public void onCreate(Bundle savedInstanceState) {
         super.onCreate(savedInstanceState);
         setContentView(R.layout.activity_main);
@@ -46,14 +43,7 @@ public class MainActivity extends Activity {
         // are not (and can be overridden by apps like
         // Kingsoft WPS Office, so be careful; I suggest
         // leaving this code in here) -
-        browser.setWebViewClient(new WebViewClient(){
-                public boolean shouldOverrideUrlLoading(WebView view, String url) {
-                    if (url != null && (url.startsWith("http://") || url.startsWith("https://"))) {
-                        view.getContext().startActivity(new Intent(Intent.ACTION_VIEW, Uri.parse(url)));
-                        return true;
-                    } else return false;
-                }
-            });
+        browser.setWebViewClient(new CustomWebViewClient());
 
         /* Uncomment the following 2 lines if you want to
            use local storage.  Requires API 7 (Android 2.1). */
@@ -66,54 +56,8 @@ public class MainActivity extends Activity {
            clipboard.copy(text) which might be useful
           (also clipboard.append(text), clipboard.get() and
             clipboard.clear(), currently getting only OUR text) */
-        class Clipboard {
-            public Clipboard() {}
-            @JavascriptInterface
-            // @SuppressWarnings("deprecation") // no longer needed as it's above
-            @TargetApi(11)
-            public void copy(String text) {
-                if(Integer.valueOf(Build.VERSION.SDK) < Build.VERSION_CODES.HONEYCOMB) // SDK_INT requires API 4 but this works on API 1
-                    ((android.text.ClipboardManager)getSystemService(android.content.Context.CLIPBOARD_SERVICE)).setText(text);
-                else ((android.content.ClipboardManager)getSystemService(android.content.Context.CLIPBOARD_SERVICE)).setPrimaryClip(android.content.ClipData.newPlainText(text,text));
-                lastCopied = text;
-            }
-            @JavascriptInterface
-            public void append(String text) { copy(lastCopied + text); }
-            @JavascriptInterface
-            public String get() { return lastCopied; }
-            @JavascriptInterface
-            public void clear() { copy(""); }
-            String lastCopied = "";
-        }
-        browser.addJavascriptInterface(new Clipboard(),"clipboard");
+        browser.addJavascriptInterface(new Clipboard(this),"clipboard");
 
-        class ZoomControls {
-            public ZoomControls(MainActivity act) {
-                this.act = act;
-                if(canCustomZoom()) setZoomLevel(Integer.valueOf(getSharedPreferences("html2apk",0).getString("zoom", "4")));
-            }
-            MainActivity act; int zoomLevel;
-            @JavascriptInterface public int getZoomLevel() { return zoomLevel; }
-            final int[] zoomPercents = new int[] {65,72,81,90,100,110,121,133,146,161,177,194,214,235,259,285,313,345,379};
-            @JavascriptInterface public int getZoomPercent() { return zoomPercents[zoomLevel]; }
-            @JavascriptInterface public int getRealZoomPercent() { return Math.round(zoomPercents[zoomLevel]*fontScale); }
-            @JavascriptInterface public int getMaxZoomLevel() { return zoomPercents.length-1; }
-            @JavascriptInterface @TargetApi(14) public void setZoomLevel(final int level) {
-                act.runOnUiThread(new Runnable(){
-                    @Override public void run() {
-                        browser.getSettings().setTextZoom(Math.round(zoomPercents[level]*fontScale));
-                    }
-                });
-                android.content.SharedPreferences.Editor e;
-                do { e = getSharedPreferences("html2apk",0).edit();
-                     e.putString("zoom",String.valueOf(level));
-                } while(!e.commit());
-                zoomLevel = level;
-            }
-            @JavascriptInterface public boolean canCustomZoom() {
-                return AndroidSDK >= 14;
-            }
-        }
         browser.addJavascriptInterface(new ZoomControls(this),"zoom");
 
         /* The following provides a Javascript object
@@ -123,38 +67,12 @@ public class MainActivity extends Activity {
            that stop HTML 5 Audio with local files.  Note
            this is for playing only SHORT audio - it's
            synchronous in the GUI thread. */
-        class AudioPlayer {
-            public AudioPlayer() {}
-            @JavascriptInterface
-            public void play(String file) throws java.io.IOException {
-                if(Integer.valueOf(Build.VERSION.SDK) >= 15) {
-                	// HTML 5 Audio won't work on 4.4, reportedly went wrong between 4.1.2 and 4.2.x.
-                	// This alternative code crashed on 2.3.4, but tested OK on a 4.0.3 device.
-                	// So let's switch to it at API 15 (=4.0.3)
-            	java.io.InputStream is=getAssets().open(file); // from zipped apk
-            	byte[] buf = new byte[is.available()]; is.read(buf); is.close();
-            	java.io.FileOutputStream os=new java.io.FileOutputStream(new java.io.File(getCacheDir()+"/sound.mp3"));
-            	os.write(buf); os.close();
-            	android.media.MediaPlayer m=new android.media.MediaPlayer();
-                	m.setDataSource(getCacheDir()+"/sound.mp3");
-                	m.setAudioStreamType(android.media.AudioManager.STREAM_NOTIFICATION);
-                    m.prepare();
-                    int dur = m.getDuration();
-            	m.start();
-            	try { Thread.sleep(dur); } catch(InterruptedException e) {}
-            	m.stop(); m.release();
-                } else {
-                	// Earlier APIs: use HTML 5 Audio
-                	browser.loadUrl("javascript:var e=document.createElement('audio');e.setAttribute('src','file:///android_asset/"+file+"');e.play()");
-                }
-            }
-        }
-        browser.addJavascriptInterface(new AudioPlayer(),"audioplayer");
+        browser.addJavascriptInterface(new AudioPlayer(browser,AndroidSDK),"audioplayer");
 
         /* The following enables pinch-to-zoom on API 3+
            (Android 1.5+), not available on earlier versions.
            Note that this zoom does NOT reflow the page in 4.4+ */
-        if(Integer.valueOf(Build.VERSION.SDK) >= 3) {
+        if(AndroidSDK >= 3) {
             browser.getSettings().setBuiltInZoomControls(true);
         }
         /* and the following does a with-reflow resize according
@@ -174,4 +92,93 @@ public class MainActivity extends Activity {
     }
     int AndroidSDK = (Build.VERSION.RELEASE.startsWith("1.") ? Integer.valueOf(Build.VERSION.SDK) : Build.VERSION.SDK_INT);
     WebView browser;
+    // On JDK21 we can't run d8 with inner classes too deeply nested
+    // so moved here:
+    static class Clipboard {
+        public Clipboard(MainActivity act) { this.act = act; }
+        MainActivity act;
+        @JavascriptInterface
+        @TargetApi(11)
+        public void copy(String text) {
+            if(act.AndroidSDK < Build.VERSION_CODES.HONEYCOMB)
+                ((android.text.ClipboardManager)act.getSystemService(android.content.Context.CLIPBOARD_SERVICE)).setText(text);
+            else ((android.content.ClipboardManager)act.getSystemService(android.content.Context.CLIPBOARD_SERVICE)).setPrimaryClip(android.content.ClipData.newPlainText(text,text));
+            lastCopied = text;
+        }
+        @JavascriptInterface
+        public void append(String text) { copy(lastCopied + text); }
+        @JavascriptInterface
+        public String get() { return lastCopied; }
+        @JavascriptInterface
+        public void clear() { copy(""); }
+        String lastCopied = "";
+    }
+    final int[] zoomPercents = new int[] {65,72,81,90,100,110,121,133,146,161,177,194,214,235,259,285,313,345,379};
+    static class ZoomControls {
+        public ZoomControls(MainActivity act) {
+            this.act = act;
+            if(canCustomZoom()) setZoomLevel(Integer.valueOf(act.getSharedPreferences("html2apk",0).getString("zoom", "4")));
+        }
+        MainActivity act; int zoomLevel;
+        @JavascriptInterface public int getZoomLevel() { return zoomLevel; }
+        @JavascriptInterface public int getZoomPercent() { return act.zoomPercents[zoomLevel]; }
+        @JavascriptInterface public int getRealZoomPercent() { return Math.round(act.zoomPercents[zoomLevel]*act.fontScale); }
+        @JavascriptInterface public int getMaxZoomLevel() { return act.zoomPercents.length-1; }
+        @JavascriptInterface @TargetApi(14) public void setZoomLevel(final int level) {
+            act.runOnUiThread(new ZoomSetter(act,level));
+            android.content.SharedPreferences.Editor e;
+            do { e = act.getSharedPreferences("html2apk",0).edit();
+                e.putString("zoom",String.valueOf(level));
+            } while(!e.commit());
+            zoomLevel = level;
+        }
+        @JavascriptInterface public boolean canCustomZoom() {
+            return act.AndroidSDK >= 14;
+        }
+    }
+    static class ZoomSetter implements Runnable {
+        public ZoomSetter(MainActivity act,int level) {
+            this.act = act; this.level = level;
+        } MainActivity act; int level;
+        @Override public void run() {
+            act.browser.getSettings().setTextZoom(Math.round(act.zoomPercents[level]*act.fontScale));
+        }
+    }
+    float fontScale;
+    static class CustomWebViewClient extends WebViewClient {
+        @TargetApi(24) public boolean shouldOverrideUrlLoading(WebView view, WebResourceRequest request) { return shouldOverrideUrlLoading(view,request.getUrl().toString()); }
+        @TargetApi(4) public boolean shouldOverrideUrlLoading(WebView view, String url) {
+            if (url != null && (url.startsWith("http://") || url.startsWith("https://"))) {
+                view.getContext().startActivity(new Intent(Intent.ACTION_VIEW, Uri.parse(url)));
+                return true;
+            } else return false;
+        }
+    }
+    static class AudioPlayer {
+        public AudioPlayer(WebView browser,int AndroidSDK) { this.browser = browser; this.AndroidSDK = AndroidSDK; }
+        WebView browser; int AndroidSDK;
+        @JavascriptInterface
+        public void play(String file) throws java.io.IOException {
+            if(AndroidSDK >= 15) {
+                // HTML 5 Audio won't work on 4.4, reportedly went wrong between 4.1.2 and 4.2.x.
+                // This alternative code crashed on 2.3.4, but tested OK on a 4.0.3 device.
+                // So let's switch to it at API 15 (=4.0.3)
+            	java.io.InputStream is=getAssets().open(file); // from zipped apk
+            	byte[] buf = new byte[is.available()]; is.read(buf); is.close();
+            	java.io.FileOutputStream os=new java.io.FileOutputStream(new java.io.File(getCacheDir()+"/sound.mp3"));
+            	os.write(buf); os.close();
+            	android.media.MediaPlayer m=new android.media.MediaPlayer();
+                m.setDataSource(getCacheDir()+"/sound.mp3");
+                m.setAudioStreamType(android.media.AudioManager.STREAM_NOTIFICATION);
+                m.prepare();
+                int dur = m.getDuration();
+            	m.start();
+            	try { Thread.sleep(dur); } catch(InterruptedException e) {}
+            	m.stop(); m.release();
+            } else {
+                // Earlier APIs: use HTML 5 Audio
+                browser.loadUrl("javascript:var e=document.createElement('audio');e.setAttribute('src','file:///android_asset/"+file+"');e.play()");
+            }
+        }
+    }
 }
