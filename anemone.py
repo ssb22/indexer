@@ -1,7 +1,7 @@
 #!/usr/bin/env python3
 """
-Anemone 1.991 (https://ssb22.user.srcf.net/anemone)
-(c) 2023-25 Silas S. Brown.  License: Apache 2
+Anemone 1.992 (https://ssb22.user.srcf.net/anemone)
+(c) 2023-26 Silas S. Brown.  License: Apache 2
 
 To use this module, either run it from the command
 line, or import it and use the anemone() function.
@@ -627,7 +627,9 @@ class Run():
                 content = ''.join(content).strip()
                 rTxt.append(TagAndText(tag,content_fixes(content)))
                 if want_pids[markerDxToWantPidDx[i]] in want_pids[:markerDxToWantPidDx[i]]:
-                    warnList = [str(x+1) for x in range(len(markers)) if want_pids[markerDxToWantPidDx[x]]==want_pids[markerDxToWantPidDx[i]]]
+                    warnList = [str(x+1) for x in range(len(markers))
+                                if x in markerDxToWantPidDx
+                                and want_pids[markerDxToWantPidDx[x]]==want_pids[markerDxToWantPidDx[i]]]
                     R.warning(f"In JSON {len(recordingTexts)+1}, paragraph ID {want_pids[markerDxToWantPidDx[i]]} has {len(warnList)} markers ({', '.join(warnList)}), should be only one. Check for wrong IDs or missing new document.")
             else:
                 R.warning(f"JSON {len(recordingTexts)+1} marker {i+1} marks paragraph ID {want_pids[markerDxToWantPidDx[i]]} which is not present in HTML {len(recordingTexts)+1}",".  Anemone will make this a blank paragraph.")
