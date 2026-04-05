@@ -127,7 +127,7 @@ If using the module, you can additionally set the options `warning_callback`, `i
 
 * JAWS FSReader 3 (Windows): is able to play audio while highlighting paragraphs in both Daisy 2 and Daisy 3, but ZIP needs to be unpacked separately and NCC or OPF file opened; may work better without JAWS running; synchronisation with audio seems to require `--mp3-recode`; images are not scaled to fit; tested working with a Braille display and audio speed changes; not tested with very large books (1GB+)
 
-* HumanWare Brailliant: does not show text if there is audio (hopefully it can still be used for navigation); ZIP needs to be unpacked; tested both Daisy 2 and Daisy 3 (which the device calls "Niso" format).  The 2025 manual says the newer version of the firmware starts by loading the text and can switch to audio via Space + Dots 2-3-5-6 or a Context menu option.
+* HumanWare Brailliant: did not show text if there is audio (2025 update: now does not play audio if there is text, the switching commands in the new manual don't work and user is awaiting a further fix from HumanWare); ZIP needs to be unpacked; tested both Daisy 2 and Daisy 3 (which the device calls "Niso" format)
 
 * Pronto Notetaker: ZIP needs to be unpacked to a “Daisy” folder on SD or USB, and the device just plays the audio; tested only with Daisy 2
 
