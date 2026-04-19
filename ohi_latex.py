@@ -3,7 +3,7 @@
 # (works on both Python 2 and Python 3)
 
 """ohi_latex: Offline HTML Indexer for LaTeX
-v1.51 (c) 2014-20,2023-26 Silas S. Brown
+v1.52 (c) 2014-20,2023-26 Silas S. Brown
 License: Apache 2
 
 Standard input HTML can be same as for ohi.py i.e. place
@@ -663,7 +663,7 @@ def makeLatex(unistr):
       title = title.replace(r'\nolinkurl',r'\url')
     unistr = unistr.replace(title+'\n',"",1)
   else: title = None
-  if used_cjk and lualatex and not "{ctex}" in ret: ret += r"\usepackage{ctex}" # MUST have this if using ANY CJK in LuaLaTeX (its default Unicode handling doesn't just provide it automatically: will get blank space)
+  if used_cjk and lualatex and not "{ctex}" in ret: ret += r"\usepackage"+("" if chinese_book else "[scheme=plain]")+"{ctex}" # MUST have this if using ANY CJK in LuaLaTeX (its default Unicode handling doesn't just provide it automatically: will get blank space)
   ret += r'\begin{document}'
   if used_cjk and chinese_book:
     if not lualatex: ret += r"\begin{CJK}{UTF8}{gbsn}"
@@ -1000,7 +1000,7 @@ if __name__ == "__main__":
   
   if which qpdf 2>/dev/null >/dev/null; then
   /bin/echo -n "Running qpdf..." >&2 &&
-  qpdf $(if qpdf --help=encryption 2>/dev/null|grep allow-weak-crypto >/dev/null; then echo --allow-weak-crypto; fi) --encrypt "" "" 128 --print=full --modify=all -- "'''+pdffile+'" "/tmp/q'+pdffile+'''" &&
+  qpdf $(if qpdf --help=encryption 2>/dev/null|grep allow-weak-crypto >/dev/null; then echo --allow-weak-crypto; fi; if qpdf --help=transformation 2>/dev/null|grep linearize >/dev/null; then echo --linearize; fi) --encrypt "" "" 128 --print=full --modify=all -- "'''+pdffile+'" "/tmp/q'+pdffile+'''" &&
   mv "/tmp/q'''+pdffile+'" "'+pdffile+'" && echo " done" >&2 ; fi')
   if sys.platform=="darwin" and not no_open and not os.environ.get("SSH_CLIENT"):
     os.system('open "'+pdffile+'"') # (don't put this before the above qpdf: even though there's little chance of the race condition failing, Preview can still crash after qpdf finishes)
