@@ -1,6 +1,6 @@
 #!/usr/bin/env python3
 """
-Anemone 1.992 (https://ssb22.user.srcf.net/anemone)
+Anemone 1.993 (https://ssb22.user.srcf.net/anemone)
 (c) 2023-26 Silas S. Brown.  License: Apache 2
 
 To use this module, either run it from the command
@@ -1502,7 +1502,7 @@ def content_fixes(content:str) -> str:
     """Miscellaneous fixes for final XML/XHTML
     to work around some issues with readers"""
     content = easyReader_em_fix(content)
-    content = re.sub('([A-Za-z])(\xb7|\u02b9)([A-Za-z])',r'\1\3',content) # pronunciation diacritics that have caused trouble for screen readers and Braille displays on FSReader (regex: only in alphabetic languages)
+    content = re.sub('(?<=[A-Za-z])(\xb7|\u02b9)(?=[A-Za-z])',r'',content) # pronunciation diacritics that have caused trouble for screen readers and Braille displays on FSReader (regex: only in alphabetic languages)
     content = re.sub('( *</?br> *)+',' <br />',content) # allow line breaks inside paragraphs, in case any in mid-"sentence", but collapse them because readers typically add extra space to each, plus add a space beforehand in case any reader doesn't render the linebreak (e.g. EasyReader 10 in a sentence span)
     return content
 
