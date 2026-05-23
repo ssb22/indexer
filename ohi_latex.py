@@ -3,7 +3,7 @@
 # (works on both Python 2 and Python 3)
 
 """ohi_latex: Offline HTML Indexer for LaTeX
-v1.52 (c) 2014-20,2023-26 Silas S. Brown
+v1.53 (c) 2014-20,2023-26 Silas S. Brown
 License: Apache 2
 
 Standard input HTML can be same as for ohi.py i.e. place
@@ -45,6 +45,7 @@ opts.add_option("--a4compact",action="store_true",default=False,help="Use page s
 opts.add_option("--a5",action="store_true",default=False,help="Use page settings intended for 'on-screen only' use on small devices")
 opts.add_option("--compromise",action="store_true",default=False,help="Use page settings intended for compromise between A4 and Letter, with a more spacious layout")
 opts.add_option("--trade",action="store_true",default=False,help="Use page settings intended for US Trade (6x9in), with the same pagination as --compromise but smaller margins.  You may combine this with --lulu for even smaller margins via magstep without pagination change.") # (pagination should be the same if system still has same versions of all LaTeX packages)
+opts.add_option("--nook",action="store_true",default=False,help="Use page settings for Nook Simple Touch (2011) and post-process the PDF into bitmapped images to help the Nook's viewer.  Result can take up a considerable fraction of the storage but supports more languages than the older Nook's EPUB viewer albeit without navigation or zoom.")
 opts.add_option("--no-qpdf",action="store_true",default=False,help="Never run qpdf and don't enable links and bookmarks (use this when submitting to a print bureau; implied by --lulu and --createspace)")
 opts.add_option("--chinese-book",action="store_true",default=False,help="Use a Chinese-style table of contents for books with chapters; to use this, either enable --lualatex as well, or it turns off links (as hyperref is too fragile for CJK tables of contents without LuaLaTeX)")
 opts.add_option("--fanti-book",action="store_true",default=False,help="as --chinese-book but use Traditional instead of Simplified")
@@ -87,13 +88,14 @@ elif a4compact:
   twocol_columns = 3
   page_headings = True
   whole_doc_in_footnotesize=True ; links_and_bookmarks = False ; class_options="" ; remove_adjacent_see = 2 ; suppress_adjacent_see = 1 # (see 'lulu' above for these 5)
-elif a5:
+elif a5 or nook:
   geometry = "a5paper,lmargin=3mm,rmargin=3mm,tmargin=3mm,bmargin=3mm,columnsep=8mm"
+  if nook: geometry="paperwidth=89mm,paperheight=109mm,lmargin=0mm,rmargin=0mm,tmargin=0mm,bmargin=0mm,columnsep=10mm" # supposedly 91x123 but pdf viewer adds page count at bottom
   multicol=""
   twocol_columns = 2
   page_headings = False
   whole_doc_in_footnotesize=False
-  links_and_bookmarks = not no_qpdf
+  links_and_bookmarks = not no_qpdf and not nook
   remove_adjacent_see = 0
   suppress_adjacent_see = 0
   class_options="12pt"
@@ -1002,6 +1004,7 @@ if __name__ == "__main__":
   /bin/echo -n "Running qpdf..." >&2 &&
   qpdf $(if qpdf --help=encryption 2>/dev/null|grep allow-weak-crypto >/dev/null; then echo --allow-weak-crypto; fi; if qpdf --help=transformation 2>/dev/null|grep linearize >/dev/null; then echo --linearize; fi) --encrypt "" "" 128 --print=full --modify=all -- "'''+pdffile+'" "/tmp/q'+pdffile+'''" &&
   mv "/tmp/q'''+pdffile+'" "'+pdffile+'" && echo " done" >&2 ; fi')
+  if nook: os.system('T=$(mktemp -d) && pdftoppm -png -r 180 -cropbox "'+pdffile+'" "$T/page" && for f in "$T"/page-*.png; do convert "$f" -resize 630x772 -extent 630x772 -gravity center "$f"; done && img2pdf --output "'+pdffile+'" "$T"/page-*.png && rm -rf "$T" && du -h "'+pdffile+'"')
   if sys.platform=="darwin" and not no_open and not os.environ.get("SSH_CLIENT"):
     os.system('open "'+pdffile+'"') # (don't put this before the above qpdf: even though there's little chance of the race condition failing, Preview can still crash after qpdf finishes)
     import time ; time.sleep(1) # (give 'open' a chance to finish opening the file before returning control to the shell, in case the calling script renames the file or something)
