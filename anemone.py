@@ -1,6 +1,6 @@
 #!/usr/bin/env python3
 """
-Anemone 1.993 (https://ssb22.user.srcf.net/anemone)
+Anemone 1.994 (https://ssb22.user.srcf.net/anemone)
 (c) 2023-26 Silas S. Brown.  License: Apache 2
 
 To use this module, either run it from the command
@@ -686,6 +686,9 @@ class Run():
   def write_all0(self,recordingTexts,headings,recodeTasks) -> None:
     "Service method for write_all"
     R = self
+    if not R.date:
+        R.date = "%d-%02d-%02d" % time.localtime(
+                                  )[:3]
     d,_ = os.path.split(R.outputFile)
     if d:
         Path(d).mkdir(parents=True,exist_ok=True)
@@ -786,9 +789,6 @@ class Run():
                  if re.match("https?://",u)
                  else open(u,'rb').read())
         R.progress(n+1)
-    if not R.date:
-        R.date = "%d-%02d-%02d" % time.localtime(
-                                  )[:3]
     if R.daisy3:
         writestr('dtbook.2005.basic.css',D(d3css))
         writestr('package.opf',D(R.package_opf(
