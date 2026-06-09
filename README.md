@@ -119,7 +119,7 @@ If using the module, you can additionally set the options `warning_callback`, `i
 
 ### Behaviour of DAISY readers in 2024
 
-* Dolphin EasyReader 10 (iOS, Android and Chromebook): is able to open the ZIP and play the audio while highlighting the paragraphs in a ‘full audio plus full text’ book, both Daisy 2 and Daisy 3.  In very large books (over 1&nbsp;GB), loading and navigation becomes unreliable.  An Internet connection is required the first time a book is opened.
+* Dolphin EasyReader 10 (iOS, Android and Chromebook): is able to open the ZIP and play the audio while highlighting the paragraphs in a ‘full audio plus full text’ book, both Daisy 2 and Daisy 3.  In very large books (over 1 GB), loading and navigation becomes unreliable.  An Internet connection is required the first time a book is opened.  The unpaid edition’s “import limit” (reduced to 5 in the May 2026 version) is the number of books you're allowed to import before you have to start deleting an older one from the “My Books” screen to make room for each new one.
 
 * EDRLab Thorium Reader (Windows, Mac and GNU/Linux): is able to open the ZIP and play the audio while highlighting the paragraphs in a ‘full audio plus full text’ book, both Daisy 2 and Daisy 3.  Still works in very large books but loading is slow.  Version 2.4 might be more responsive than version 3.0.
 
